@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nexus — Biology Button Prototype</title>
+<style>
+:root{color-scheme:dark;--night:#101b1b;--stone:#293735;--leaf:#83b94d;--leaf2:#a9d66b;--leaf3:#456e36;--peach:#e8ad79}
+*{box-sizing:border-box}body{margin:0;min-height:100svh;display:grid;place-items:center;padding:24px;background:radial-gradient(ellipse at 50% 30%,#263633 0,#111c1c 65%);font-family:ui-sans-serif,system-ui,sans-serif;color:#f3f1e9}
+main{width:min(100%,420px)}.eyebrow{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:#a8b7a8;margin:0 0 16px 4px}
+.bio-button{position:relative;isolation:isolate;display:block;width:100%;min-height:180px;overflow:hidden;text-align:left;border:1px solid #71826c;border-radius:22px;padding:95px 24px 22px;background:linear-gradient(145deg,#3b4a40 0%,#202d29 53%,#182421 100%);box-shadow:0 16px 0 #0c1514,0 25px 55px #0008,inset 0 1px #c3d3b744;cursor:pointer;transition:transform .25s,box-shadow .25s}
+.bio-button:hover{transform:translateY(-3px);box-shadow:0 19px 0 #0c1514,0 32px 62px #0009,inset 0 1px #c3d3b766}.bio-button:active{transform:translateY(4px);box-shadow:0 10px 0 #0c1514,0 18px 36px #0008}.bio-button:focus-visible{outline:3px solid #e8c68b;outline-offset:5px}
+.bio-button:before{content:"";position:absolute;z-index:-1;inset:0;background:linear-gradient(115deg,#ffffff0b,transparent 45%,#0003);pointer-events:none}
+.label{position:relative;z-index:5;font-size:23px;letter-spacing:.01em;font-weight:650}.sub{position:relative;z-index:5;display:block;margin-top:5px;font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:#c0cdb9}
+.plant{position:absolute;z-index:2;left:-18px;top:-20px;width:245px;height:145px;pointer-events:none;filter:drop-shadow(3px 8px 4px #0a120d88)}
+.vine{position:absolute;left:19px;top:12px;width:210px;height:140px;border-left:3px solid #4b6c3a;border-bottom:2px solid #4b6c3a;border-radius:0 0 0 80%;transform:rotate(-9deg);opacity:.95}
+.leaf{position:absolute;width:var(--w,43px);height:var(--h,27px);background:linear-gradient(135deg,var(--c,#8abf52) 0%,var(--c2,#4f8038) 100%);border-radius:3px 90% 4px 90%;transform:rotate(var(--r,0deg));transform-origin:10% 90%;box-shadow:inset 2px 2px 2px #ffffff20,inset -3px -3px 4px #14271338;animation:sway var(--t,5s) ease-in-out infinite alternate;animation-delay:var(--d,0s)}
+.leaf:before{content:"";position:absolute;left:8%;bottom:12%;width:78%;height:1px;background:#d3e99a88;transform:rotate(-20deg);transform-origin:left}
+.leaf:after{content:"";position:absolute;left:45%;bottom:18%;height:42%;width:1px;background:#e5f3b477;transform:rotate(24deg)}
+.peach{background:linear-gradient(135deg,#f5cc96,#d88e5e)!important}
+.back{z-index:1;filter:brightness(.72);transform:scale(1.08) rotate(var(--r,0deg))}
+.front{z-index:3;filter:brightness(1.08);transform:scale(1.04) rotate(var(--r,0deg))}
+@keyframes sway{from{margin-top:-1px}to{margin-top:3px}}
+.bio-button:hover .leaf{animation-duration:2.7s}.bio-button:hover .plant{transform:translateY(2px);transition:transform .5s}
+.hint{font-size:12px;color:#aab7ac;margin:23px 4px 0;line-height:1.6}.status{margin-top:12px;min-height:20px;font-size:12px;color:#d5c49b}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<main>
+<p class="eyebrow">Nexus · visual interaction test</p>
+<button class="bio-button" id="biology" type="button" aria-label="Biology — open subject">
+  <span class="plant" aria-hidden="true">
+    <span class="vine"></span>
+    <i class="leaf back" style="left:10px;top:9px;--w:48px;--h:31px;--r:12deg;--c:#709f43;--c2:#345a2e;--d:-2s"></i>
+    <i class="leaf peach" style="left:59px;top:2px;--w:44px;--h:29px;--r:15deg;--d:-1s"></i>
+    <i class="leaf" style="left:105px;top:17px;--w:51px;--h:33px;--r:35deg;--c:#b0d96c;--c2:#5b8d3b;--d:-3s"></i>
+    <i class="leaf back" style="left:148px;top:4px;--w:44px;--h:28px;--r:25deg;--c:#6f9f42;--c2:#385c30;--d:-1.4s"></i>
+    <i class="leaf" style="left:29px;top:49px;--w:53px;--h:35px;--r:-28deg;--c:#a8d56b;--c2:#52863a;--d:-2.6s"></i>
+    <i class="leaf peach" style="left:84px;top:46px;--w:39px;--h:27px;--r:28deg;--d:-.6s"></i>
+    <i class="leaf front" style="left:130px;top:56px;--w:48px;--h:32px;--r:-18deg;--c:#92c657;--c2:#477737;--d:-3.2s"></i>
+    <i class="leaf back" style="left:174px;top:44px;--w:43px;--h:28px;--r:31deg;--c:#76a747;--c2:#355c2d;--d:-.8s"></i>
+    <i class="leaf" style="left:4px;top:91px;--w:42px;--h:28px;--r:-17deg;--c:#d0e77b;--c2:#77a847;--d:-1.2s"></i>
+    <i class="leaf" style="left:56px;top:87px;--w:49px;--h:32px;--r:24deg;--c:#6fa344;--c2:#355e2f;--d:-2.1s"></i>
+    <i class="leaf peach" style="left:106px;top:98px;--w:38px;--h:26px;--r:-23deg;--d:-3.7s"></i>
+    <i class="leaf front" style="left:151px;top:91px;--w:48px;--h:31px;--r:17deg;--c:#acd96a;--c2:#5d913b;--d:-1.7s"></i>
+  </span>
+  <span class="label">Biology</span>
+  <span class="sub">Explore the living world ↗</span>
+</button>
+<p class="hint">A real HTML/CSS prototype — layered leaf elements, shadows, depth, and gentle independent sway. No flattened bush image is used. Hover or tap the button to test its interaction.</p>
+<p class="status" id="status" aria-live="polite">Ready · button not yet activated</p>
+</main>
+<script>
+const button=document.querySelector('#biology');
+const status=document.querySelector('#status');
+button.addEventListener('click',()=>{
+  const opened=button.getAttribute('aria-pressed')==='true';
+  button.setAttribute('aria-pressed',String(!opened));
+  status.textContent=opened?'Closed · tap Biology to test again':'Activated · Biology button interaction works';
+});
+button.setAttribute('aria-pressed','false');
+</script>
+</body>
+</html>
