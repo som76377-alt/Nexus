@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#eee9d9">
+<title>NEXUS — Biology Button Preview</title>
+<style>
+*{box-sizing:border-box}body{margin:0;min-height:100svh;display:grid;place-items:center;padding:24px;background:#eee9d9;color:#25251f;font-family:ui-monospace,"Courier New",monospace}
+main{width:min(100%,440px)}.caption{margin:0 0 14px;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:#696957}
+.button{display:block;position:relative;width:100%;padding:0;border:0;background:transparent;cursor:pointer;text-align:left}
+.art{display:block;width:100%;height:auto;image-rendering:pixelated;object-fit:contain}
+.button:focus-visible{outline:3px dashed #496d37;outline-offset:5px}
+.status{min-height:18px;margin:12px 2px 0;font-size:11px;line-height:1.6;color:#626753}
+.help{font:12px/1.7 system-ui,sans-serif;color:#625f51;margin-top:22px}
+.help code{background:#ded8c6;padding:2px 4px}
+</style>
+</head>
+<body><main>
+<p class="caption">NEXUS / Biology button preview</p>
+<button class="button" id="biology" type="button" aria-pressed="false" aria-label="Biology — select subject">
+<img class="art" src="./biology-reference.jpg" alt="Biology button reference artwork" onerror="this.hidden=true;document.getElementById('missing').hidden=false">
+<svg id="missing" hidden viewBox="0 0 420 180" role="img" aria-label="Placeholder for the Biology reference image" style="width:100%;height:auto">
+<rect x="15" y="17" width="390" height="145" fill="#eee9d9" stroke="#20251b" stroke-width="5"/>
+<text x="210" y="90" text-anchor="middle" fill="#20251b" font-family="monospace" font-size="18">Add biology-reference.jpg</text>
+</svg>
+</button>
+<p class="status" id="status" aria-live="polite">Reference artwork · Biology</p>
+<p class="help">Live workspace preview. The reference artwork file still needs to be added to the repository before it can appear here.</p>
+</main>
+<script>
+(() => {const b=document.querySelector("#biology"),s=document.querySelector("#status");b.addEventListener("click",()=>{const on=b.getAttribute("aria-pressed")==="true";b.setAttribute("aria-pressed",String(!on));s.textContent=on?"Reference artwork · Biology":"Selected · Biology";});})();
+</script></body></html>
