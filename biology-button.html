@@ -4,76 +4,30 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#eee9d9">
-<title>NEXUS — Biology Pixel Button</title>
+<title>NEXUS — Biology Reference Button</title>
 <style>
-:root{color-scheme:light;--ink:#20251b;--paper:#eee9d9;--moss:#496d37;--moss-light:#83a94d}
-*{box-sizing:border-box}
-body{margin:0;min-height:100svh;display:grid;place-items:center;padding:24px;background:#eee9d9;color:var(--ink);font-family:ui-monospace,"Courier New",monospace}
-main{width:min(100%,440px)}
-.caption{margin:0 0 13px 2px;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:#656a58}
-.bio-button{position:relative;display:block;width:100%;height:180px;padding:0;border:0;background:transparent;color:var(--ink);text-align:left;cursor:pointer;image-rendering:pixelated;touch-action:manipulation}
-.frame{position:absolute;inset:17px 10px 17px 13px;width:calc(100% - 23px);height:calc(100% - 34px);overflow:visible}
-.art{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none}
-.title{position:absolute;left:35%;top:44%;transform:translateY(-50%);font-size:clamp(19px,5.3vw,25px);font-weight:900;letter-spacing:-.07em;white-space:nowrap;text-shadow:1px 1px 0 #eee9d9}
-.arrow{display:inline-block;margin-left:5px;font-size:.88em}
-.bio-button:focus-visible{outline:3px dashed #496d37;outline-offset:5px}
-.bio-button:hover .plant{animation-duration:4.4s}
-.plant{transform-origin:20px 18px;animation:wind 6.5s ease-in-out infinite}
-.status{margin:12px 2px 0;min-height:18px;font-size:11px;line-height:1.6;color:#626753}
-@keyframes wind{0%,100%{transform:translate(0,0) rotate(0deg)}35%{transform:translate(1px,1px) rotate(.6deg)}70%{transform:translate(2px,0) rotate(-.35deg)}}
-@media(max-width:360px){.bio-button{height:160px}.title{left:34%;font-size:18px}}
-@media(prefers-reduced-motion:reduce){.plant{animation:none}}
+*{box-sizing:border-box}body{margin:0;min-height:100svh;display:grid;place-items:center;padding:24px;background:#eee9d9;color:#25251f;font-family:ui-monospace,"Courier New",monospace}
+main{width:min(100%,440px)}.caption{margin:0 0 14px;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:#696957}
+.button{display:block;position:relative;width:100%;padding:0;border:0;background:transparent;cursor:pointer;text-align:left}
+.art{display:block;width:100%;height:auto;image-rendering:pixelated;object-fit:contain}
+.button:focus-visible{outline:3px dashed #496d37;outline-offset:5px}
+.status{min-height:18px;margin:12px 2px 0;font-size:11px;line-height:1.6;color:#626753}
+.help{font:12px/1.7 system-ui,sans-serif;color:#625f51;margin-top:22px}
+.help code{background:#ded8c6;padding:2px 4px}
 </style>
 </head>
-<body>
-<main>
-<p class="caption">Nexus / field guide 01</p>
-<button class="bio-button" id="biology" type="button" aria-pressed="false" aria-label="Biology — open subject">
-<svg class="art" viewBox="0 0 420 180" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" shape-rendering="crispEdges">
-<!-- Hand-pixelled frame: dark stepped ink contour, parchment interior, no gradients. -->
-<path fill="#20251b" d="M28 13H375V18H389V28H394V135H389V145H378V151H31V147H20V140H15V35H20V22H28Z"/>
-<path fill="#eee9d9" d="M30 19H372V24H384V32H388V131H382V139H372V144H33V140H24V134H21V36H26V25H30Z"/>
-<path fill="#b8b19a" d="M36 143H372V138H382V132H388V145H377V151H31V147H20V140H28V143Z"/>
-<!-- Bush is one continuous silhouette. The color blocks are clipped into the mass;
-     there are no individually placed leaf icons or detached foliage sprites. -->
-<defs><clipPath id="canopy"><path d="M0 0H161V5H171V11H179V19H187V27H196V35H205V43H211V52H216V62H221V73H227V84H233V96H239V108H245V119H251V131H257V143H263V155H269V166H275V180H0Z"/></clipPath></defs>
-<g class="plant">
-<path fill="#20251b" d="M0 0H157V5H169V11H180V18H190V26H199V35H207V44H214V53H220V63H226V74H232V85H238V97H244V109H250V121H256V134H262V147H268V161H274V180H0Z"/>
-<path fill="#35542e" d="M0 0H152V7H165V13H175V21H184V29H194V37H202V47H209V57H215V68H221V79H227V91H233V103H239V116H245V129H251V142H257V156H263V170H269V180H0Z"/>
-<g clip-path="url(#canopy)">
-<path fill="#496d37" d="M0 0H280V180H0Z"/>
-<!-- Large joined planes create the lumpy canopy silhouette and natural pixel texture. -->
-<path fill="#5e813d" d="M0 0H130V7H119V14H109V22H97V30H88V38H77V47H67V57H56V68H46V80H36V93H25V107H15V122H0Z"/>
-<path fill="#83a94d" d="M0 0H84V7H74V14H63V22H52V31H41V41H30V52H20V64H9V76H0Z"/>
-<path fill="#a5bd61" d="M0 0H45V7H36V15H27V23H18V32H8V42H0Z"/>
-<path fill="#2b4529" d="M83 0H160V8H149V16H137V23H126V32H116V41H106V52H96V64H86V77H76V89H66V104H56V119H45V135H35V151H24V167H0V111H11V99H22V86H33V74H43V62H54V51H64V40H74V29H83V18H92V9H83Z"/>
-<path fill="#35542e" d="M130 0H185V18H194V27H203V37H211V48H218V60H224V72H230V85H236V98H242V112H248V126H254V140H260V155H266V171H272V180H217V164H211V151H205V139H199V126H193V114H187V102H181V90H175V78H169V66H163V54H157V42H151V31H144V20H137V10H130Z"/>
-<path fill="#6d9143" d="M100 9H119V16H109V23H99V31H89V40H79V50H69V61H59V72H49V85H39V98H29V113H19V129H9V145H0V85H10V73H20V61H30V50H40V40H50V31H60V23H70V16H85V9Z"/>
-<path fill="#91b653" d="M14 16H34V23H25V31H15V40H5V49H0V33H5V24H14Z M47 39H64V46H55V54H45V63H35V55H40V46H47Z M77 65H94V72H85V80H75V89H65V81H70V72H77Z M111 93H128V100H119V108H109V117H99V109H104V100H111Z M145 123H162V130H153V138H143V147H133V139H138V130H145Z M180 153H196V160H187V168H177V176H167V168H172V160H180Z"/>
-<path fill="#a5bd61" d="M15 16H25V23H16V31H7V24H15Z M48 39H56V46H48V54H40V47H48Z M78 65H86V72H78V80H70V73H78Z M112 93H120V100H112V108H104V101H112Z M146 123H154V130H146V138H138V131H146Z"/>
-<!-- Integrated dark flecks and short angular vein marks: markings inside one connected body. -->
-<path fill="#263e25" d="M21 48H35V54H27V61H17V55H21Z M54 73H68V79H60V87H50V81H54Z M84 101H98V107H90V115H80V109H84Z M119 130H133V136H125V144H115V138H119Z M151 157H165V163H157V171H147V165H151Z"/>
-<path fill="none" stroke="#c2d17a" stroke-width="2" stroke-linecap="square" d="M8 12H29L22 19M35 34H52L45 42M66 57H83L76 65M96 84H113L106 92M128 113H145L138 121M160 144H177L170 152"/>
-<!-- Tiny square blossoms, embedded in the canopy rather than floating outside it. -->
-<path fill="#d5d98b" d="M36 13H41V18H46V23H41V28H36V23H31V18H36Z M93 71H98V76H103V81H98V86H93V81H88V76H93Z"/>
-<path fill="#c28b64" d="M64 43H69V48H74V53H69V58H64V53H59V48H64Z M139 116H144V121H149V126H144V131H139V126H134V121H139Z"/>
-</g>
-</g>
-<!-- A tiny pixel worm follows the taper near the lower-right tip. -->
-<path fill="#20251b" d="M270 151H280V156H285V166H280V171H275V166H270V161H265V156H270Z"/>
-<path fill="#a65f4b" d="M270 151H280V156H285V161H280V166H275V161H270V156H265V156H270Z"/>
-<path fill="#d18a68" d="M270 151H275V156H280V161H275V166H270V161H265V156H270Z"/>
-<path fill="#20251b" d="M274 153H277V156H274Z"/>
+<body><main>
+<p class="caption">NEXUS / Biology button reference</p>
+<button class="button" id="biology" type="button" aria-pressed="false" aria-label="Biology — select subject">
+<img class="art" src="./biology-reference.jpg" alt="Biology button reference artwork" onerror="this.hidden=true;document.getElementById('missing').hidden=false">
+<svg id="missing" hidden viewBox="0 0 420 180" role="img" aria-label="Placeholder for the Biology reference image" style="width:100%;height:auto">
+<rect x="15" y="17" width="390" height="145" fill="#eee9d9" stroke="#20251b" stroke-width="5"/>
+<text x="210" y="90" text-anchor="middle" fill="#20251b" font-family="monospace" font-size="18">Add biology-reference.jpg</text>
 </svg>
-<span class="title">Biology<span class="arrow">→</span></span>
 </button>
-<p class="status" id="status" aria-live="polite">Field guide · Biology</p>
+<p class="status" id="status" aria-live="polite">Reference artwork · Biology</p>
+<p class="help">This page now displays the reference as an actual image instead of trying to redraw it in code. To finish connecting it, upload your chosen reference image into this same GitHub folder with the exact filename <code>biology-reference.jpg</code>. Then reopen this page; the image will appear in place of the placeholder.</p>
 </main>
 <script>
-(() => {
- const button=document.querySelector("#biology"),status=document.querySelector("#status");
- button.addEventListener("click",()=>{const active=button.getAttribute("aria-pressed")==="true";button.setAttribute("aria-pressed",String(!active));status.textContent=active?"Field guide · Biology":"Selected · Biology";});
-})();
-</script>
-</body>
-</html>
+(() => {const b=document.querySelector("#biology"),s=document.querySelector("#status");b.addEventListener("click",()=>{const on=b.getAttribute("aria-pressed")==="true";b.setAttribute("aria-pressed",String(!on));s.textContent=on?"Reference artwork · Biology":"Selected · Biology";});})();
+</script></body></html>
