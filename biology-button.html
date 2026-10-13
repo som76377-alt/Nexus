@@ -1,49 +1,79 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#111a16"><title>Nexus — Biology Pixel Bush</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#eee9d9">
+<title>NEXUS — Biology Pixel Button</title>
 <style>
-:root{color-scheme:dark;--paper:#f0edda}*{box-sizing:border-box}
-body{margin:0;min-height:100svh;display:grid;place-items:center;padding:28px 20px;background:radial-gradient(ellipse at 25% 20%,#293c2e,transparent 44%),#111a16;color:var(--paper);font-family:system-ui,sans-serif}
-main{width:min(100%,390px)}.eyebrow{margin:0 0 18px 3px;color:#bac5ad;font-size:11px;letter-spacing:.22em;text-transform:uppercase}
-.bio-button{position:relative;isolation:isolate;display:block;width:100%;min-height:258px;overflow:hidden;padding:174px 22px 22px;border:1px solid #627751;border-radius:12px;background:linear-gradient(140deg,#2b3e2e,#203126 52%,#18251e);color:var(--paper);text-align:left;box-shadow:0 5px 0 #0a100d,0 19px 38px #0006;cursor:pointer;transition:transform .18s,border-color .18s}
-.bio-button:hover{border-color:#94aa6a;transform:translateY(-2px)}.bio-button:active{transform:translateY(1px)}.bio-button:focus-visible{outline:3px solid #efd08a;outline-offset:5px}
-.plant-scene{position:absolute;top:-5px;left:-5px;width:220px;height:177px;pointer-events:none}
-.bush-wind{transform-origin:16px 8px;animation:wind-sway 6s ease-in-out infinite}
-.label,.subtitle{position:relative;z-index:2;display:block}.label{font-size:25px;font-weight:720;letter-spacing:-.035em}.subtitle{margin-top:8px;color:#c0ceb7;font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase}
-.status{min-height:20px;margin:17px 3px 0;color:#d7c797;font-size:12px}.note{margin:20px 3px 0;max-width:36ch;color:#acb8aa;font-size:13px;line-height:1.8}
-@keyframes wind-sway{0%,100%{transform:rotate(-.7deg) translateX(0)}30%{transform:rotate(.8deg) translateX(1px)}60%{transform:rotate(1.4deg) translateX(2px)}82%{transform:rotate(.2deg) translateX(.5px)}}
-@media(max-width:360px){.bio-button{min-height:246px;padding:166px 18px 20px}.plant-scene{width:204px;height:164px}}
-@media(prefers-reduced-motion:reduce){.bush-wind{animation:none}.bio-button{transition:none}}
-</style></head>
-<body><main>
-<p class="eyebrow">Nexus · pixel garden study</p>
-<button class="bio-button" id="biology" type="button" aria-pressed="false" aria-label="Biology — select subject">
-<svg class="plant-scene" viewBox="0 0 220 177" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-<defs><clipPath id="canopy"><path d="M0 0H220V18H210V30H201V42H191V54H181V66H171V78H161V90H151V102H141V114H131V126H121V138H111V150H101V162H89V177H0Z"/></clipPath></defs>
-<!-- The canopy is one continuous silhouette. Detail is painted inside its clipped area. -->
-<g class="bush-wind">
-<path fill="#2e5133" d="M0 0H220V18H210V30H201V42H191V54H181V66H171V78H161V90H151V102H141V114H131V126H121V138H111V150H101V162H89V177H0Z"/>
+:root{color-scheme:light;--ink:#20251b;--paper:#eee9d9;--moss:#496d37;--moss-light:#83a94d}
+*{box-sizing:border-box}
+body{margin:0;min-height:100svh;display:grid;place-items:center;padding:24px;background:#eee9d9;color:var(--ink);font-family:ui-monospace,"Courier New",monospace}
+main{width:min(100%,440px)}
+.caption{margin:0 0 13px 2px;font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:#656a58}
+.bio-button{position:relative;display:block;width:100%;height:180px;padding:0;border:0;background:transparent;color:var(--ink);text-align:left;cursor:pointer;image-rendering:pixelated;touch-action:manipulation}
+.frame{position:absolute;inset:17px 10px 17px 13px;width:calc(100% - 23px);height:calc(100% - 34px);overflow:visible}
+.art{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none}
+.title{position:absolute;left:35%;top:44%;transform:translateY(-50%);font-size:clamp(19px,5.3vw,25px);font-weight:900;letter-spacing:-.07em;white-space:nowrap;text-shadow:1px 1px 0 #eee9d9}
+.arrow{display:inline-block;margin-left:5px;font-size:.88em}
+.bio-button:focus-visible{outline:3px dashed #496d37;outline-offset:5px}
+.bio-button:hover .plant{animation-duration:4.4s}
+.plant{transform-origin:20px 18px;animation:wind 6.5s ease-in-out infinite}
+.status{margin:12px 2px 0;min-height:18px;font-size:11px;line-height:1.6;color:#626753}
+@keyframes wind{0%,100%{transform:translate(0,0) rotate(0deg)}35%{transform:translate(1px,1px) rotate(.6deg)}70%{transform:translate(2px,0) rotate(-.35deg)}}
+@media(max-width:360px){.bio-button{height:160px}.title{left:34%;font-size:18px}}
+@media(prefers-reduced-motion:reduce){.plant{animation:none}}
+</style>
+</head>
+<body>
+<main>
+<p class="caption">Nexus / field guide 01</p>
+<button class="bio-button" id="biology" type="button" aria-pressed="false" aria-label="Biology — open subject">
+<svg class="art" viewBox="0 0 420 180" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" shape-rendering="crispEdges">
+<!-- Hand-pixelled frame: dark stepped ink contour, parchment interior, no gradients. -->
+<path fill="#20251b" d="M28 13H375V18H389V28H394V135H389V145H378V151H31V147H20V140H15V35H20V22H28Z"/>
+<path fill="#eee9d9" d="M30 19H372V24H384V32H388V131H382V139H372V144H33V140H24V134H21V36H26V25H30Z"/>
+<path fill="#b8b19a" d="M36 143H372V138H382V132H388V145H377V151H31V147H20V140H28V143Z"/>
+<!-- Bush is one continuous silhouette. The color blocks are clipped into the mass;
+     there are no individually placed leaf icons or detached foliage sprites. -->
+<defs><clipPath id="canopy"><path d="M0 0H161V5H171V11H179V19H187V27H196V35H205V43H211V52H216V62H221V73H227V84H233V96H239V108H245V119H251V131H257V143H263V155H269V166H275V180H0Z"/></clipPath></defs>
+<g class="plant">
+<path fill="#20251b" d="M0 0H157V5H169V11H180V18H190V26H199V35H207V44H214V53H220V63H226V74H232V85H238V97H244V109H250V121H256V134H262V147H268V161H274V180H0Z"/>
+<path fill="#35542e" d="M0 0H152V7H165V13H175V21H184V29H194V37H202V47H209V57H215V68H221V79H227V91H233V103H239V116H245V129H251V142H257V156H263V170H269V180H0Z"/>
 <g clip-path="url(#canopy)">
-<path fill="#426b3a" d="M0 0H220V177H0Z"/>
-<path fill="#679448" d="M0 0H132V10H118V20H106V31H93V42H80V53H68V64H55V76H42V89H30V103H18V118H0Z"/>
-<path fill="#91b951" d="M0 0H76V9H64V19H53V30H40V42H28V54H14V67H0Z"/>
-<path fill="#bddb72" d="M0 0H41V8H32V17H22V27H11V38H0Z"/>
-<path fill="#355633" d="M13 14H27V20H22V29H12V24H7V19H13ZM44 34H57V40H51V48H41V43H36V39H44ZM76 11H88V17H82V25H72V20H68V16H76ZM103 48H116V54H110V62H100V57H95V53H103ZM27 81H40V87H34V95H24V90H19V86H27ZM63 68H75V74H69V82H59V77H54V73H63ZM90 107H103V113H97V121H87V116H82V112H90ZM47 136H59V142H53V150H43V145H38V141H47Z"/>
-<path fill="#d99a68" d="M70 20H84V26H79V34H70V40H60V33H65V26H70ZM130 58H144V64H138V72H128V78H118V71H123V64H130ZM36 99H49V105H43V113H33V119H24V112H29V105H36ZM91 130H104V136H98V144H88V150H78V143H83V136H91ZM157 23H170V29H164V37H154V42H144V35H149V29H157Z"/>
-<path fill="#f0c18a" d="M71 20H79V26H74V31H66V27H71ZM131 58H138V64H133V69H125V65H131ZM37 99H43V105H38V110H30V106H37ZM92 130H98V136H93V141H85V137H92Z"/>
-<path fill="#a9ce64" d="M11 49H24V55H18V63H8V69H0V62H5V55H11ZM49 56H62V62H56V70H46V76H36V69H41V62H49ZM91 79H104V85H98V93H88V99H78V92H84V85H91ZM118 96H131V102H125V110H115V116H105V109H111V102H118ZM65 114H77V120H71V128H61V134H51V127H57V120H65ZM139 134H152V140H146V148H136V154H126V147H132V140H139Z"/>
-<path fill="#d0e49a" d="M12 49H19V55H14V60H6V56H12ZM92 79H98V85H93V90H85V86H92ZM66 114H72V120H67V125H59V121H66ZM140 134H146V140H141V145H133V141H140Z"/>
-<path fill="none" stroke="#d1e49a" stroke-width="1.4" stroke-linecap="square" d="M5 8H31L22 17M16 34H38L29 43M47 45H66L57 54M78 30H96L87 39M105 66H123L114 75M40 86H59L50 95M72 99H91L82 108M20 120H42L33 129M92 152H110L101 161M135 115H151L143 124"/>
-<!-- Small flower pixels are part of the painted canopy, not separate animated objects. -->
-<path fill="#f3d991" d="M38 10H43V15H48V20H43V25H38V20H33V15H38Z M22 70H27V75H32V80H27V85H22V80H17V75H22Z M58 144H63V149H68V154H63V159H58V154H53V149H58Z"/>
-<path fill="#e6a477" d="M92 48H97V53H102V58H97V63H92V58H87V53H92Z M115 117H120V122H125V127H120V132H115V127H110V122H115Z M161 43H166V48H171V53H166V58H161V53H156V48H161Z"/>
-</g></g></svg>
-<span class="label">Biology</span><span class="subtitle">Explore the living world ↗</span></button>
-<p class="status" id="status" aria-live="polite">The garden sways gently in the breeze.</p>
-<p class="note">One continuous pixel-bush silhouette. Foliage patterns and tiny blossoms are painted into the canopy; the whole bush moves softly as one plant.</p>
+<path fill="#496d37" d="M0 0H280V180H0Z"/>
+<!-- Large joined planes create the lumpy canopy silhouette and natural pixel texture. -->
+<path fill="#5e813d" d="M0 0H130V7H119V14H109V22H97V30H88V38H77V47H67V57H56V68H46V80H36V93H25V107H15V122H0Z"/>
+<path fill="#83a94d" d="M0 0H84V7H74V14H63V22H52V31H41V41H30V52H20V64H9V76H0Z"/>
+<path fill="#a5bd61" d="M0 0H45V7H36V15H27V23H18V32H8V42H0Z"/>
+<path fill="#2b4529" d="M83 0H160V8H149V16H137V23H126V32H116V41H106V52H96V64H86V77H76V89H66V104H56V119H45V135H35V151H24V167H0V111H11V99H22V86H33V74H43V62H54V51H64V40H74V29H83V18H92V9H83Z"/>
+<path fill="#35542e" d="M130 0H185V18H194V27H203V37H211V48H218V60H224V72H230V85H236V98H242V112H248V126H254V140H260V155H266V171H272V180H217V164H211V151H205V139H199V126H193V114H187V102H181V90H175V78H169V66H163V54H157V42H151V31H144V20H137V10H130Z"/>
+<path fill="#6d9143" d="M100 9H119V16H109V23H99V31H89V40H79V50H69V61H59V72H49V85H39V98H29V113H19V129H9V145H0V85H10V73H20V61H30V50H40V40H50V31H60V23H70V16H85V9Z"/>
+<path fill="#91b653" d="M14 16H34V23H25V31H15V40H5V49H0V33H5V24H14Z M47 39H64V46H55V54H45V63H35V55H40V46H47Z M77 65H94V72H85V80H75V89H65V81H70V72H77Z M111 93H128V100H119V108H109V117H99V109H104V100H111Z M145 123H162V130H153V138H143V147H133V139H138V130H145Z M180 153H196V160H187V168H177V176H167V168H172V160H180Z"/>
+<path fill="#a5bd61" d="M15 16H25V23H16V31H7V24H15Z M48 39H56V46H48V54H40V47H48Z M78 65H86V72H78V80H70V73H78Z M112 93H120V100H112V108H104V101H112Z M146 123H154V130H146V138H138V131H146Z"/>
+<!-- Integrated dark flecks and short angular vein marks: markings inside one connected body. -->
+<path fill="#263e25" d="M21 48H35V54H27V61H17V55H21Z M54 73H68V79H60V87H50V81H54Z M84 101H98V107H90V115H80V109H84Z M119 130H133V136H125V144H115V138H119Z M151 157H165V163H157V171H147V165H151Z"/>
+<path fill="none" stroke="#c2d17a" stroke-width="2" stroke-linecap="square" d="M8 12H29L22 19M35 34H52L45 42M66 57H83L76 65M96 84H113L106 92M128 113H145L138 121M160 144H177L170 152"/>
+<!-- Tiny square blossoms, embedded in the canopy rather than floating outside it. -->
+<path fill="#d5d98b" d="M36 13H41V18H46V23H41V28H36V23H31V18H36Z M93 71H98V76H103V81H98V86H93V81H88V76H93Z"/>
+<path fill="#c28b64" d="M64 43H69V48H74V53H69V58H64V53H59V48H64Z M139 116H144V121H149V126H144V131H139V126H134V121H139Z"/>
+</g>
+</g>
+<!-- A tiny pixel worm follows the taper near the lower-right tip. -->
+<path fill="#20251b" d="M270 151H280V156H285V166H280V171H275V166H270V161H265V156H270Z"/>
+<path fill="#a65f4b" d="M270 151H280V156H285V161H280V166H275V161H270V156H265V156H270Z"/>
+<path fill="#d18a68" d="M270 151H275V156H280V161H275V166H270V161H265V156H270Z"/>
+<path fill="#20251b" d="M274 153H277V156H274Z"/>
+</svg>
+<span class="title">Biology<span class="arrow">→</span></span>
+</button>
+<p class="status" id="status" aria-live="polite">Field guide · Biology</p>
 </main>
 <script>
-(() => { const button=document.querySelector("#biology"); const status=document.querySelector("#status"); button.addEventListener("click",()=>{const selected=button.getAttribute("aria-pressed")==="true";button.setAttribute("aria-pressed",String(!selected));status.textContent=selected?"Biology unselected.":"Biology selected.";}); })();
-</script></body></html>
+(() => {
+ const button=document.querySelector("#biology"),status=document.querySelector("#status");
+ button.addEventListener("click",()=>{const active=button.getAttribute("aria-pressed")==="true";button.setAttribute("aria-pressed",String(!active));status.textContent=active?"Field guide · Biology":"Selected · Biology";});
+})();
+</script>
+</body>
+</html>
