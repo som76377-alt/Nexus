@@ -132,7 +132,7 @@ main { width: min(100%, 390px); }
 }
 @media (max-width: 360px) {
   .bio-button { min-height: 246px; padding: 166px 18px 20px; }
-  .plant-art { transform-origin: top left; transform: scale(.91); }
+  /* Keep the 4px sprite grid at native scale; shrinking it would create uneven pixels. */
 }
 @media (prefers-reduced-motion: reduce) {
   .is-growing .vine-pixel, .is-growing .sprout {
