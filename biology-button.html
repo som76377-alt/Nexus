@@ -2,64 +2,360 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Nexus — Biology Button Prototype</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#101915">
+<title>Nexus — Pixel Garden Biology Button</title>
 <style>
-:root{color-scheme:dark;--night:#101b1b;--stone:#293735;--leaf:#83b94d;--leaf2:#a9d66b;--leaf3:#456e36;--peach:#e8ad79}
-*{box-sizing:border-box}body{margin:0;min-height:100svh;display:grid;place-items:center;padding:24px;background:radial-gradient(ellipse at 50% 30%,#263633 0,#111c1c 65%);font-family:ui-sans-serif,system-ui,sans-serif;color:#f3f1e9}
-main{width:min(100%,420px)}.eyebrow{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:#a8b7a8;margin:0 0 16px 4px}
-.bio-button{position:relative;isolation:isolate;display:block;width:100%;min-height:180px;overflow:hidden;text-align:left;border:1px solid #71826c;border-radius:22px;padding:95px 24px 22px;background:linear-gradient(145deg,#3b4a40 0%,#202d29 53%,#182421 100%);box-shadow:0 16px 0 #0c1514,0 25px 55px #0008,inset 0 1px #c3d3b744;cursor:pointer;transition:transform .25s,box-shadow .25s}
-.bio-button:hover{transform:translateY(-3px);box-shadow:0 19px 0 #0c1514,0 32px 62px #0009,inset 0 1px #c3d3b766}.bio-button:active{transform:translateY(4px);box-shadow:0 10px 0 #0c1514,0 18px 36px #0008}.bio-button:focus-visible{outline:3px solid #e8c68b;outline-offset:5px}
-.bio-button:before{content:"";position:absolute;z-index:-1;inset:0;background:linear-gradient(115deg,#ffffff0b,transparent 45%,#0003);pointer-events:none}
-.label{position:relative;z-index:5;font-size:23px;letter-spacing:.01em;font-weight:650}.sub{position:relative;z-index:5;display:block;margin-top:5px;font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:#c0cdb9}
-.plant{position:absolute;z-index:2;left:-18px;top:-20px;width:245px;height:145px;pointer-events:none;filter:drop-shadow(3px 8px 4px #0a120d88)}
-.vine{position:absolute;left:19px;top:12px;width:210px;height:140px;border-left:3px solid #4b6c3a;border-bottom:2px solid #4b6c3a;border-radius:0 0 0 80%;transform:rotate(-9deg);opacity:.95}
-.leaf{position:absolute;width:var(--w,43px);height:var(--h,27px);background:linear-gradient(135deg,var(--c,#8abf52) 0%,var(--c2,#4f8038) 100%);border-radius:3px 90% 4px 90%;transform:rotate(var(--r,0deg));transform-origin:10% 90%;box-shadow:inset 2px 2px 2px #ffffff20,inset -3px -3px 4px #14271338;animation:sway var(--t,5s) ease-in-out infinite alternate;animation-delay:var(--d,0s)}
-.leaf:before{content:"";position:absolute;left:8%;bottom:12%;width:78%;height:1px;background:#d3e99a88;transform:rotate(-20deg);transform-origin:left}
-.leaf:after{content:"";position:absolute;left:45%;bottom:18%;height:42%;width:1px;background:#e5f3b477;transform:rotate(24deg)}
-.peach{background:linear-gradient(135deg,#f5cc96,#d88e5e)!important}
-.back{z-index:1;filter:brightness(.72);transform:scale(1.08) rotate(var(--r,0deg))}
-.front{z-index:3;filter:brightness(1.08);transform:scale(1.04) rotate(var(--r,0deg))}
-@keyframes sway{from{margin-top:-1px}to{margin-top:3px}}
-.bio-button:hover .leaf{animation-duration:2.7s}.bio-button:hover .plant{transform:translateY(2px);transition:transform .5s}
-.hint{font-size:12px;color:#aab7ac;margin:23px 4px 0;line-height:1.6}.status{margin-top:12px;min-height:20px;font-size:12px;color:#d5c49b}
-@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}}
+:root {
+  color-scheme: dark;
+  --ink: #111a16;
+  --panel: #1c2a22;
+  --panel-light: #293b2d;
+  --moss: #718d4b;
+  --paper: #f0edda;
+  --muted: #aebba2;
+  --gold: #efd08a;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
+  padding: 28px 20px;
+  background:
+    radial-gradient(ellipse at 23% 22%, #283c2e 0, transparent 42%),
+    radial-gradient(ellipse at 80% 88%, #182821 0, transparent 50%),
+    var(--ink);
+  color: var(--paper);
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+main { width: min(100%, 390px); }
+.eyebrow {
+  margin: 0 0 18px 3px;
+  color: #bac5ad;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+}
+.bio-button {
+  position: relative;
+  isolation: isolate;
+  display: block;
+  width: 100%;
+  min-height: 258px;
+  overflow: hidden;
+  padding: 174px 22px 22px;
+  border: 1px solid #627751;
+  border-radius: 12px;
+  background:
+    linear-gradient(140deg, #2b3e2e 0%, #203126 52%, #18251e 100%);
+  color: var(--paper);
+  text-align: left;
+  box-shadow: 0 5px 0 #0a100d, 0 19px 38px #0006, inset 0 1px #c9d6a622;
+  cursor: pointer;
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.bio-button::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(110deg, #ffffff06, transparent 54%, #00000017);
+}
+.bio-button:hover {
+  border-color: #94aa6a;
+  box-shadow: 0 6px 0 #0a100d, 0 25px 46px #0008, inset 0 1px #c9d6a633;
+  transform: translateY(-2px);
+}
+.bio-button:active { transform: translateY(2px); }
+.bio-button:focus-visible { outline: 3px solid var(--gold); outline-offset: 5px; }
+.plant-art {
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  width: 192px;
+  height: 160px;
+  overflow: visible;
+  pointer-events: none;
+  shape-rendering: crispEdges;
+}
+.plant-art rect { shape-rendering: crispEdges; }
+.vine-pixel { opacity: 1; }
+.sprout { opacity: 1; }
+.is-growing .vine-pixel {
+  opacity: 0;
+  animation: pixel-appear 120ms steps(2, end) var(--delay, 0ms) forwards;
+}
+.is-growing .sprout {
+  opacity: 0;
+  animation: pixel-sprout 360ms steps(3, end) var(--delay, 0ms) both;
+}
+@keyframes pixel-appear { to { opacity: 1; } }
+@keyframes pixel-sprout {
+  0% { opacity: 0; transform: translateY(8px); }
+  45% { opacity: .8; transform: translateY(4px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.label, .subtitle { position: relative; z-index: 2; display: block; }
+.label {
+  font-size: 25px;
+  font-weight: 720;
+  letter-spacing: -.035em;
+  line-height: 1.15;
+}
+.subtitle {
+  margin-top: 8px;
+  color: #c3d0b7;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .12em;
+  line-height: 1.5;
+  text-transform: uppercase;
+}
+.status {
+  min-height: 20px;
+  margin: 17px 3px 0;
+  color: #d7c797;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.note {
+  margin: 20px 3px 0;
+  max-width: 35ch;
+  color: #acb8aa;
+  font-size: 13px;
+  line-height: 1.8;
+}
+@media (max-width: 360px) {
+  .bio-button { min-height: 246px; padding: 166px 18px 20px; }
+  .plant-art { transform-origin: top left; transform: scale(.91); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .is-growing .vine-pixel, .is-growing .sprout {
+    animation: none !important;
+    opacity: 1 !important;
+  }
+  .bio-button { transition: none; }
+}
 </style>
 </head>
 <body>
 <main>
-<p class="eyebrow">Nexus · visual interaction test</p>
-<button class="bio-button" id="biology" type="button" aria-label="Biology — open subject">
-  <span class="plant" aria-hidden="true">
-    <span class="vine"></span>
-    <i class="leaf back" style="left:10px;top:9px;--w:48px;--h:31px;--r:12deg;--c:#709f43;--c2:#345a2e;--d:-2s"></i>
-    <i class="leaf peach" style="left:59px;top:2px;--w:44px;--h:29px;--r:15deg;--d:-1s"></i>
-    <i class="leaf" style="left:105px;top:17px;--w:51px;--h:33px;--r:35deg;--c:#b0d96c;--c2:#5b8d3b;--d:-3s"></i>
-    <i class="leaf back" style="left:148px;top:4px;--w:44px;--h:28px;--r:25deg;--c:#6f9f42;--c2:#385c30;--d:-1.4s"></i>
-    <i class="leaf" style="left:29px;top:49px;--w:53px;--h:35px;--r:-28deg;--c:#a8d56b;--c2:#52863a;--d:-2.6s"></i>
-    <i class="leaf peach" style="left:84px;top:46px;--w:39px;--h:27px;--r:28deg;--d:-.6s"></i>
-    <i class="leaf front" style="left:130px;top:56px;--w:48px;--h:32px;--r:-18deg;--c:#92c657;--c2:#477737;--d:-3.2s"></i>
-    <i class="leaf back" style="left:174px;top:44px;--w:43px;--h:28px;--r:31deg;--c:#76a747;--c2:#355c2d;--d:-.8s"></i>
-    <i class="leaf" style="left:4px;top:91px;--w:42px;--h:28px;--r:-17deg;--c:#d0e77b;--c2:#77a847;--d:-1.2s"></i>
-    <i class="leaf" style="left:56px;top:87px;--w:49px;--h:32px;--r:24deg;--c:#6fa344;--c2:#355e2f;--d:-2.1s"></i>
-    <i class="leaf peach" style="left:106px;top:98px;--w:38px;--h:26px;--r:-23deg;--d:-3.7s"></i>
-    <i class="leaf front" style="left:151px;top:91px;--w:48px;--h:31px;--r:17deg;--c:#acd96a;--c2:#5d913b;--d:-1.7s"></i>
-  </span>
-  <span class="label">Biology</span>
-  <span class="sub">Explore the living world ↗</span>
-</button>
-<p class="hint">A real HTML/CSS prototype — layered leaf elements, shadows, depth, and gentle independent sway. No flattened bush image is used. Hover or tap the button to test its interaction.</p>
-<p class="status" id="status" aria-live="polite">Ready · button not yet activated</p>
+  <p class="eyebrow">Nexus · pixel garden study</p>
+  <button class="bio-button is-growing" id="biology" type="button" aria-pressed="false" aria-label="Biology — replay plant growth">
+    <svg class="plant-art" id="plant" viewBox="0 0 192 160" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <g id="stem-layer"></g>
+      <g id="leaf-layer"></g>
+      <g id="flower-layer"></g>
+    </svg>
+    <span class="label">Biology</span>
+    <span class="subtitle">Explore the living world <span aria-hidden="true">↗</span></span>
+  </button>
+  <p class="status" id="status" aria-live="polite">A tiny garden is taking root…</p>
+  <p class="note">Hand-built pixel geometry, angular vine branches, layered foliage and small blossoms. Tap the button to replay the growth animation.</p>
 </main>
 <script>
-const button=document.querySelector('#biology');
-const status=document.querySelector('#status');
-button.addEventListener('click',()=>{
-  const opened=button.getAttribute('aria-pressed')==='true';
-  button.setAttribute('aria-pressed',String(!opened));
-  status.textContent=opened?'Closed · tap Biology to test again':'Activated · Biology button interaction works';
-});
-button.setAttribute('aria-pressed','false');
+(() => {
+  "use strict";
+  const cell = 4;
+  const ns = "http://www.w3.org/2000/svg";
+  const stemLayer = document.querySelector("#stem-layer");
+  const leafLayer = document.querySelector("#leaf-layer");
+  const flowerLayer = document.querySelector("#flower-layer");
+  const button = document.querySelector("#biology");
+  const status = document.querySelector("#status");
+
+  const leafPalettes = {
+    fern: { outline: "#29482f", shadow: "#527c3b", base: "#80b44a", mid: "#a6d169", light: "#d0e888" },
+    lime: { outline: "#344c30", shadow: "#719541", base: "#9ecb57", mid: "#c1e574", light: "#e3f0a0" },
+    deep: { outline: "#263f2e", shadow: "#3e6939", base: "#679846", mid: "#8fbd58", light: "#b8d978" },
+    blue: { outline: "#2c4a39", shadow: "#4a7652", base: "#78a965", mid: "#a1c982", light: "#d3e6a7" }
+  };
+
+  // Each route is a hand-authored path on a 4px tile grid. Segments are orthogonal:
+  // that is what keeps the stems deliberately blocky instead of smooth and vector-like.
+  const vineRoutes = [
+    [[7, -1], [7, 3], [8, 3], [8, 7], [7, 7], [7, 12], [8, 12], [8, 17], [9, 17], [9, 23], [10, 23], [10, 28], [11, 28], [11, 34], [12, 34], [12, 39]],
+    [[7, 3], [4, 3], [4, 5], [1, 5]],
+    [[8, 6], [11, 6], [11, 4], [14, 4]],
+    [[7, 11], [4, 11], [4, 14], [1, 14]],
+    [[8, 16], [12, 16], [12, 19], [15, 19]],
+    [[9, 22], [5, 22], [5, 25], [2, 25]],
+    [[10, 27], [14, 27], [14, 30], [17, 30]],
+    [[11, 33], [8, 33], [8, 36], [5, 36]]
+  ];
+
+  function cellsForRoutes(routes) {
+    const cells = new Map();
+    for (const route of routes) {
+      for (let i = 1; i < route.length; i++) {
+        const [x1, y1] = route[i - 1];
+        const [x2, y2] = route[i];
+        const dx = Math.sign(x2 - x1);
+        const dy = Math.sign(y2 - y1);
+        let x = x1, y = y1;
+        const steps = Math.max(Math.abs(x2 - x1), Math.abs(y2 - y1));
+        for (let step = 0; step <= steps; step++) {
+          if (y >= -2 && y < 40 && x >= 0 && x < 48) cells.set(x + "," + y, { x, y });
+          x += dx;
+          y += dy;
+        }
+      }
+    }
+    return [...cells.values()].sort((a, b) => a.y - b.y || Math.abs(a.x - 7) - Math.abs(b.x - 7));
+  }
+
+  function makeRect(x, y, width, height, fill, className, delay) {
+    const rect = document.createElementNS(ns, "rect");
+    rect.setAttribute("x", x);
+    rect.setAttribute("y", y);
+    rect.setAttribute("width", width);
+    rect.setAttribute("height", height);
+    rect.setAttribute("fill", fill);
+    if (className) rect.setAttribute("class", className);
+    if (delay !== undefined) rect.style.setProperty("--delay", delay + "ms");
+    return rect;
+  }
+
+  const stemCells = cellsForRoutes(vineRoutes);
+  stemCells.forEach(({x, y}, index) => {
+    const group = document.createElementNS(ns, "g");
+    group.setAttribute("class", "vine-pixel");
+    group.style.setProperty("--delay", Math.max(0, y) * 27 + Math.abs(x - 7) * 13 + "ms");
+    group.append(
+      makeRect(x * cell, y * cell, cell, cell, "#304e34"),
+      makeRect(x * cell + 1, y * cell + 1, 2, 2, index % 5 === 0 ? "#89a45a" : "#638346")
+    );
+    stemLayer.append(group);
+  });
+
+  // Pixel clusters are drawn tile-by-tile; no emoji, raster artwork, or generated leaf icons.
+  // Per-row bounds form a heart-shaped ivy leaf or a narrower pointed leaf.
+  const leafShapes = {
+    heart: [[3,4],[2,9],[1,10],[0,11],[0,11],[1,10],[2,9],[4,7]],
+    pointed: [[5,6],[3,8],[2,9],[1,10],[0,11],[1,10],[2,9],[4,7]]
+  };
+
+  function leafColor(x, y, left, right, palette, occupied) {
+    const edge = !occupied.has(x + "," + (y - 1)) ||
+      !occupied.has(x + "," + (y + 1)) ||
+      !occupied.has((x - 1) + "," + y) ||
+      !occupied.has((x + 1) + "," + y);
+    if (edge) return palette.outline;
+    if (y <= 2 && x <= (left + right) / 2 + 1) return palette.light;
+    if (y <= 3 && x <= (left + right) / 2) return palette.mid;
+    if (y >= 6 || x >= right - 1) return palette.shadow;
+    if (y <= 4 && x === left + 1) return palette.mid;
+    return palette.base;
+  }
+
+  const leaves = [
+    {x: 0, y: 0, angle: 0, palette: "fern", shape: "heart", delay: 70},
+    {x: 32, y: 8, angle: 90, palette: "lime", shape: "pointed", delay: 150},
+    {x: 68, y: 4, angle: 0, palette: "blue", shape: "heart", delay: 190},
+    {x: 4, y: 28, angle: 90, palette: "lime", shape: "pointed", delay: 320},
+    {x: 36, y: 32, angle: 0, palette: "deep", shape: "heart", delay: 390},
+    {x: 76, y: 44, angle: -90, palette: "fern", shape: "pointed", delay: 510},
+    {x: 0, y: 56, angle: 0, palette: "blue", shape: "heart", delay: 610},
+    {x: 40, y: 72, angle: 90, palette: "fern", shape: "heart", delay: 760},
+    {x: 80, y: 84, angle: 0, palette: "lime", shape: "pointed", delay: 880},
+    {x: 0, y: 92, angle: 90, palette: "fern", shape: "pointed", delay: 1010},
+    {x: 40, y: 108, angle: 0, palette: "blue", shape: "heart", delay: 1160},
+    {x: 76, y: 120, angle: -90, palette: "deep", shape: "heart", delay: 1280}
+  ];
+
+  for (const leaf of leaves) {
+    const outer = document.createElementNS(ns, "g");
+    outer.setAttribute("transform", "translate(" + leaf.x + " " + leaf.y + ")");
+    const rotated = document.createElementNS(ns, "g");
+    rotated.setAttribute("transform", "rotate(" + leaf.angle + " 24 16)");
+    const sprout = document.createElementNS(ns, "g");
+    sprout.setAttribute("class", "sprout");
+    sprout.style.setProperty("--delay", (leaf.delay + Math.max(0, leaf.y) * .7) + "ms");
+
+    const rows = leafShapes[leaf.shape];
+    const occupied = new Set();
+    rows.forEach(([left, right], y) => {
+      for (let x = left; x <= right; x++) occupied.add(x + "," + y);
+    });
+    rows.forEach(([left, right], y) => {
+      for (let x = left; x <= right; x++) {
+        sprout.append(makeRect(x * cell, y * cell, cell, cell,
+          leafColor(x, y, left, right, leafPalettes[leaf.palette], occupied)));
+      }
+    });
+    rotated.append(sprout);
+    outer.append(rotated);
+    leafLayer.append(outer);
+  }
+
+  const petalMaps = {
+    peach: { outline: "#8b5648", petal: "#e8a276", light: "#ffd09a", shade: "#bd735e", center: "#f3d879" },
+    butter: { outline: "#8b7542", petal: "#f3d58a", light: "#fff0b2", shade: "#d5a95f", center: "#e9a64f" },
+    blush: { outline: "#875247", petal: "#da8c79", light: "#f6b99a", shade: "#b86660", center: "#f5d77a" }
+  };
+  const flowerPattern = [
+    "..ppp..",
+    ".ppppp.",
+    "ppppppp",
+    "pppyppp",
+    "ppppppp",
+    ".ppppp.",
+    "..ppp.."
+  ];
+  const flowers = [
+    {x: 60, y: 20, palette: "peach", delay: 390},
+    {x: 8, y: 52, palette: "butter", delay: 710},
+    {x: 88, y: 76, palette: "blush", delay: 1040},
+    {x: 36, y: 116, palette: "butter", delay: 1320}
+  ];
+
+  for (const flower of flowers) {
+    const outer = document.createElementNS(ns, "g");
+    outer.setAttribute("transform", "translate(" + flower.x + " " + flower.y + ")");
+    const sprout = document.createElementNS(ns, "g");
+    sprout.setAttribute("class", "sprout");
+    sprout.style.setProperty("--delay", (flower.delay + flower.y * .4) + "ms");
+    const palette = petalMaps[flower.palette];
+    const occupied = new Set();
+    flowerPattern.forEach((row, y) => [...row].forEach((char, x) => {
+      if (char !== ".") occupied.add(x + "," + y);
+    }));
+    flowerPattern.forEach((row, y) => [...row].forEach((char, x) => {
+      if (char === ".") return;
+      const edge = !occupied.has(x + "," + (y - 1)) ||
+        !occupied.has(x + "," + (y + 1)) ||
+        !occupied.has((x - 1) + "," + y) ||
+        !occupied.has((x + 1) + "," + y);
+      let fill = edge ? palette.outline : (y < 3 ? palette.light : palette.petal);
+      if (char === "y") fill = palette.center;
+      if (!edge && (y > 4 || x > 4)) fill = char === "y" ? palette.center : palette.shade;
+      sprout.append(makeRect(x * cell, y * cell, cell, cell, fill));
+    }));
+    outer.append(sprout);
+    flowerLayer.append(outer);
+  }
+
+  function replayGrowth() {
+    button.classList.remove("is-growing");
+    // Force style recalculation so the one-shot animations can play from frame zero.
+    void button.offsetWidth;
+    button.classList.add("is-growing");
+  }
+
+  button.addEventListener("click", () => {
+    const active = button.getAttribute("aria-pressed") === "true";
+    button.setAttribute("aria-pressed", String(!active));
+    status.textContent = active
+      ? "Biology unselected · the garden can grow again."
+      : "Biology selected · replaying the pixel garden growth.";
+    replayGrowth();
+  });
+})();
 </script>
 </body>
 </html>
