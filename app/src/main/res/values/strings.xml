@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Nexus</string>
+    <string name="tagline">Your music. Your people.</string>
+    <string name="foundation_status">The Android project and playback service foundation are in place. Catalogue search and playable-stream integration are the next milestone.</string>
+</resources>

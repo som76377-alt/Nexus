@@ -1,14 +1,19 @@
 {
-  "name": "NEXUS Biology Preview",
-  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm",
-  "postCreateCommand": "npm install",
-  "forwardPorts": [
-    5173
-  ],
-  "portsAttributes": {
-    "5173": {
-      "label": "NEXUS live preview",
-      "onAutoForward": "openBrowser"
+  "name": "Nexus Android Development",
+  "image": "mcr.microsoft.com/devcontainers/java:1-21-bookworm",
+  "postCreateCommand": "bash .devcontainer/bootstrap.sh",
+  "remoteEnv": {
+    "ANDROID_HOME": "/home/vscode/Android/Sdk",
+    "ANDROID_SDK_ROOT": "/home/vscode/Android/Sdk",
+    "GRADLE_HOME": "/home/vscode/.local/gradle/gradle-9.6.0",
+    "PATH": "/home/vscode/.local/gradle/gradle-9.6.0/bin:/home/vscode/Android/Sdk/cmdline-tools/latest/bin:/home/vscode/Android/Sdk/platform-tools:${containerEnv:PATH}"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "vscjava.vscode-java-pack",
+        "fwcd.kotlin"
+      ]
     }
   }
 }
