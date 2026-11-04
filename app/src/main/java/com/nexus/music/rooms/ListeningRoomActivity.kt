@@ -140,7 +140,7 @@ class ListeningRoomActivity : Activity() {
             inputType = android.text.InputType.TYPE_CLASS_TEXT or
                 android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS or
                 android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-            filters = arrayOf(android.text.InputFilter.LengthFilter(RoomInviteCode.LENGTH)
+            filters = arrayOf(android.text.InputFilter.LengthFilter(RoomInviteCode.LENGTH))
             imeOptions = EditorInfo.IME_ACTION_GO
             setBackground(rounded(raised, 10))
             setPadding(dp(12), dp(12), dp(12), dp(12))
