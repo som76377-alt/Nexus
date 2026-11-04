@@ -16,7 +16,6 @@ import androidx.media3.session.MediaSessionService
  * playback is active. ExoPlayer's local wake mode holds a partial wake lock only while audio is
  * ready/buffering and playWhenReady is true; it does not keep the phone awake indefinitely.
  */
-@UnstableApi
 class PlaybackService : MediaSessionService() {
     private var player: ExoPlayer? = null
     private var mediaSession: MediaSession? = null
@@ -27,6 +26,7 @@ class PlaybackService : MediaSessionService() {
                 "(KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36 Nexus/0.1"
     }
 
+    @UnstableApi
     override fun onCreate() {
         super.onCreate()
         val musicAudioAttributes = AudioAttributes.Builder()
