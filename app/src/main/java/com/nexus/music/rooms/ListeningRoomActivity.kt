@@ -323,7 +323,10 @@ class ListeningRoomActivity : Activity() {
         joinButton.visibility = View.GONE
         inviteText.text = inviteCode?.let { "Invite code: $it" } ?: "Room connected"
         refreshMessages()
-        api.loadPlayback(id)?.let { applyRemotePlayback(it) }
+        api.loadPlayback(id)?.let {
+            lastRemoteRevision = it.revision
+            if (it.updatedBy != userId) applyRemotePlayback(it)
+        }
         syncJob?.cancel()
         syncJob = scope.launch {
             var lastHeartbeat = 0L

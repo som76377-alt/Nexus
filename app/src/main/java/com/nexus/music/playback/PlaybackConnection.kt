@@ -18,7 +18,7 @@ import java.util.concurrent.Executor
 data class PlaybackSnapshot(
     val connected: Boolean,
     val sourceId: String = "",
-    val title: String = ""
+    val title: String = "",
     val artist: String = "",
     val isPlaying: Boolean = false,
     val playbackState: Int = Player.STATE_IDLE,
