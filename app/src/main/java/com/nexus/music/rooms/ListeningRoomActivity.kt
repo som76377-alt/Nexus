@@ -1,6 +1,7 @@
 package com.nexus.music.rooms
 
 import android.app.Activity
+import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -80,6 +81,7 @@ class ListeningRoomActivity : Activity() {
     private var lastPublishedPositionMs = 0L
     private var lastPublishedAtElapsed = 0L
     private var lastSnapshot = PlaybackSnapshot(connected = false)
+    private var backInvokedCallback: android.window.OnBackInvokedCallback? = null
 
     private val background = Color.rgb(12, 14, 18)
     private val surface = Color.rgb(24, 28, 35)
@@ -243,6 +245,7 @@ class ListeningRoomActivity : Activity() {
         root.addView(buildBottomNavigation(), LinearLayout.LayoutParams(-1, dp(62)))
 
         setContentView(root)
+        registerBackNavigation()
         playback = PlaybackConnection(
             context = this,
             onReady = { renderPlayback(playback?.snapshot() ?: PlaybackSnapshot(false)) },
@@ -605,6 +608,17 @@ class ListeningRoomActivity : Activity() {
         status.text = "Exited this room. Its history remains until one hour of inactivity."
     }
 
+    private fun registerBackNavigation() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            val callback = android.window.OnBackInvokedCallback { navigateHome() }
+            onBackInvokedDispatcher.registerOnBackInvokedCallback(
+                android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                callback
+            )
+            backInvokedCallback = callback
+        }
+    }
+
     private fun buildBottomNavigation(): LinearLayout {
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -685,6 +699,8 @@ class ListeningRoomActivity : Activity() {
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
+    @SuppressLint("GestureBackNavigation")
+    @Deprecated("Use the platform back callback on Android 13 and newer.")
     override fun onBackPressed() {
         // Back navigates to Home; it must not destroy the active room session.
         navigateHome()
@@ -702,6 +718,10 @@ class ListeningRoomActivity : Activity() {
     }
 
     override fun onDestroy() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            backInvokedCallback?.let(onBackInvokedDispatcher::unregisterOnBackInvokedCallback)
+            backInvokedCallback = null
+        }
         syncJob?.cancel()
         handler.removeCallbacks(playerTicker)
         playback?.close()
