@@ -5,7 +5,7 @@ newpipe-extractor = "e8f89145a830b4d6cae32412007f24ea8b36c73a"
 okhttp = "4.12.0"
 coroutines = "1.10.2"
 junit = "4.13.2"
-coil = "3.6.3"
+coil = "3.5.0"
 
 [libraries]
 media3-exoplayer = { module = "androidx.media3:media3-exoplayer", version.ref = "media3" }
