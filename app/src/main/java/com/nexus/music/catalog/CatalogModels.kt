@@ -20,7 +20,8 @@ data class ResolvedAudio(
     val thumbnailUrl: String?,
     val durationSeconds: Long?,
     val audioUrl: String,
-    val averageBitrate: Int?
+    val averageBitrate: Int?,
+    val mimeType: String?
 )
 
 enum class YoutubeSearchScope(internal val extractorFilter: String?) {
