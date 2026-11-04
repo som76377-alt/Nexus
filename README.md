@@ -15,10 +15,15 @@ The first NewPipe integration milestone is now implemented in the codebase:
 - [x] YouTube search scopes: everything, music songs and videos
 - [x] Search result mapping into app-owned catalogue models
 - [x] Audio stream resolution and direct-URL quality selection
+- [x] Native Android search screen with All / Songs / Videos scopes
+- [x] Thumbnail result cards with duration and view metadata
+- [x] Tap-to-resolve flow with loading, empty and error states
+- [x] Coil image loading and compact metadata formatting tests
 - [x] MockWebServer tests for downloader HTTP behaviour
 - [x] Unit tests for audio stream selection
 - [x] Opt-in live YouTube search-and-resolution smoke test
-- [ ] Run CI and fix any compile/test failures
+- [ ] Confirm the latest search-screen CI run completes successfully
+- [ ] Verify search, thumbnails and stream resolution on a real Android device/network
 - [ ] Verify live extraction from a real Android device/network
 - [ ] Connect resolved audio to the Media3 playback service
 - [ ] Add pagination, playlists and local library
