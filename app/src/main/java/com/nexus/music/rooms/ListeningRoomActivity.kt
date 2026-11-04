@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -22,6 +23,7 @@ import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.media3.common.Player
+import com.nexus.music.catalog.YoutubeCatalogRepository
 import com.nexus.music.MainActivity
 import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackSnapshot
@@ -48,6 +50,7 @@ import java.util.Locale
 class ListeningRoomActivity : Activity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val api by lazy { RoomsApi(this) }
+    private val catalog by lazy { YoutubeCatalogRepository() }
     private val handler = Handler(Looper.getMainLooper())
 
     private lateinit var status: TextView
@@ -140,7 +143,7 @@ class ListeningRoomActivity : Activity() {
             inputType = android.text.InputType.TYPE_CLASS_TEXT or
                 android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS or
                 android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-            filters = arrayOf(android.text.InputFilter.LengthFilter(RoomInviteCode.LENGTH))
+            filters = arrayOf<android.text.InputFilter>(android.text.InputFilter.LengthFilter(RoomInviteCode.LENGTH))
             imeOptions = EditorInfo.IME_ACTION_GO
             setBackground(rounded(raised, 10))
             setPadding(dp(12), dp(12), dp(12), dp(12))
@@ -616,7 +619,7 @@ class ListeningRoomActivity : Activity() {
             minWidth = 0
             minimumWidth = 0
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(if (selected) Color.rgb(14, 20, 12) else foreground)
+            setTextColor(if (selected) Color.rgb(14, 20, 12) else this@ListeningRoomActivity.foreground)
             background = rounded(if (selected) accent else raised, 12)
             setOnClickListener { onClick() }
         }
