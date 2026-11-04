@@ -1,10 +1,13 @@
 package com.nexus.music
 
 import android.app.Activity
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
@@ -12,13 +15,17 @@ import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.media3.common.Player
 import coil3.load
 import com.nexus.music.catalog.CatalogTrack
 import com.nexus.music.catalog.ResolvedAudio
 import com.nexus.music.catalog.YoutubeCatalogRepository
 import com.nexus.music.catalog.YoutubeSearchScope
+import com.nexus.music.playback.PlaybackConnection
+import com.nexus.music.playback.PlaybackSnapshot
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -29,16 +36,25 @@ import kotlinx.coroutines.launch
 class MainActivity : Activity() {
     private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val repository by lazy { YoutubeCatalogRepository() }
+    private val progressHandler = Handler(Looper.getMainLooper())
 
     private lateinit var resultsContainer: LinearLayout
     private lateinit var statusText: TextView
     private lateinit var queryInput: EditText
     private lateinit var searchButton: Button
     private lateinit var scopeButtons: Map<YoutubeSearchScope, Button>
+    private lateinit var playerArtwork: ImageView
+    private lateinit var playerTitle: TextView
+    private lateinit var playerSubtitle: TextView
+    private lateinit var playPauseButton: Button
+    private lateinit var playbackProgress: SeekBar
 
+    private var playbackConnection: PlaybackConnection? = null
     private var selectedScope = YoutubeSearchScope.EVERYTHING
     private var isSearching = false
     private var isResolving = false
+    private var isSeeking = false
+    private var lastPlaybackSnapshot = PlaybackSnapshot(connected = false)
 
     private val background = Color.rgb(12, 14, 18)
     private val surface = Color.rgb(24, 28, 35)
@@ -46,6 +62,13 @@ class MainActivity : Activity() {
     private val accent = Color.rgb(167, 240, 106)
     private val primaryText = Color.rgb(244, 247, 250)
     private val secondaryText = Color.rgb(160, 172, 187)
+
+    private val progressTicker = object : Runnable {
+        override fun run() {
+            playbackConnection?.let { updatePlaybackUi(it.snapshot()) }
+            if (!isFinishing) progressHandler.postDelayed(this, 500L)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -70,7 +93,7 @@ class MainActivity : Activity() {
         content.addView(text("Find your next\nfavourite track.", 31f, primaryText, bold = true).apply {
             setPadding(0, dp(12), 0, dp(8))
         })
-        content.addView(text("Search YouTube's catalogue. Pick a result to prepare its audio.", 14f, secondaryText))
+        content.addView(text("Search YouTube's catalogue. Pick a result to start listening.", 14f, secondaryText))
 
         val searchRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -128,7 +151,9 @@ class MainActivity : Activity() {
                 setOnClickListener { selectScope(scope) }
             }
             buttons[scope] = button
-            scopesRow.addView(button, LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginEnd = dp(8) })
+            scopesRow.addView(button, LinearLayout.LayoutParams(0, dp(42), 1f).apply {
+                marginEnd = dp(8)
+            })
         }
         scopeButtons = buttons
         content.addView(scopesRow, verticalParams(10))
@@ -143,7 +168,123 @@ class MainActivity : Activity() {
 
         scroll.addView(content)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        root.addView(buildPlayerPanel(), LinearLayout.LayoutParams(-1, -2))
         setContentView(root)
+        connectPlaybackService()
+    }
+
+    private fun buildPlayerPanel(): LinearLayout {
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(surfaceRaised, 16)
+            setPadding(dp(14), dp(5), dp(14), dp(12))
+        }
+        playbackProgress = SeekBar(this).apply {
+            max = 1000
+            progressTintList = ColorStateList.valueOf(accent)
+            thumbTintList = ColorStateList.valueOf(accent)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    if (fromUser) isSeeking = true
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {
+                    isSeeking = true
+                }
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                    val duration = lastPlaybackSnapshot.durationMs
+                    if (duration > 0L) {
+                        val target = duration * playbackProgress.progress.toLong() / playbackProgress.max
+                        playbackConnection?.seekTo(target)
+                    }
+                    isSeeking = false
+                }
+            })
+        }
+        panel.addView(playbackProgress, LinearLayout.LayoutParams(-1, dp(24)))
+
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        playerArtwork = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            background = rounded(surface, 10)
+            contentDescription = "Now playing artwork"
+        }
+        row.addView(playerArtwork, LinearLayout.LayoutParams(dp(48), dp(48)))
+        val labels = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), 0, dp(8), 0)
+        }
+        playerTitle = text("Nexus player", 14f, primaryText, bold = true, maxLines = 1)
+        playerSubtitle = text("Connecting to playback service…", 12f, secondaryText, maxLines = 1)
+        labels.addView(playerTitle)
+        labels.addView(playerSubtitle.apply { setPadding(0, dp(4), 0, 0) })
+        row.addView(labels, LinearLayout.LayoutParams(0, -2, 1f))
+
+        playPauseButton = Button(this).apply {
+            text = "▶"
+            textSize = 18f
+            isAllCaps = false
+            isEnabled = false
+            setTextColor(Color.rgb(14, 20, 12))
+            background = rounded(accent, 12)
+            setOnClickListener { playbackConnection?.togglePlayback() }
+        }
+        row.addView(playPauseButton, LinearLayout.LayoutParams(dp(52), dp(46)))
+        panel.addView(row)
+        return panel
+    }
+
+    private fun connectPlaybackService() {
+        playbackConnection = PlaybackConnection(
+            context = this,
+            onReady = {
+                updatePlaybackUi(playbackConnection?.snapshot() ?: PlaybackSnapshot(connected = false))
+            },
+            onStateChanged = ::updatePlaybackUi,
+            onError = { message ->
+                statusText.text = "Playback error: $message"
+                playerSubtitle.text = message
+                Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+            }
+        )
+    }
+
+    private fun updatePlaybackUi(snapshot: PlaybackSnapshot) {
+        lastPlaybackSnapshot = snapshot
+        if (!snapshot.connected) {
+            playerSubtitle.text = "Connecting to playback service…"
+            playPauseButton.isEnabled = false
+            return
+        }
+
+        if (snapshot.title.isNotBlank()) {
+            playerTitle.text = snapshot.title
+            playerSubtitle.text = when (snapshot.playbackState) {
+                Player.STATE_BUFFERING -> "Loading audio…"
+                Player.STATE_READY -> if (snapshot.isPlaying) {
+                    "Playing" + snapshot.artist.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
+                } else {
+                    "Paused" + snapshot.artist.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
+                }
+                Player.STATE_ENDED -> "Finished"
+                else -> snapshot.artist.ifBlank { "Ready" }
+            }
+            playPauseButton.isEnabled = true
+        } else {
+            playerSubtitle.text = "Ready · choose a result to listen"
+            playPauseButton.isEnabled = false
+        }
+
+        playPauseButton.text = if (snapshot.isPlaying) "Ⅱ" else "▶"
+        if (!isSeeking) {
+            playbackProgress.isEnabled = snapshot.durationMs > 0L
+            playbackProgress.progress = if (snapshot.durationMs > 0L) {
+                ((snapshot.positionMs.toDouble() / snapshot.durationMs.toDouble()) * playbackProgress.max)
+                    .toInt().coerceIn(0, playbackProgress.max)
+            } else 0
+        }
     }
 
     private fun selectScope(scope: YoutubeSearchScope) {
@@ -179,7 +320,7 @@ class MainActivity : Activity() {
                 if (results.isEmpty()) {
                     statusText.text = "No results found. Try another search or scope."
                 } else {
-                    statusText.text = "${results.size} results · tap one to prepare audio"
+                    statusText.text = "${results.size} results · tap one to start listening"
                     results.forEachIndexed { index, track ->
                         resultsContainer.addView(resultCard(track), verticalParams(if (index == 0) 0 else 10))
                     }
@@ -236,7 +377,7 @@ class MainActivity : Activity() {
     private fun resolve(track: CatalogTrack) {
         if (isResolving) return
         isResolving = true
-        statusText.text = "Preparing audio for “${track.title}”..."
+        statusText.text = "Preparing audio for “${track.title}”…"
         activityScope.launch {
             try {
                 val audio = repository.resolveAudio(track.url)
@@ -252,44 +393,56 @@ class MainActivity : Activity() {
     }
 
     private fun showResolved(audio: ResolvedAudio) {
-        statusText.text = "Audio stream resolved"
-        val panel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = rounded(surfaceRaised, 16)
-            setPadding(dp(16), dp(15), dp(16), dp(15))
-        }
-        panel.addView(text("READY FOR PLAYER", 10f, accent, bold = true).apply { letterSpacing = 0.12f })
-        panel.addView(text(audio.title, 16f, primaryText, bold = true).apply {
-            setPadding(0, dp(8), 0, dp(4))
-        })
-        panel.addView(text(audio.artist ?: "Unknown artist", 12f, secondaryText))
-        val quality = audio.averageBitrate?.let { " · ${it / 1000} kbps" }.orEmpty()
-        panel.addView(text("Audio stream prepared$quality", 12f, accent).apply {
-            setPadding(0, dp(10), 0, 0)
-        })
-        resultsContainer.addView(panel, 0)
-        Toast.makeText(this, "Track audio is ready for the player", Toast.LENGTH_SHORT).show()
+        playerTitle.text = audio.title
+        playerSubtitle.text = "Sending audio to player…"
+        audio.thumbnailUrl?.let { playerArtwork.load(it) { crossfade(true) } }
+        playPauseButton.isEnabled = true
+        playbackConnection?.play(audio)
+        statusText.text = "Starting playback: ${audio.title}"
+        Toast.makeText(this, "Starting playback", Toast.LENGTH_SHORT).show()
     }
 
-    private fun text(value: String, size: Float, color: Int, bold: Boolean = false, maxLines: Int = Int.MAX_VALUE) =
-        TextView(this).apply {
-            text = value
-            textSize = size
-            setTextColor(color)
-            if (bold) typeface = Typeface.DEFAULT_BOLD
-            this.maxLines = maxLines
-            ellipsize = android.text.TextUtils.TruncateAt.END
-        }
+    private fun text(
+        value: String,
+        size: Float,
+        color: Int,
+        bold: Boolean = false,
+        maxLines: Int = Int.MAX_VALUE
+    ) = TextView(this).apply {
+        text = value
+        textSize = size
+        setTextColor(color)
+        if (bold) typeface = Typeface.DEFAULT_BOLD
+        this.maxLines = maxLines
+        ellipsize = android.text.TextUtils.TruncateAt.END
+    }
 
     private fun rounded(color: Int, radiusDp: Int) = GradientDrawable().apply {
         setColor(color)
         cornerRadius = dp(radiusDp).toFloat()
     }
 
-    private fun verticalParams(top: Int) = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(top) }
-    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+    private fun verticalParams(top: Int) =
+        LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(top) }
+
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density).toInt()
+
+    override fun onStart() {
+        super.onStart()
+        progressHandler.removeCallbacks(progressTicker)
+        progressHandler.post(progressTicker)
+    }
+
+    override fun onStop() {
+        progressHandler.removeCallbacks(progressTicker)
+        super.onStop()
+    }
 
     override fun onDestroy() {
+        progressHandler.removeCallbacks(progressTicker)
+        playbackConnection?.close()
+        playbackConnection = null
         activityScope.cancel()
         super.onDestroy()
     }

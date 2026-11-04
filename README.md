@@ -22,10 +22,13 @@ The first NewPipe integration milestone is now implemented in the codebase:
 - [x] MockWebServer tests for downloader HTTP behaviour
 - [x] Unit tests for audio stream selection
 - [x] Opt-in live YouTube search-and-resolution smoke test
-- [ ] Confirm the latest search-screen CI run completes successfully
+- [ ] Confirm the latest playback integration CI run completes successfully
 - [ ] Verify search, thumbnails and stream resolution on a real Android device/network
 - [ ] Verify live extraction from a real Android device/network
-- [ ] Connect resolved audio to the Media3 playback service
+- [x] Connect resolved audio to the Media3 playback service through MediaController
+- [x] Add persistent mini-player with play/pause and seeking
+- [x] Configure service audio focus and noisy-route handling
+- [ ] Verify background playback and notification controls on a physical Android device
 - [ ] Add pagination, playlists and local library
 - [ ] Design and implement social listening rooms and chat
 

@@ -8,6 +8,8 @@ Nexus is intended to combine music/video discovery with a first-class background
 
 - `MainActivity`: application entry screen only.
 - `playback/PlaybackService`: Media3 `ExoPlayer` and `MediaSession`, hosted in `MediaSessionService`.
+- `playback/PlaybackConnection`: Activity-side `MediaController` bridge that sends resolved streams to the service.
+- `playback/PlaybackRequest`: short-lived stream handoff; canonical video identity stays separate from the expiring stream URL.
 - `catalog/` (planned): provider-neutral catalogue interfaces and provider adapters.
 - `rooms/` (planned): listening-room state, chat, and synchronization client.
 
@@ -25,7 +27,7 @@ Unofficial extractors are maintenance-sensitive. Keep provider code isolated, pi
 
 ## Playback boundary
 
-The app UI connects to `PlaybackService` using a Media3 `MediaController`. The service owns ExoPlayer and MediaSession, and exposes queue and transport controls through the session. Playback must be tested with the screen locked, while switching apps, after audio focus changes, and after service/process recreation.
+The app UI connects to `PlaybackService` using a Media3 `MediaController`. Selecting a search result resolves a fresh audio URL, maps it to a Media3 `MediaItem` with title, artist and artwork metadata, then sends it through the controller. The service owns ExoPlayer and MediaSession; a persistent mini-player uses the same controller for play/pause and seeking. Audio focus and noisy-route handling are enabled. Playback must be tested with the screen locked, while switching apps, after audio focus changes, and after service/process recreation.
 
 ## Social listening model
 
@@ -45,7 +47,7 @@ The backend choice is intentionally postponed until the room protocol and expect
 
 1. Debug build resolves dependencies.
 2. Extractor can search and resolve a known public test item.
-3. Media3 can play a resolved stream in the foreground.
-4. Playback survives app switching and screen lock on a physical device.
+3. Media3 can play a resolved stream in the foreground through the controller/service boundary.
+4. Playback survives app switching and screen lock on a physical device, with notification controls and audio focus behaving correctly.
 5. Queue, audio focus, notification controls, and reconnect behaviour are tested.
 6. Only then build the full catalogue UI and social rooms.
