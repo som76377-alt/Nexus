@@ -49,11 +49,6 @@ android {
     }
 
     buildTypes {
-        getByName("debug") {
-            if (hasNexusSigningKey) {
-                signingConfig = signingConfigs.getByName("nexus")
-            }
-        }
         getByName("release") {
             isMinifyEnabled = false
             if (hasNexusSigningKey) {
