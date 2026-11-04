@@ -539,10 +539,15 @@ class ListeningRoomActivity : Activity() {
         val activePlayer = playback ?: return
         applyingRemoteUntil = SystemClock.elapsedRealtime() + 4500L
         val current = activePlayer.snapshot()
+        if (!current.connected) {
+            throw java.io.IOException("The playback service is still connecting. Retrying sync…")
+        }
         if (current.sourceId != remote.sourceUrl) {
             status.text = "Loading the other device's track…"
             val audio = catalog.resolveAudio(remote.sourceUrl)
-            activePlayer.play(audio)
+            // Prepare directly into the remote play/pause state so a paused room never
+            // briefly starts audio while the client catches up.
+            activePlayer.play(audio, remote.isPlaying)
             delay(350L)
         }
         val elapsed = parseTimestamp(remote.updatedAt)
@@ -550,8 +555,10 @@ class ListeningRoomActivity : Activity() {
         val expectedPosition = (remote.positionMs + if (remote.isPlaying) elapsed else 0L)
             .coerceAtMost(remote.durationMs.takeIf { it > 0L } ?: Long.MAX_VALUE)
         val latest = activePlayer.snapshot()
-        if (abs(latest.positionMs - expectedPosition) > 1400L) {
-            activePlayer.seekTo(expectedPosition)
+        if (abs(latest.positionMs - expectedPosition) > 1400L &&
+            !activePlayer.seekTo(expectedPosition)
+        ) {
+            throw java.io.IOException("The player is not ready to seek yet. Retrying sync…")
         }
         activePlayer.setPlaying(remote.isPlaying)
         rememberPublishedPlayback(
