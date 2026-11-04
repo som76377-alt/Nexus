@@ -5,6 +5,7 @@ Versions are pinned; do not replace them with floating versions.
 | Component | Initial selection | Purpose |
 |---|---|---|
 | Android Gradle Plugin | 9.5.0 | Android application build |
+| Kotlin Gradle Plugin | 2.4.10 | Explicit Kotlin compiler, aligned with the Kotlin standard-library metadata resolved by the build |
 | Gradle | 9.6.0 | Minimum version required by AGP 9.5 |
 | JDK | 17+ (Codespaces image uses JDK 21) | Build runtime |
 | Android SDK | API 36 / Build Tools 36.0.0 | Compile and package |
@@ -13,6 +14,8 @@ Versions are pinned; do not replace them with floating versions.
 | OkHttp | 4.12.0 | Extractor HTTP transport |
 | Kotlin coroutines | 1.10.2 | Off-main-thread extraction |
 | Coil | 3.5.0 | Thumbnail and artwork loading |
+
+AGP's built-in Kotlin compiler is disabled for this project and the explicit Kotlin Gradle Plugin is used. This avoids compiling Kotlin source with compiler 2.2.0 against standard-library classes that declare Kotlin 2.4 metadata, which the first CI run exposed.
 
 ## Reusable projects to study
 
@@ -34,7 +37,7 @@ The extractor uses unofficial service-facing interfaces. Upstream changes can br
 ## Build automation
 
 - [android-actions/setup-android](https://github.com/android-actions/setup-android): installs Android command-line tools and SDK packages in CI.
-- [gradle/actions](https://github.com/gradle/actions): installs a pinned Gradle distribution and caches build dependencies.
+- [gradle/actions](https://github.com/gradle/actions): provides Gradle build caching for the checked-in Wrapper.
 - GitHub Actions builds and tests the debug APK on pushes to `main` and pull requests targeting `main`.
 
 ## Not added yet
