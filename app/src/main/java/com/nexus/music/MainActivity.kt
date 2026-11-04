@@ -38,6 +38,8 @@ import com.nexus.music.update.GitHubReleaseUpdater
 import com.nexus.music.update.InstallPermissionRequiredException
 import com.nexus.music.update.NexusUpdate
 import com.nexus.music.update.NexusUpdateInstaller
+import com.nexus.music.update.NexusUpdateScheduler
+import com.nexus.music.update.NexusUpdateWorker
 import com.nexus.music.update.UpdateCheckResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -46,6 +48,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : Activity() {
     private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -214,7 +217,10 @@ class MainActivity : Activity() {
         setContentView(root)
         applySystemBarInsets(root)
         connectPlaybackService()
+        NexusUpdateScheduler.schedule(this)
+        requestUpdateNotificationPermission()
         maybeCheckForUpdates()
+        showStoredBackgroundUpdate()
     }
 
     /**
@@ -246,6 +252,44 @@ class MainActivity : Activity() {
         root.requestApplyInsets()
     }
 
+
+    private fun requestUpdateNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
+            !notificationPermissionRequested
+        ) {
+            notificationPermissionRequested = true
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_POST_NOTIFICATIONS)
+        }
+    }
+
+    private fun showStoredBackgroundUpdate() {
+        val preferences = getSharedPreferences(NexusUpdateWorker.PREFS, MODE_PRIVATE)
+        val version = preferences.getString(NexusUpdateWorker.KEY_VERSION, null) ?: return
+        val apkPath = preferences.getString(NexusUpdateWorker.KEY_APK_PATH, null) ?: return
+        if (!java.io.File(apkPath).isFile) return
+        val update = NexusUpdate(
+            versionName = version,
+            versionCode = preferences.getInt(NexusUpdateWorker.KEY_VERSION_CODE, 0),
+            tagName = preferences.getString(NexusUpdateWorker.KEY_TAG, "") ?: "",
+            releaseNotes = preferences.getString(NexusUpdateWorker.KEY_NOTES, "") ?: "",
+            apkUrl = preferences.getString(NexusUpdateWorker.KEY_URL, "") ?: "",
+            sha256 = preferences.getString(NexusUpdateWorker.KEY_SHA256, "") ?: ""
+        )
+        pendingUpdate = update
+        updateButton.text = "Update ${update.versionName}"
+        if (intent.getBooleanExtra(NexusUpdateWorker.EXTRA_UPDATE_READY, false)) {
+            showUpdateDialog(update)
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(NexusUpdateWorker.EXTRA_UPDATE_READY, false)) {
+            showStoredBackgroundUpdate()
+        }
+    }
 
     private fun maybeCheckForUpdates() {
         val preferences = getSharedPreferences("nexus_update_check", MODE_PRIVATE)
@@ -337,7 +381,10 @@ class MainActivity : Activity() {
         updateButton.text = "Downloading…"
         activityScope.launch {
             try {
-                val apk = updateChecker.downloadAndVerify(this@MainActivity, update)
+                val cachedApk = withContext(Dispatchers.IO) {
+                    runCatching { updateChecker.findVerifiedCachedUpdate(this@MainActivity, update) }.getOrNull()
+                }
+                val apk = cachedApk ?: updateChecker.downloadAndVerify(this@MainActivity, update)
                 NexusUpdateInstaller.install(this@MainActivity, apk)
                 if (!isFinishing && !isDestroyed) {
                     updateButton.text = "Install request sent"
