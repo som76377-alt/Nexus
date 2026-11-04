@@ -74,9 +74,9 @@ class RoomsApi(context: Context) {
     }
 
     suspend fun joinRoom(code: String): String = withContext(Dispatchers.IO) {
-        val normalized = code.trim().lowercase()
-        if (!normalized.matches(Regex("^[0-9a-f]{16}$"))) {
-            throw IOException("Enter the 16-character room code.")
+        val normalized = RoomInviteCode.normalize(code)
+        if (!RoomInviteCode.isValid(normalized)) {
+            throw IOException("Enter the 5-character room code.")
         }
         val rows = JSONArray(
             apiRequest(

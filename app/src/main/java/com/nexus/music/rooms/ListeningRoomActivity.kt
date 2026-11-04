@@ -22,7 +22,7 @@ import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.media3.common.Player
-import com.nexus.music.catalog.YoutubeCatalogRepository
+import com.nexus.music.MainActivity
 import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackSnapshot
 import kotlinx.coroutines.CancellationException
@@ -41,14 +41,13 @@ import java.util.Locale
 /**
  * In-app prototype for private two-person listening rooms.
  *
- * Chat and playback are room-scoped. The client polls the authenticated REST API so this first
- * iteration works without adding another realtime transport dependency; the backend already
- * has Realtime enabled and can replace polling in a later optimisation pass.
+ * Chat and playback are room-scoped. This Activity stays in the task back stack while the user
+ * switches to Home, so its room sync loop continues to observe the shared MediaSession player.
+ * The client polls the authenticated REST API; the loop is deliberately not stopped in onStop().
  */
 class ListeningRoomActivity : Activity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val api by lazy { RoomsApi(this) }
-    private val catalog by lazy { YoutubeCatalogRepository() }
     private val handler = Handler(Looper.getMainLooper())
 
     private lateinit var status: TextView
@@ -61,8 +60,6 @@ class ListeningRoomActivity : Activity() {
     private lateinit var messagesBox: LinearLayout
     private lateinit var messageInput: EditText
     private lateinit var sendButton: Button
-    private lateinit var trackInput: EditText
-    private lateinit var trackButton: Button
     private lateinit var nowPlaying: TextView
     private lateinit var playButton: Button
     private lateinit var seekBar: SeekBar
@@ -72,7 +69,6 @@ class ListeningRoomActivity : Activity() {
     private var userId: String? = null
     private var inviteCode: String? = null
     private var syncJob: Job? = null
-    private var trackResolveJob: Job? = null
     private var isSeeking = false
     private var applyingRemoteUntil = 0L
     private var lastRemoteRevision = 0L
@@ -80,7 +76,6 @@ class ListeningRoomActivity : Activity() {
     private var lastPublishedPlaying = false
     private var lastPublishedPositionMs = 0L
     private var lastPublishedAtElapsed = 0L
-    private var isResolvingTrack = false
     private var lastSnapshot = PlaybackSnapshot(connected = false)
 
     private val background = Color.rgb(12, 14, 18)
@@ -114,8 +109,6 @@ class ListeningRoomActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
         }
         header.addView(label("NEXUS", 12f, accent, true), LinearLayout.LayoutParams(0, -2, 1f))
-        val close = actionButton("Back", false).apply { setOnClickListener { finish() } }
-        header.addView(close)
         root.addView(header)
 
         root.addView(label("Listening room", 28f, foreground, true), params(16))
@@ -139,13 +132,15 @@ class ListeningRoomActivity : Activity() {
         }
         roomActions.addView(createButton, params(0))
         codeInput = EditText(this).apply {
-            hint = "Enter 16-character invite code"
+            hint = "5-character room code"
             setHintTextColor(muted)
             setTextColor(this@ListeningRoomActivity.foreground)
             textSize = 14f
             isSingleLine = true
             inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS or
                 android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            filters = arrayOf(android.text.InputFilter.LengthFilter(RoomInviteCode.LENGTH)
             imeOptions = EditorInfo.IME_ACTION_GO
             setBackground(rounded(raised, 10))
             setPadding(dp(12), dp(12), dp(12), dp(12))
@@ -202,22 +197,6 @@ class ListeningRoomActivity : Activity() {
         }
         roomPanel.addView(playButton, params(4))
 
-        trackInput = EditText(this).apply {
-            hint = "Paste a YouTube track link to play for both"
-            setHintTextColor(muted)
-            setTextColor(this@ListeningRoomActivity.foreground)
-            textSize = 13f
-            isSingleLine = true
-            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
-            setBackground(rounded(surface, 10))
-            setPadding(dp(12), dp(12), dp(12), dp(12))
-        }
-        roomPanel.addView(trackInput, params(12))
-        trackButton = actionButton("Play this track for both", false).apply {
-            setOnClickListener { resolveAndPlayTrack() }
-        }
-        roomPanel.addView(trackButton, params(7))
-
         roomPanel.addView(label("Room chat", 15f, foreground, true), params(16))
         val chatScroll = ScrollView(this).apply {
             background = rounded(surface, 12)
@@ -258,6 +237,7 @@ class ListeningRoomActivity : Activity() {
         root.addView(roomPanel, LinearLayout.LayoutParams(-1, 0, 1f).apply {
             topMargin = dp(12)
         })
+        root.addView(buildBottomNavigation(), LinearLayout.LayoutParams(-1, dp(62)))
 
         setContentView(root)
         playback = PlaybackConnection(
@@ -299,8 +279,9 @@ class ListeningRoomActivity : Activity() {
     private fun joinRoom() {
         if (syncJob?.isActive == true) return
         val code = codeInput.text.toString().trim()
-        if (!code.matches(Regex("^[0-9a-fA-F]{16}$"))) {
-            codeInput.error = "Enter the 16-character invite code"
+        val normalizedCode = RoomInviteCode.normalize(code)
+        if (!RoomInviteCode.isValid(normalizedCode)) {
+            codeInput.error = "Enter the 5-character room code"
             return
         }
         codeInput.error = null
@@ -309,8 +290,8 @@ class ListeningRoomActivity : Activity() {
             try {
                 val identity = api.identity()
                 userId = identity.userId
-                val joinedId = api.joinRoom(code)
-                inviteCode = code
+                val joinedId = api.joinRoom(normalizedCode)
+                inviteCode = normalizedCode
                 enterRoom(joinedId)
                 status.text = "Connected. This room has its own chat history."
             } catch (error: CancellationException) {
@@ -471,36 +452,6 @@ class ListeningRoomActivity : Activity() {
         }
     }
 
-    private fun resolveAndPlayTrack() {
-        val url = trackInput.text.toString().trim()
-        if (url.isBlank() || isResolvingTrack) {
-            trackInput.error = "Paste a YouTube video link"
-            return
-        }
-        isResolvingTrack = true
-        trackButton.isEnabled = false
-        status.text = "Preparing track for both devices…"
-        trackResolveJob = scope.launch {
-            try {
-                val audio = catalog.resolveAudio(url)
-                applyingRemoteUntil = 0L
-                if (playback?.play(audio) != true) {
-                    throw java.io.IOException("The player could not accept this track.")
-                }
-                trackInput.text.clear()
-                status.text = "Track sent to the shared player."
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                status.text = "Couldn't prepare track · ${error.message ?: "Try another link."}"
-            } finally {
-                isResolvingTrack = false
-                trackButton.isEnabled = true
-                trackResolveJob = null
-            }
-        }
-    }
-
     private fun onPlaybackChanged(snapshot: PlaybackSnapshot) {
         lastSnapshot = snapshot
         renderPlayback(snapshot)
@@ -630,12 +581,7 @@ class ListeningRoomActivity : Activity() {
     private fun exitRoom() {
         syncJob?.cancel()
         syncJob = null
-        trackResolveJob?.cancel()
-        trackResolveJob = null
-        isResolvingTrack = false
-        trackButton.isEnabled = true
         messageInput.text.clear()
-        trackInput.text.clear()
         codeInput.text.clear()
         isSeeking = false
         applyingRemoteUntil = 0L
@@ -654,6 +600,38 @@ class ListeningRoomActivity : Activity() {
         joinButton.visibility = View.VISIBLE
         messagesBox.removeAllViews()
         status.text = "Exited this room. Its history remains until one hour of inactivity."
+    }
+
+    private fun buildBottomNavigation(): LinearLayout {
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            background = rounded(surface, 18)
+            setPadding(dp(10), dp(7), dp(10), dp(7))
+        }
+        fun tab(title: String, selected: Boolean, onClick: () -> Unit) = Button(this).apply {
+            text = title
+            textSize = 14f
+            isAllCaps = false
+            minWidth = 0
+            minimumWidth = 0
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(if (selected) Color.rgb(14, 20, 12) else foreground)
+            background = rounded(if (selected) accent else raised, 12)
+            setOnClickListener { onClick() }
+        }
+        bar.addView(tab("Home", false) { navigateHome() }, LinearLayout.LayoutParams(0, dp(46), 1f).apply {
+            marginEnd = dp(7)
+        })
+        bar.addView(tab("Room", true) {}, LinearLayout.LayoutParams(0, dp(46), 1f))
+        return bar
+    }
+
+    private fun navigateHome() {
+        startActivity(
+            Intent(this, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+        )
     }
 
     private fun setBusy(busy: Boolean, message: String? = null) {
@@ -704,6 +682,11 @@ class ListeningRoomActivity : Activity() {
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
+    override fun onBackPressed() {
+        // Back navigates to Home; it must not destroy the active room session.
+        navigateHome()
+    }
+
     override fun onStart() {
         super.onStart()
         handler.removeCallbacks(playerTicker)
@@ -717,7 +700,6 @@ class ListeningRoomActivity : Activity() {
 
     override fun onDestroy() {
         syncJob?.cancel()
-        trackResolveJob?.cancel()
         handler.removeCallbacks(playerTicker)
         playback?.close()
         playback = null

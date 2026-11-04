@@ -129,20 +129,6 @@ class MainActivity : Activity() {
         )
         content.addView(appHeader)
 
-        val roomsButton = Button(this).apply {
-            text = "Listening Room  ·  Create or join"
-            textSize = 13f
-            isAllCaps = false
-            setTextColor(Color.rgb(14, 20, 12))
-            typeface = Typeface.DEFAULT_BOLD
-            background = rounded(accent, 12)
-            setPadding(dp(14), 0, dp(14), 0)
-            setOnClickListener {
-                startActivity(Intent(this@MainActivity, com.nexus.music.rooms.ListeningRoomActivity::class.java))
-            }
-        }
-        content.addView(roomsButton, verticalParams(14))
-
         val updatePanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = rounded(surface, 14)
@@ -276,11 +262,44 @@ class MainActivity : Activity() {
         scroll.addView(content)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         root.addView(buildPlayerPanel(), LinearLayout.LayoutParams(-1, -2))
+        root.addView(buildBottomNavigation(), LinearLayout.LayoutParams(-1, dp(62)))
         setContentView(root)
         applySystemBarInsets(root)
         connectPlaybackService()
         NexusUpdateScheduler.disableBackgroundUpdates(this)
         requestUpdateNotificationPermission()
+    }
+
+    private fun buildBottomNavigation(): LinearLayout {
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            background = rounded(surface, 18)
+            setPadding(dp(10), dp(7), dp(10), dp(7))
+        }
+        fun tab(title: String, selected: Boolean, onClick: () -> Unit) = Button(this).apply {
+            text = title
+            textSize = 14f
+            isAllCaps = false
+            minWidth = 0
+            minimumWidth = 0
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(if (selected) Color.rgb(14, 20, 12) else primaryText)
+            background = rounded(if (selected) accent else surfaceRaised, 12)
+            setOnClickListener { onClick() }
+        }
+        bar.addView(tab("Home", true) {}, LinearLayout.LayoutParams(0, dp(46), 1f).apply {
+            marginEnd = dp(7)
+        })
+        bar.addView(tab("Room", false) { openRoomPage() }, LinearLayout.LayoutParams(0, dp(46), 1f))
+        return bar
+    }
+
+    private fun openRoomPage() {
+        startActivity(
+            Intent(this, com.nexus.music.rooms.ListeningRoomActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+        )
     }
 
     /**
@@ -801,6 +820,10 @@ class MainActivity : Activity() {
 
     private fun dp(value: Int): Int =
         (value * resources.displayMetrics.density).toInt()
+
+    override fun onBackPressed() {
+        finishAffinity()
+    }
 
     override fun onStart() {
         super.onStart()
