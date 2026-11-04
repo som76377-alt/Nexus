@@ -40,6 +40,10 @@ The extractor uses unofficial service-facing interfaces. Upstream changes can br
 - [gradle/actions](https://github.com/gradle/actions): provides Gradle build caching for the checked-in Wrapper.
 - GitHub Actions builds and tests the debug APK on pushes to `main` and pull requests targeting `main`.
 
-## Not added yet
+## Backend and room integration
 
-No cloud backend, account provider, analytics SDK, ads SDK, API secrets, local media database, or persistent queue are included. These would add operational costs, privacy obligations, or complexity before the core playback path is verified.
+The private-room prototype uses a Supabase Postgres project, Supabase Auth REST endpoints, and PostgREST calls made through the app's existing OkHttp dependency. It does not add the Supabase Kotlin SDK. The APK contains only the Supabase project URL and publishable key; the service-role key is never included in the client. RLS and narrowly granted table/RPC permissions are the authorization boundary.
+
+The current sign-in method is anonymous and device-local. It is not a durable account provider and does not enforce a global allowlist of the two intended people. Room chat is stored as plaintext in the database and is not end-to-end encrypted. Enable anonymous sign-ins in Supabase Auth before testing the prototype.
+
+No analytics SDK, ads SDK, local media database, persistent queue, or end-to-end encryption library is included.
