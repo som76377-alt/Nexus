@@ -252,7 +252,6 @@ class MainActivity : Activity() {
         val lastCheck = preferences.getLong("last_check_ms", 0L)
         val now = System.currentTimeMillis()
         if (now - lastCheck < UPDATE_CHECK_INTERVAL_MS) return
-        preferences.edit().putLong("last_check_ms", now).apply()
         checkForUpdates(showResult = false)
     }
 
@@ -264,6 +263,8 @@ class MainActivity : Activity() {
             try {
                 when (val result = updateChecker.checkForUpdate(this@MainActivity)) {
                     is UpdateCheckResult.UpToDate -> {
+                        getSharedPreferences("nexus_update_check", MODE_PRIVATE)
+                            .edit().putLong("last_check_ms", System.currentTimeMillis()).apply()
                         pendingUpdate = null
                         updateButton.text = "Check updates"
                         if (showResult) {
@@ -272,6 +273,8 @@ class MainActivity : Activity() {
                     }
 
                     is UpdateCheckResult.Available -> {
+                        getSharedPreferences("nexus_update_check", MODE_PRIVATE)
+                            .edit().putLong("last_check_ms", System.currentTimeMillis()).apply()
                         pendingUpdate = result.update
                         updateButton.text = "Update ${result.update.versionName}"
                         if (!isFinishing) showUpdateDialog(result.update)
