@@ -51,6 +51,7 @@ data class RoomPlayback(
 class RoomsApi(context: Context) {
     private val appContext = context.applicationContext
     private val sessionStore = EncryptedRoomSessionStore(appContext)
+    private val sessionLock = Any()
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
@@ -207,7 +208,18 @@ class RoomsApi(context: Context) {
         val first = executeRequest(method, path, body, session.accessToken, prefer)
         if (first.first != 401) return first.second
 
-        val refreshed = refreshSession(session)
+        val refreshed = synchronized(sessionLock) {
+            val latest = sessionStore.read()
+            val now = System.currentTimeMillis() / 1000L
+            if (latest != null &&
+                latest.accessToken != session.accessToken &&
+                latest.expiresAtEpochSeconds > now + 90L
+            ) {
+                latest
+            } else {
+                refreshSession(latest ?: session)
+            }
+        }
         val retry = executeRequest(method, path, body, refreshed.accessToken, prefer)
         if (retry.first !in 200..299) throw apiError(retry.second, retry.first)
         return retry.second
@@ -262,24 +274,27 @@ class RoomsApi(context: Context) {
         return IOException(message)
     }
 
-    private fun ensureSession(): RoomSession {
+    private fun ensureSession(): RoomSession = synchronized(sessionLock) {
         val saved = sessionStore.read()
         if (saved != null) {
             if (saved.expiresAtEpochSeconds > System.currentTimeMillis() / 1000L + 90L) {
-                return saved
+                return@synchronized saved
             }
             if (saved.refreshToken.isBlank()) {
                 throw IOException("The saved room identity has expired and cannot be refreshed. It was not replaced with a new identity.")
             }
             // Never silently create a new anonymous identity when an old one fails to refresh:
             // that would strand this device's existing room memberships.
-            return refreshSession(saved)
+            return@synchronized refreshSession(saved)
         }
-        val response = authRequest("/auth/v1/signup", "{}")
+        val response = authRequest(
+            "/auth/v1/signup",
+            JSONObject().put("data", JSONObject()).toString()
+        )
         val userId = JSONObject(response).optJSONObject("user")?.optString("id").orEmpty()
         val session = parseSession(response, userId)
         sessionStore.write(session)
-        return session
+        session
     }
 
     private fun refreshSession(old: RoomSession): RoomSession {
