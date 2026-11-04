@@ -384,9 +384,9 @@ class GitHubReleaseUpdater(
         private val SHA256_PATTERN = Regex("^[a-f0-9]{64}$")
 
         private val API_CLIENT = OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(25, TimeUnit.SECONDS)
-            .callTimeout(40, TimeUnit.SECONDS)
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(12, TimeUnit.SECONDS)
+            .callTimeout(20, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .build()
 
