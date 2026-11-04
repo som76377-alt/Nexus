@@ -313,6 +313,7 @@ class MainActivity : Activity() {
     private fun checkForUpdates() {
         if (updateCheckJob?.isActive == true || downloadJob?.isActive == true) return
 
+        pendingUpdate = null
         updateStatusText.text = "Checking for updates…"
         updateStatusText.setTextColor(secondaryText)
         updateButton.visibility = View.GONE
