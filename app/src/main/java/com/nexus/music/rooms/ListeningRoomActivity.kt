@@ -567,10 +567,8 @@ class ListeningRoomActivity : Activity() {
     private fun parseTimestamp(value: String): Long? {
         // Postgres may return microsecond precision; SimpleDateFormat's SSS pattern expects
         // milliseconds, so trim any extra fractional digits before parsing.
-        val normalized = value.replace(
-            Regex("(\\.\\d{3})\\d+(?=Z|[+-]\\d{2}:?\\d{2}$)"),
-            "$1"
-        )
+        val fractionPattern = Regex("(\\.\\d{3})\\d+(?=Z|[+-]\\d{2}:?\\d{2}$)")
+        val normalized = fractionPattern.replace(value) { match -> match.groupValues[1] }
         val patterns = listOf(
             "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
             "yyyy-MM-dd'T'HH:mm:ssXXX",
