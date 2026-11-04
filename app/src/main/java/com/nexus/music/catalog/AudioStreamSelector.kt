@@ -5,7 +5,7 @@ import org.schabi.newpipe.extractor.stream.DeliveryMethod
 import java.net.URI
 
 /**
- * Selects an HTTP(S) audio stream that Media3 can address directly.
+ * Selects an HTTPS audio stream that Media3 can address directly.
  * Manifest payloads (isUrl == false) are not treated as ordinary media URLs.
  */
 object AudioStreamSelector {
@@ -20,8 +20,6 @@ object AudioStreamSelector {
 
     private fun isHttpUrl(value: String): Boolean {
         val uri = runCatching { URI(value) }.getOrNull() ?: return false
-        return (uri.scheme.equals("https", ignoreCase = true) ||
-            uri.scheme.equals("http", ignoreCase = true)) &&
-            !uri.host.isNullOrBlank()
+        return uri.scheme.equals("https", ignoreCase = true) && !uri.host.isNullOrBlank()
     }
 }
