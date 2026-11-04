@@ -20,8 +20,18 @@ class NexusUpdateWorker(appContext: Context, params: WorkerParameters) : Corouti
     override suspend fun doWork(): Result = try {
         when (val result = GitHubReleaseUpdater().checkForUpdate(applicationContext)) {
             is UpdateCheckResult.UpToDate -> {
-                applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                    .putLong(KEY_LAST_SUCCESS, System.currentTimeMillis()).apply()
+                val preferences = applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                preferences.getString(KEY_APK_PATH, null)?.let { java.io.File(it).delete() }
+                preferences.edit()
+                    .putLong(KEY_LAST_SUCCESS, System.currentTimeMillis())
+                    .remove(KEY_VERSION)
+                    .remove(KEY_VERSION_CODE)
+                    .remove(KEY_TAG)
+                    .remove(KEY_NOTES)
+                    .remove(KEY_URL)
+                    .remove(KEY_SHA256)
+                    .remove(KEY_APK_PATH)
+                    .apply()
                 Result.success()
             }
             is UpdateCheckResult.Available -> {
