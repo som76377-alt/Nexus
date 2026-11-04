@@ -118,10 +118,33 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        appHeader.addView(
+        val brandAndTest = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        brandAndTest.addView(
             text("NEXUS", 12f, accent, bold = true).apply { letterSpacing = 0.22f },
-            LinearLayout.LayoutParams(0, -2, 1f)
+            LinearLayout.LayoutParams(-2, -2)
         )
+        val updateTestButton = Button(this).apply {
+            text = "TEST"
+            textSize = 9f
+            isAllCaps = true
+            minWidth = 0
+            minimumWidth = 0
+            minHeight = 0
+            minimumHeight = 0
+            setTextColor(accent)
+            background = rounded(surfaceRaised, 8)
+            setPadding(dp(8), 0, dp(8), 0)
+            contentDescription = "Test the update checker"
+            setOnClickListener { checkForUpdates(showResult = true) }
+        }
+        brandAndTest.addView(
+            updateTestButton,
+            LinearLayout.LayoutParams(-2, dp(28)).apply { marginStart = dp(10) }
+        )
+        appHeader.addView(brandAndTest, LinearLayout.LayoutParams(0, -2, 1f))
         updateButton = Button(this).apply {
             text = "Check updates"
             textSize = 11f
