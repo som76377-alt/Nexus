@@ -1,53 +1,49 @@
 # Nexus
 
-**Nexus is a native Android music discovery and social-listening app.**
+**Nexus is a native Android music-discovery and social-listening prototype.**
 
-The intended product combines a broad music/video catalogue, background playback, playlists, and synchronized listening rooms.
+It combines YouTube catalogue search, Media3 background playback, an in-app updater, and private two-person listening rooms.
 
 ## Current status
 
-The first NewPipe integration milestone is now implemented in the codebase:
+### Implemented
+- [x] Native Kotlin Android app with a Media3 / ExoPlayer playback service.
+- [x] YouTube search scopes: All, Songs, and Videos, using a pinned NewPipe Extractor build.
+- [x] Audio stream resolution, HTTPS validation, bitrate-first selection, and short-lived stream URL handling.
+- [x] Background playback through MediaSessionService, with system media controls.
+- [x] Visible GitHub release checking, download progress, SHA-256 verification, signing-identity validation, and Android installer hand-off.
+- [x] Supabase room backend with hashed invite codes, a two-member limit per room, room-scoped messages, per-room playback state, and one-hour idle expiry.
+- [x] Android Listening Room entry point with Create Room / Join by Code, chat, shared YouTube-link playback, and play/pause/seek synchronisation through the existing Media3 player.
+- [x] Encrypted device-local anonymous room session storage.
+- [x] CI lint, unit tests, and debug APK assembly on pull requests.
 
-- [x] Native Kotlin Android application
-- [x] Media3 / ExoPlayer service and MediaController integration
-- [x] NewPipe Extractor pinned to an upstream-used commit
-- [x] OkHttp downloader adapter for NewPipe's Downloader contract
-- [x] YouTube search scopes: everything, music songs and videos
-- [x] Search result mapping into app-owned catalogue models
-- [x] Audio stream resolution, validated HTTPS URLs and bitrate-first quality selection
-- [x] Media3 DASH, HLS and SmoothStreaming playback modules
-- [x] Native Android search screen with All / Songs / Videos scopes
-- [x] Thumbnail result cards with duration and view metadata
-- [x] Tap-to-resolve flow with loading, empty and error states
-- [x] Coil image loading and compact metadata formatting tests
-- [x] MockWebServer tests for downloader HTTP behaviour
-- [x] Unit tests for audio stream selection
-- [x] Opt-in live YouTube search-and-resolution smoke test
-- [ ] Confirm the latest playback integration CI run completes successfully
-- [ ] Verify search, thumbnails and stream resolution on a real Android device/network
-- [ ] Verify live extraction from a real Android device/network
-- [x] Connect resolved audio to the Media3 playback service through MediaController
-- [x] Add persistent mini-player with play/pause and seeking
-- [x] Configure service audio focus, noisy-route handling, and a screen-off wake lock during active playback
-- [x] MediaSessionService-backed media notification and Android media controls while playback is active\n- [ ] Verify background playback, notification permission behaviour, and lock-screen controls on a physical Android device
-- [ ] Add pagination, playlists and local library
-- [ ] Design and implement social listening rooms and chat\n- [x] In-app GitHub release checking, SHA-256 APK verification, and Android installer hand-off (requires public release feed and stable signing key)
+### Still needs verification or hardening
+- [ ] Run the latest CI checks against the final audit commit.
+- [ ] Test chat, room expiry, and playback synchronisation on two physical Android devices.
+- [ ] Enable Supabase Anonymous Sign-Ins in the Nexus project before using the room prototype.
+- [ ] Replace anonymous device-only identity with a durable sign-in and restrict access to the two intended accounts.
+- [ ] Add client-side end-to-end encryption if chat confidentiality from the database operator is required.
+- [ ] Replace the initial 1.8-second REST polling transport with a persistent Realtime connection after validating the protocol.
+- [ ] Verify YouTube extraction and playback on the target phone/network.
+- [ ] Add full chat-history pagination; the current room UI displays the latest 100 messages.
+- [ ] Add playlists, queue persistence, and local library support.
 
 ## Technology
 
-- Kotlin with the explicitly versioned Kotlin Gradle Plugin
+- Kotlin, Android SDK 36, Gradle Kotlin DSL, and a pinned version catalog
 - AndroidX Media3 / ExoPlayer / MediaSession
-- NewPipe Extractor for community-maintained service extraction
-- OkHttp transport adapter
-- Kotlin coroutines for off-main-thread extraction
-- Gradle Kotlin DSL and version catalog
-- GitHub Actions for repeatable cloud builds and tests
+- NewPipe Extractor and OkHttp for YouTube catalogue/stream extraction
+- Kotlin coroutines for off-main-thread network work
+- Coil for artwork and thumbnails
+- Supabase Postgres, Auth, RLS, and scheduled room cleanup
+- Direct Supabase REST/Auth requests over OkHttp; no service-role key is embedded in the APK
+- GitHub Actions for lint, tests, and cloud APK builds
 
-See [docs/UPDATES.md](docs/UPDATES.md) for release signing and in-app update setup. See [docs/PROJECT_MAP.md](docs/PROJECT_MAP.md) for the codebase map, plus [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md), [docs/BUILDING.md](docs/BUILDING.md), and [docs/NEWPIPE_INTEGRATION.md](docs/NEWPIPE_INTEGRATION.md).
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/ROOMS_BACKEND.md](docs/ROOMS_BACKEND.md), [docs/PROJECT_MAP.md](docs/PROJECT_MAP.md), [docs/UPDATES.md](docs/UPDATES.md), and [docs/BUILDING.md](docs/BUILDING.md).
 
 ## Build and test
 
-Run the deterministic unit tests:
+Run deterministic unit tests:
 
 ```bash
 ./gradlew --no-daemon :app:testDebugUnitTest
@@ -59,16 +55,23 @@ Run the opt-in live extractor smoke test (requires network access):
 ./gradlew --no-daemon -Pnexus.liveExtractorTests=true :app:testDebugUnitTest
 ```
 
-Build the debug APK:
+Build a debug APK:
 
 ```bash
 ./gradlew --no-daemon :app:assembleDebug
 ```
 
-The repository includes a checked-in Gradle Wrapper that pins Gradle 9.6.0 and verifies the downloaded distribution checksum. The Codespaces bootstrap only installs Android SDK command-line tools; no separate Gradle installation is needed.
+The checked-in Gradle Wrapper pins Gradle 9.6.0 and verifies the downloaded distribution checksum. Codespaces bootstrap installs Android SDK command-line tools; no separate Gradle installation is needed.
 
-## Important
+## Important limitations
+
+- The room client uses short-interval REST polling, not a WebSocket/Realtime client. Network latency and polling mean synchronisation is not instantaneous or perfectly drift-free.
+- Room chat is protected by authenticated membership and RLS, but messages are not end-to-end encrypted.
+- Anonymous room identity is stored on one device. Clearing app data or reinstalling can lose that identity and strand its existing room membership.
+- The backend currently limits each room to two members; it does not yet enforce a project-wide allowlist for exactly two approved accounts.
+- The room UI currently loads the latest 100 messages; older messages remain in the database until room expiry but are not yet paginated in the UI.
+- A successful CI build does not prove YouTube extraction or two-device behaviour on every phone/network.
 
 Resolved media URLs may expire. Nexus stores canonical video URLs and resolves a fresh media URL immediately before playback.
 
-NewPipe Extractor is GPL-3.0-or-later. Review licence obligations before distributing a derivative application or binary. The unofficial extractor integration is isolated so upstream service changes can be maintained without rewriting the app's playback or UI layers.
+NewPipe Extractor is GPL-3.0-or-later. Review its licence obligations before distributing the app.
