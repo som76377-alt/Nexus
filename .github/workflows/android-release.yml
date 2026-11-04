@@ -9,7 +9,7 @@ on:
       version:
         description: "Version to build for signing validation (for example 0.1.2)"
         required: true
-        default: "0.1.2"
+        default: "0.1.3"
         type: string
 
 permissions:
