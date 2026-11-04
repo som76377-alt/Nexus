@@ -2,6 +2,7 @@ package com.nexus.music.playback
 
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -15,6 +16,7 @@ import androidx.media3.session.MediaSessionService
  * playback is active. ExoPlayer's local wake mode holds a partial wake lock only while audio is
  * ready/buffering and playWhenReady is true; it does not keep the phone awake indefinitely.
  */
+@UnstableApi
 class PlaybackService : MediaSessionService() {
     private var player: ExoPlayer? = null
     private var mediaSession: MediaSession? = null
