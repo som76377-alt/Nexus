@@ -105,7 +105,7 @@ class RoomsApi(context: Context) {
             apiRequest(
                 "GET",
                 "/rest/v1/room_messages?select=id,sender_id,body,created_at" +
-                    "&room_id=eq.$roomId&order=created_at.desc&limit=100",
+                    "&room_id=eq.$roomId&order=created_at.desc,id.desc&limit=100",
                 null
             )
         )
