@@ -24,7 +24,7 @@ android {
     }
 }
 
-tasks.withType<Test>().configureEach {
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
     systemProperty(
         "nexus.liveExtractorTests",
         providers.gradleProperty("nexus.liveExtractorTests").orNull ?: "false"
@@ -41,5 +41,4 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.mockwebserver)
-    testImplementation(libs.coroutines.test)
 }
