@@ -9,12 +9,13 @@ The intended product combines a broad music/video catalogue, background playback
 The first NewPipe integration milestone is now implemented in the codebase:
 
 - [x] Native Kotlin Android application
-- [x] Media3 / ExoPlayer dependencies and background service skeleton
+- [x] Media3 / ExoPlayer service and MediaController integration
 - [x] NewPipe Extractor pinned to an upstream-used commit
 - [x] OkHttp downloader adapter for NewPipe's Downloader contract
 - [x] YouTube search scopes: everything, music songs and videos
 - [x] Search result mapping into app-owned catalogue models
-- [x] Audio stream resolution and direct-URL quality selection
+- [x] Audio stream resolution, validated HTTPS URLs and bitrate-first quality selection
+- [x] Media3 DASH, HLS and SmoothStreaming playback modules
 - [x] Native Android search screen with All / Songs / Videos scopes
 - [x] Thumbnail result cards with duration and view metadata
 - [x] Tap-to-resolve flow with loading, empty and error states
@@ -27,14 +28,14 @@ The first NewPipe integration milestone is now implemented in the codebase:
 - [ ] Verify live extraction from a real Android device/network
 - [x] Connect resolved audio to the Media3 playback service through MediaController
 - [x] Add persistent mini-player with play/pause and seeking
-- [x] Configure service audio focus and noisy-route handling
-- [ ] Verify background playback and notification controls on a physical Android device
+- [x] Configure service audio focus, noisy-route handling, and a screen-off wake lock during active playback
+- [x] MediaSessionService-backed media notification and Android media controls while playback is active\n- [ ] Verify background playback, notification permission behaviour, and lock-screen controls on a physical Android device
 - [ ] Add pagination, playlists and local library
-- [ ] Design and implement social listening rooms and chat
+- [ ] Design and implement social listening rooms and chat\n- [x] In-app GitHub release checking, SHA-256 APK verification, and Android installer hand-off (requires public release feed and stable signing key)
 
 ## Technology
 
-- Kotlin with Android Gradle Plugin built-in Kotlin support
+- Kotlin with the explicitly versioned Kotlin Gradle Plugin
 - AndroidX Media3 / ExoPlayer / MediaSession
 - NewPipe Extractor for community-maintained service extraction
 - OkHttp transport adapter
@@ -42,29 +43,29 @@ The first NewPipe integration milestone is now implemented in the codebase:
 - Gradle Kotlin DSL and version catalog
 - GitHub Actions for repeatable cloud builds and tests
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md), [docs/BUILDING.md](docs/BUILDING.md), and [docs/NEWPIPE_INTEGRATION.md](docs/NEWPIPE_INTEGRATION.md).
+See [docs/UPDATES.md](docs/UPDATES.md) for release signing and in-app update setup. See [docs/PROJECT_MAP.md](docs/PROJECT_MAP.md) for the codebase map, plus [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md), [docs/BUILDING.md](docs/BUILDING.md), and [docs/NEWPIPE_INTEGRATION.md](docs/NEWPIPE_INTEGRATION.md).
 
 ## Build and test
 
 Run the deterministic unit tests:
 
 ```bash
-gradle --no-daemon :app:testDebugUnitTest
+./gradlew --no-daemon :app:testDebugUnitTest
 ```
 
 Run the opt-in live extractor smoke test (requires network access):
 
 ```bash
-gradle --no-daemon -Pnexus.liveExtractorTests=true :app:testDebugUnitTest
+./gradlew --no-daemon -Pnexus.liveExtractorTests=true :app:testDebugUnitTest
 ```
 
 Build the debug APK:
 
 ```bash
-gradle --no-daemon :app:assembleDebug
+./gradlew --no-daemon :app:assembleDebug
 ```
 
-The repository includes a Codespaces dev container and a GitHub Actions workflow that builds the debug APK and runs unit tests.
+The repository includes a checked-in Gradle Wrapper that pins Gradle 9.6.0 and verifies the downloaded distribution checksum. The Codespaces bootstrap only installs Android SDK command-line tools; no separate Gradle installation is needed.
 
 ## Important
 

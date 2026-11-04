@@ -1,14 +1,22 @@
 package com.nexus.music
 
+import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.net.Uri
+import android.provider.Settings
 import android.view.Gravity
+import android.view.WindowInsets
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
@@ -26,8 +34,14 @@ import com.nexus.music.catalog.YoutubeCatalogRepository
 import com.nexus.music.catalog.YoutubeSearchScope
 import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackSnapshot
+import com.nexus.music.update.GitHubReleaseUpdater
+import com.nexus.music.update.InstallPermissionRequiredException
+import com.nexus.music.update.NexusUpdate
+import com.nexus.music.update.NexusUpdateInstaller
+import com.nexus.music.update.UpdateCheckResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -36,12 +50,14 @@ import kotlinx.coroutines.launch
 class MainActivity : Activity() {
     private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val repository by lazy { YoutubeCatalogRepository() }
+    private val updateChecker by lazy { GitHubReleaseUpdater() }
     private val progressHandler = Handler(Looper.getMainLooper())
 
     private lateinit var resultsContainer: LinearLayout
     private lateinit var statusText: TextView
     private lateinit var queryInput: EditText
     private lateinit var searchButton: Button
+    private lateinit var updateButton: Button
     private lateinit var scopeButtons: Map<YoutubeSearchScope, Button>
     private lateinit var playerArtwork: ImageView
     private lateinit var playerTitle: TextView
@@ -50,13 +66,18 @@ class MainActivity : Activity() {
     private lateinit var playbackProgress: SeekBar
 
     private var playbackConnection: PlaybackConnection? = null
+    private var updateCheckJob: Job? = null
+    private var pendingUpdate: NexusUpdate? = null
+    private var pendingNotificationTrack: CatalogTrack? = null
+    private var notificationPermissionRequested = false
     private var selectedScope = YoutubeSearchScope.EVERYTHING
-    private var isSearching = false
+    private var searchJob: Job? = null
+    private var searchGeneration = 0L
     private var isResolving = false
     private var isSeeking = false
     private var lastPlaybackSnapshot = PlaybackSnapshot(connected = false)
 
-    private val background = Color.rgb(12, 14, 18)
+    private val screenBackground = Color.rgb(12, 14, 18)
     private val surface = Color.rgb(24, 28, 35)
     private val surfaceRaised = Color.rgb(31, 36, 44)
     private val accent = Color.rgb(167, 240, 106)
@@ -72,13 +93,13 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = background
-        window.navigationBarColor = background
+        window.statusBarColor = screenBackground
+        window.navigationBarColor = screenBackground
         window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(background)
+            setBackgroundColor(screenBackground)
         }
         val scroll = ScrollView(this).apply {
             isFillViewport = true
@@ -89,7 +110,28 @@ class MainActivity : Activity() {
             setPadding(dp(22), dp(28), dp(22), dp(32))
         }
 
-        content.addView(text("NEXUS", 12f, accent, bold = true).apply { letterSpacing = 0.22f })
+        val appHeader = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        appHeader.addView(
+            text("NEXUS", 12f, accent, bold = true).apply { letterSpacing = 0.22f },
+            LinearLayout.LayoutParams(0, -2, 1f)
+        )
+        updateButton = Button(this).apply {
+            text = "Check updates"
+            textSize = 11f
+            isAllCaps = false
+            setTextColor(primaryText)
+            background = rounded(surfaceRaised, 10)
+            setPadding(dp(8), 0, dp(8), 0)
+            setOnClickListener {
+                val available = pendingUpdate
+                if (available != null) showUpdateDialog(available) else checkForUpdates(showResult = true)
+            }
+        }
+        appHeader.addView(updateButton, LinearLayout.LayoutParams(-2, dp(38)))
+        content.addView(appHeader)
         content.addView(text("Find your next\nfavourite track.", 31f, primaryText, bold = true).apply {
             setPadding(0, dp(12), 0, dp(8))
         })
@@ -106,7 +148,7 @@ class MainActivity : Activity() {
             setHintTextColor(secondaryText)
             setTextColor(primaryText)
             textSize = 15f
-            singleLine = true
+            isSingleLine = true
             imeOptions = EditorInfo.IME_ACTION_SEARCH
             setBackgroundColor(Color.TRANSPARENT)
             setPadding(0, dp(15), 0, dp(15))
@@ -170,7 +212,153 @@ class MainActivity : Activity() {
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         root.addView(buildPlayerPanel(), LinearLayout.LayoutParams(-1, -2))
         setContentView(root)
+        applySystemBarInsets(root)
         connectPlaybackService()
+        maybeCheckForUpdates()
+    }
+
+    /**
+     * Android 15+ enforces edge-to-edge for apps targeting API 35+.
+     * Keep the background behind system bars while keeping interactive content inside them.
+     */
+    private fun applySystemBarInsets(root: LinearLayout) {
+        root.setOnApplyWindowInsetsListener { view, insets ->
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val safeInsets = insets.getInsets(
+                    WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout()
+                )
+                view.setPadding(
+                    safeInsets.left,
+                    safeInsets.top,
+                    safeInsets.right,
+                    safeInsets.bottom
+                )
+            } else {
+                view.setPadding(
+                    insets.systemWindowInsetLeft,
+                    insets.systemWindowInsetTop,
+                    insets.systemWindowInsetRight,
+                    insets.systemWindowInsetBottom
+                )
+            }
+            insets
+        }
+        root.requestApplyInsets()
+    }
+
+
+    private fun maybeCheckForUpdates() {
+        val preferences = getSharedPreferences("nexus_update_check", MODE_PRIVATE)
+        val lastCheck = preferences.getLong("last_check_ms", 0L)
+        val now = System.currentTimeMillis()
+        if (now - lastCheck < UPDATE_CHECK_INTERVAL_MS) return
+        preferences.edit().putLong("last_check_ms", now).apply()
+        checkForUpdates(showResult = false)
+    }
+
+    private fun checkForUpdates(showResult: Boolean) {
+        if (updateCheckJob?.isActive == true) return
+        updateButton.isEnabled = false
+        updateButton.text = "Checking…"
+        updateCheckJob = activityScope.launch {
+            try {
+                when (val result = updateChecker.checkForUpdate(this@MainActivity)) {
+                    is UpdateCheckResult.UpToDate -> {
+                        pendingUpdate = null
+                        updateButton.text = "Check updates"
+                        if (showResult) {
+                            Toast.makeText(this@MainActivity, "Nexus is up to date.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+
+                    is UpdateCheckResult.Available -> {
+                        pendingUpdate = result.update
+                        updateButton.text = "Update ${result.update.versionName}"
+                        if (!isFinishing) showUpdateDialog(result.update)
+                    }
+                }
+            } catch (error: Exception) {
+                updateButton.text = "Check updates"
+                if (showResult && !isFinishing) {
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Update check unavailable")
+                        .setMessage(error.message ?: "Could not contact the Nexus update feed.")
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
+            } finally {
+                updateButton.isEnabled = true
+                updateCheckJob = null
+            }
+        }
+    }
+
+    private fun showUpdateDialog(update: NexusUpdate) {
+        val notes = update.releaseNotes.ifBlank { "A newer version of Nexus is ready." }
+        AlertDialog.Builder(this)
+            .setTitle("Nexus update ${update.versionName}")
+            .setMessage(
+                notes + "\n\nThe APK will be checked before Android's installer is opened. " +
+                    "Android will ask you to approve the installation."
+            )
+            .setNegativeButton("Later", null)
+            .setPositiveButton("Download update") { _, _ -> installUpdate(update) }
+            .show()
+    }
+
+    private fun installUpdate(update: NexusUpdate) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            !packageManager.canRequestPackageInstalls()
+        ) {
+            AlertDialog.Builder(this)
+                .setTitle("Allow Nexus to install updates")
+                .setMessage("Android needs you to allow installs from Nexus. This is a one-time Android setting.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Open settings") { _, _ ->
+                    startActivity(
+                        Intent(
+                            Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                            Uri.parse("package:$packageName")
+                        )
+                    )
+                }
+                .show()
+            return
+        }
+
+        updateButton.isEnabled = false
+        updateButton.text = "Downloading…"
+        activityScope.launch {
+            try {
+                val apk = updateChecker.downloadAndVerify(this@MainActivity, update)
+                NexusUpdateInstaller.install(this@MainActivity, apk)
+                updateButton.text = "Installer opened"
+            } catch (error: InstallPermissionRequiredException) {
+                updateButton.text = "Update ${update.versionName}"
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Android install permission needed")
+                    .setMessage(error.message)
+                    .setPositiveButton("Open settings") { _, _ ->
+                        startActivity(
+                            Intent(
+                                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                Uri.parse("package:$packageName")
+                            )
+                        )
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            } catch (error: Exception) {
+                updateButton.text = "Update ${update.versionName}"
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Update could not be installed")
+                    .setMessage(error.message ?: "The download or verification failed.")
+                    .setPositiveButton("OK", null)
+                    .show()
+            } finally {
+                updateButton.isEnabled = true
+            }
+        }
     }
 
     private fun buildPlayerPanel(): LinearLayout {
@@ -304,18 +492,34 @@ class MainActivity : Activity() {
 
     private fun performSearch() {
         val query = queryInput.text.toString().trim()
-        if (query.isEmpty()) { queryInput.error = "Enter a song, artist or video"; return }
-        if (isSearching) return
+        if (query.isEmpty()) {
+            searchGeneration++
+            searchJob?.cancel()
+            searchJob = null
+            searchButton.isEnabled = true
+            searchButton.text = "Search"
+            queryInput.error = "Enter a song, artist or video"
+            statusText.text = "Enter a song, artist or video to search."
+            resultsContainer.removeAllViews()
+            return
+        }
 
-        isSearching = true
-        searchButton.isEnabled = false
-        searchButton.text = "Searching"
+        // A newer query or scope always supersedes the previous request.
+        searchJob?.cancel()
+        queryInput.error = null
+        val requestGeneration = ++searchGeneration
+        val requestScope = selectedScope
+        // Keep the button available so a new query can supersede a slow request.
+        searchButton.isEnabled = true
+        searchButton.text = "Search"
         statusText.text = "Searching YouTube..."
         resultsContainer.removeAllViews()
 
-        activityScope.launch {
+        searchJob = activityScope.launch {
             try {
-                val results = repository.search(query, selectedScope)
+                val results = repository.search(query, requestScope)
+                if (requestGeneration != searchGeneration) return@launch
+
                 resultsContainer.removeAllViews()
                 if (results.isEmpty()) {
                     statusText.text = "No results found. Try another search or scope."
@@ -328,11 +532,15 @@ class MainActivity : Activity() {
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                statusText.text = "Search couldn't complete: ${error.message ?: "Please try again."}"
+                if (requestGeneration == searchGeneration) {
+                    statusText.text = "Search couldn't complete: ${error.message ?: "Please try again."}"
+                }
             } finally {
-                isSearching = false
-                searchButton.isEnabled = true
-                searchButton.text = "Search"
+                if (requestGeneration == searchGeneration && !isDestroyed) {
+                    searchJob = null
+                    searchButton.isEnabled = true
+                    searchButton.text = "Search"
+                }
             }
         }
     }
@@ -352,7 +560,7 @@ class MainActivity : Activity() {
             background = rounded(surfaceRaised, 10)
             contentDescription = "Track thumbnail"
         }
-        track.thumbnailUrl?.let { thumbnail.load(it) { crossfade(true) } }
+        track.thumbnailUrl?.let { thumbnail.load(it) }
         card.addView(thumbnail, LinearLayout.LayoutParams(dp(112), dp(72)))
 
         val details = LinearLayout(this).apply {
@@ -376,6 +584,41 @@ class MainActivity : Activity() {
 
     private fun resolve(track: CatalogTrack) {
         if (isResolving) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            !notificationPermissionRequested &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionRequested = true
+            pendingNotificationTrack = track
+            requestPermissions(
+                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                REQUEST_POST_NOTIFICATIONS
+            )
+            return
+        }
+        startResolvingTrack(track)
+    }
+
+    @Deprecated("Use the system notification permission result to continue the user's playback action.")
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_POST_NOTIFICATIONS) {
+            val track = pendingNotificationTrack
+            pendingNotificationTrack = null
+            if (track != null && !isFinishing) {
+                // Playback is allowed even when notification permission is declined. Android may
+                // show media controls in its media area rather than the regular notification drawer.
+                startResolvingTrack(track)
+            }
+        }
+    }
+
+    private fun startResolvingTrack(track: CatalogTrack) {
+        if (isResolving) return
         isResolving = true
         statusText.text = "Preparing audio for “${track.title}”…"
         activityScope.launch {
@@ -395,7 +638,7 @@ class MainActivity : Activity() {
     private fun showResolved(audio: ResolvedAudio) {
         playerTitle.text = audio.title
         playerSubtitle.text = "Sending audio to player…"
-        audio.thumbnailUrl?.let { playerArtwork.load(it) { crossfade(true) } }
+        playerArtwork.load(audio.thumbnailUrl?.takeIf(String::isNotBlank))
         playPauseButton.isEnabled = true
         playbackConnection?.play(audio)
         statusText.text = "Starting playback: ${audio.title}"
@@ -440,10 +683,20 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        searchGeneration++
+        searchJob?.cancel()
+        searchJob = null
         progressHandler.removeCallbacks(progressTicker)
         playbackConnection?.close()
         playbackConnection = null
+        updateCheckJob?.cancel()
+        updateCheckJob = null
         activityScope.cancel()
         super.onDestroy()
+    }
+
+    companion object {
+        private const val REQUEST_POST_NOTIFICATIONS = 1001
+        private const val UPDATE_CHECK_INTERVAL_MS = 6L * 60L * 60L * 1000L
     }
 }
