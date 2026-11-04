@@ -1,6 +1,7 @@
 package com.nexus.music.playback
 
 import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -12,8 +13,12 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        val musicAudioAttributes = AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+            .build()
         val exoPlayer = ExoPlayer.Builder(this).build().apply {
-            setAudioAttributes(AudioAttributes.DEFAULT, /* handleAudioFocus = */ true)
+            setAudioAttributes(musicAudioAttributes, /* handleAudioFocus = */ true)
             setHandleAudioBecomingNoisy(true)
         }
         player = exoPlayer
