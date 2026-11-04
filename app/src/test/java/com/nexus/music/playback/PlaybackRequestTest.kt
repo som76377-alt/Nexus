@@ -14,7 +14,8 @@ class PlaybackRequestTest {
             thumbnailUrl = "https://img.example/thumb.jpg",
             durationSeconds = 210L,
             audioUrl = "https://media.example/stream?signature=temporary",
-            averageBitrate = 160_000
+            averageBitrate = 160_000,
+            mimeType = "audio/mp4"
         )
 
         val request = PlaybackRequest.from(audio)
@@ -24,5 +25,6 @@ class PlaybackRequestTest {
         assertEquals(audio.title, request.title)
         assertEquals(audio.artist, request.artist)
         assertEquals(audio.thumbnailUrl, request.thumbnailUrl)
+        assertEquals(audio.mimeType, request.mimeType)
     }
 }
