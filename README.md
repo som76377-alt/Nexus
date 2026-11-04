@@ -6,40 +6,48 @@ The intended product combines a broad music/video catalogue, background playback
 
 ## Current status
 
-This commit establishes the native Android project and its playback foundation. It is **not yet a finished music player**:
+The first NewPipe integration milestone is now implemented in the codebase:
 
 - [x] Native Kotlin Android application
-- [x] Media3 / ExoPlayer dependencies
-- [x] Background playback service and MediaSession skeleton
-- [x] NewPipe Extractor dependency pinned to an upstream-used commit
-- [x] Codespaces development-container bootstrap
-- [x] GitHub Actions debug-build workflow
-- [ ] Wire NewPipe Extractor to a maintained HTTP downloader
-- [ ] Implement catalogue search and stream resolution
-- [ ] Connect the app UI to the playback service
-- [ ] Verify background playback on a physical Android device
-- [ ] Implement playlists and local library
+- [x] Media3 / ExoPlayer dependencies and background service skeleton
+- [x] NewPipe Extractor pinned to an upstream-used commit
+- [x] OkHttp downloader adapter for NewPipe's Downloader contract
+- [x] YouTube search scopes: everything, music songs and videos
+- [x] Search result mapping into app-owned catalogue models
+- [x] Audio stream resolution and direct-URL quality selection
+- [x] MockWebServer tests for downloader HTTP behaviour
+- [x] Unit tests for audio stream selection
+- [x] Opt-in live YouTube search-and-resolution smoke test
+- [ ] Run CI and fix any compile/test failures
+- [ ] Verify live extraction from a real Android device/network
+- [ ] Connect resolved audio to the Media3 playback service
+- [ ] Add pagination, playlists and local library
 - [ ] Design and implement social listening rooms and chat
 
 ## Technology
 
 - Kotlin with Android Gradle Plugin built-in Kotlin support
 - AndroidX Media3 / ExoPlayer / MediaSession
-- NewPipe Extractor (unofficial, community-maintained service extraction)
+- NewPipe Extractor for community-maintained service extraction
+- OkHttp transport adapter
+- Kotlin coroutines for off-main-thread extraction
 - Gradle Kotlin DSL and version catalog
-- GitHub Actions for repeatable cloud builds
+- GitHub Actions for repeatable cloud builds and tests
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md), and [docs/BUILDING.md](docs/BUILDING.md).
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md), [docs/BUILDING.md](docs/BUILDING.md), and [docs/NEWPIPE_INTEGRATION.md](docs/NEWPIPE_INTEGRATION.md).
 
-## Build
+## Build and test
 
-The repository includes a Codespaces dev container. Rebuild the container after opening the repository to bootstrap JDK, Gradle, and Android command-line tools.
-
-After reviewing and accepting the Android SDK licence in the Codespaces terminal, install the required SDK packages:
+Run the deterministic unit tests:
 
 ```bash
-sdkmanager --licenses
-sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+gradle --no-daemon :app:testDebugUnitTest
+```
+
+Run the opt-in live extractor smoke test (requires network access):
+
+```bash
+gradle --no-daemon -Pnexus.liveExtractorTests=true :app:testDebugUnitTest
 ```
 
 Build the debug APK:
@@ -48,12 +56,10 @@ Build the debug APK:
 gradle --no-daemon :app:assembleDebug
 ```
 
-Output: `app/build/outputs/apk/debug/app-debug.apk`
-
-The Android CI workflow also builds the debug APK on pushes and pull requests and uploads it as a workflow artifact.
+The repository includes a Codespaces dev container and a GitHub Actions workflow that builds the debug APK and runs unit tests.
 
 ## Important
 
-Unofficial extractors can stop working when a provider changes its website or internal interfaces. The extraction layer must be isolated, tested, and maintainable. The NewPipe Extractor licence is GPL-3.0-or-later; review the project's distribution/licensing obligations before publishing or distributing a release.
+Resolved media URLs may expire. Nexus stores canonical video URLs and resolves a fresh media URL immediately before playback.
 
-No API keys or backend secrets are required for the initial local playback foundation.
+NewPipe Extractor is GPL-3.0-or-later. Review licence obligations before distributing a derivative application or binary. The unofficial extractor integration is isolated so upstream service changes can be maintained without rewriting the app's playback or UI layers.

@@ -18,6 +18,17 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
+}
+
+tasks.withType<Test>().configureEach {
+    systemProperty(
+        "nexus.liveExtractorTests",
+        providers.gradleProperty("nexus.liveExtractorTests").orNull ?: "false"
+    )
 }
 
 dependencies {
@@ -25,4 +36,10 @@ dependencies {
     implementation(libs.media3.session)
     implementation(libs.media3.ui)
     implementation(libs.newpipe.extractor)
+    implementation(libs.okhttp)
+    implementation(libs.coroutines.android)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.mockwebserver)
+    testImplementation(libs.coroutines.test)
 }
