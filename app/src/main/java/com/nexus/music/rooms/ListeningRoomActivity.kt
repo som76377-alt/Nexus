@@ -102,7 +102,7 @@ class ListeningRoomActivity : Activity() {
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(background)
+            setBackgroundColor(this@ListeningRoomActivity.background)
             setPadding(dp(20), dp(24), dp(20), dp(18))
         }
         val header = LinearLayout(this).apply {
@@ -137,7 +137,7 @@ class ListeningRoomActivity : Activity() {
         codeInput = EditText(this).apply {
             hint = "Enter 16-character invite code"
             setHintTextColor(muted)
-            setTextColor(foreground)
+            setTextColor(this@ListeningRoomActivity.foreground)
             textSize = 14f
             isSingleLine = true
             inputType = android.text.InputType.TYPE_CLASS_TEXT or
@@ -201,7 +201,7 @@ class ListeningRoomActivity : Activity() {
         trackInput = EditText(this).apply {
             hint = "Paste a YouTube track link to play for both"
             setHintTextColor(muted)
-            setTextColor(foreground)
+            setTextColor(this@ListeningRoomActivity.foreground)
             textSize = 13f
             isSingleLine = true
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
@@ -237,7 +237,7 @@ class ListeningRoomActivity : Activity() {
         messageInput = EditText(this).apply {
             hint = "Write a message…"
             setHintTextColor(muted)
-            setTextColor(foreground)
+            setTextColor(this@ListeningRoomActivity.foreground)
             textSize = 14f
             maxLines = 3
             setBackground(rounded(surface, 10))
@@ -576,7 +576,7 @@ class ListeningRoomActivity : Activity() {
         minWidth = 0
         minimumWidth = 0
         setPadding(dp(12), 0, dp(12), 0)
-        setTextColor(if (primary) Color.rgb(14, 20, 12) else foreground)
+        setTextColor(if (primary) Color.rgb(14, 20, 12) else this@ListeningRoomActivity.foreground)
         typeface = Typeface.DEFAULT_BOLD
         background = rounded(if (primary) accent else raised, 10)
     }
