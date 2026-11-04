@@ -5,10 +5,12 @@ import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
+import android.view.WindowInsets
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
@@ -28,6 +30,7 @@ import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackSnapshot
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -51,7 +54,8 @@ class MainActivity : Activity() {
 
     private var playbackConnection: PlaybackConnection? = null
     private var selectedScope = YoutubeSearchScope.EVERYTHING
-    private var isSearching = false
+    private var searchJob: Job? = null
+    private var searchGeneration = 0L
     private var isResolving = false
     private var isSeeking = false
     private var lastPlaybackSnapshot = PlaybackSnapshot(connected = false)
@@ -170,7 +174,37 @@ class MainActivity : Activity() {
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         root.addView(buildPlayerPanel(), LinearLayout.LayoutParams(-1, -2))
         setContentView(root)
+        applySystemBarInsets(root)
         connectPlaybackService()
+    }
+
+    /**
+     * Android 15+ enforces edge-to-edge for apps targeting API 35+.
+     * Keep the background behind system bars while keeping interactive content inside them.
+     */
+    private fun applySystemBarInsets(root: LinearLayout) {
+        root.setOnApplyWindowInsetsListener { view, insets ->
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val safeInsets = insets.getInsets(
+                    WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout()
+                )
+                view.setPadding(
+                    safeInsets.left,
+                    safeInsets.top,
+                    safeInsets.right,
+                    safeInsets.bottom
+                )
+            } else {
+                view.setPadding(
+                    insets.systemWindowInsetLeft,
+                    insets.systemWindowInsetTop,
+                    insets.systemWindowInsetRight,
+                    insets.systemWindowInsetBottom
+                )
+            }
+            insets
+        }
+        root.requestApplyInsets()
     }
 
     private fun buildPlayerPanel(): LinearLayout {
@@ -304,18 +338,32 @@ class MainActivity : Activity() {
 
     private fun performSearch() {
         val query = queryInput.text.toString().trim()
-        if (query.isEmpty()) { queryInput.error = "Enter a song, artist or video"; return }
-        if (isSearching) return
+        if (query.isEmpty()) {
+            searchGeneration++
+            searchJob?.cancel()
+            searchJob = null
+            searchButton.isEnabled = true
+            searchButton.text = "Search"
+            queryInput.error = "Enter a song, artist or video"
+            statusText.text = "Enter a song, artist or video to search."
+            resultsContainer.removeAllViews()
+            return
+        }
 
-        isSearching = true
+        // A newer query or scope always supersedes the previous request.
+        searchJob?.cancel()
+        val requestGeneration = ++searchGeneration
+        val requestScope = selectedScope
         searchButton.isEnabled = false
         searchButton.text = "Searching"
         statusText.text = "Searching YouTube..."
         resultsContainer.removeAllViews()
 
-        activityScope.launch {
+        searchJob = activityScope.launch {
             try {
-                val results = repository.search(query, selectedScope)
+                val results = repository.search(query, requestScope)
+                if (requestGeneration != searchGeneration) return@launch
+
                 resultsContainer.removeAllViews()
                 if (results.isEmpty()) {
                     statusText.text = "No results found. Try another search or scope."
@@ -328,11 +376,15 @@ class MainActivity : Activity() {
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                statusText.text = "Search couldn't complete: ${error.message ?: "Please try again."}"
+                if (requestGeneration == searchGeneration) {
+                    statusText.text = "Search couldn't complete: ${error.message ?: "Please try again."}"
+                }
             } finally {
-                isSearching = false
-                searchButton.isEnabled = true
-                searchButton.text = "Search"
+                if (requestGeneration == searchGeneration && !isDestroyed) {
+                    searchJob = null
+                    searchButton.isEnabled = true
+                    searchButton.text = "Search"
+                }
             }
         }
     }
@@ -395,7 +447,7 @@ class MainActivity : Activity() {
     private fun showResolved(audio: ResolvedAudio) {
         playerTitle.text = audio.title
         playerSubtitle.text = "Sending audio to player…"
-        audio.thumbnailUrl?.let { playerArtwork.load(it) { crossfade(true) } }
+        playerArtwork.load(audio.thumbnailUrl?.takeIf(String::isNotBlank)) { crossfade(true) }
         playPauseButton.isEnabled = true
         playbackConnection?.play(audio)
         statusText.text = "Starting playback: ${audio.title}"
@@ -440,6 +492,9 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        searchGeneration++
+        searchJob?.cancel()
+        searchJob = null
         progressHandler.removeCallbacks(progressTicker)
         playbackConnection?.close()
         playbackConnection = null
