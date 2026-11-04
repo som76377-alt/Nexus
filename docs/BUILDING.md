@@ -1,48 +1,70 @@
 # Building Nexus
 
+## Required toolchain
+
+- JDK 17 or newer (CI uses JDK 17; the Codespaces image uses JDK 21).
+- Android SDK Platform 36.
+- Android Build Tools 36.0.0.
+- Gradle 9.6.0.
+- Android Gradle Plugin 9.5.0.
+
+The repository currently does not contain `gradlew`, `gradlew.bat`, or the Gradle Wrapper JAR. Use the pinned Gradle 9.6.0 installation supplied by the Codespaces bootstrap or CI; do not substitute an arbitrary system Gradle version.
+
 ## GitHub Codespaces
 
-The repository dev container is based on the Microsoft Java 21 development image. Its post-create bootstrap installs:
+The repository dev container is based on the Microsoft Java 21 development image. Its post-create bootstrap installs Gradle 9.6.0 and Android command-line tools.
 
-- Gradle 9.6.0
-- Android command-line tools
-- Android SDK manager
-
-The SDK platform/build-tools packages are installed after the user reviews and accepts the Android SDK licence.
-
-Open the Codespaces terminal and run:
+The SDK platform/build-tools packages are installed after the user reviews and accepts the Android SDK licence:
 
 ```bash
 sdkmanager --licenses
 sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 ```
 
-Then build:
+Build the debug APK:
 
 ```bash
 gradle --no-daemon :app:assembleDebug
+```
+
+Run unit tests and Android lint:
+
+```bash
+gradle --no-daemon :app:testDebugUnitTest
+gradle --no-daemon :app:lintDebug
 ```
 
 APK output:
 
 `app/build/outputs/apk/debug/app-debug.apk`
 
+## Live extractor smoke test
+
+The live test intentionally depends on public YouTube availability and is excluded from normal CI. Run it only when you want a real network smoke test:
+
+```bash
+gradle --no-daemon -Pnexus.liveExtractorTests=true :app:testDebugUnitTest
+```
+
+A failure may indicate an upstream extractor/service change or network restrictions; it is not necessarily a regression in the deterministic unit tests.
+
 ## GitHub Actions
 
-The `Android CI` workflow installs JDK 17, Android SDK packages, and Gradle 9.6.0, then builds the debug APK. Download the artifact from the successful workflow run.
+The `Android CI` workflow installs JDK 17, Android SDK Platform 36, Build Tools 36.0.0, and Gradle 9.6.0. It runs unit tests, Android lint, and a debug APK build, then uploads the APK as a 14-day artifact.
 
 ## Physical-device verification
 
-A successful CI build only proves that the app compiles. It does not prove that a particular stream resolves or that playback survives on a specific phone.
+A successful CI build only proves that the app compiles and its configured checks pass. It does not prove that a particular stream resolves or that playback survives on a specific phone.
 
-For device testing, install the debug APK, then verify:
+Install the debug APK and verify:
 
 1. App launches without crashing.
-2. Playback service can be connected to.
-3. A known test stream starts and plays.
-4. Audio continues when another app is opened.
-5. Audio continues with the screen locked.
+2. Search works for All, Songs, and Videos; changing scope during an active search shows only the newest result set.
+3. A known public test stream resolves and starts.
+4. Playback continues when another app is opened.
+5. Playback continues with the screen locked.
 6. Notification and lock-screen controls work.
-7. Pause/resume, seek, queue changes, audio focus, and Bluetooth controls behave correctly.
+7. Pause/resume, seek, audio focus, audio becoming noisy, wired/Bluetooth routes, and service/process recreation behave correctly.
+8. Status bar, display cutout, gesture navigation, and three-button navigation do not obscure the search UI or mini-player.
 
-The catalogue-to-player integration and a physical test run are still pending.
+The live extraction and physical-device checks must be performed on an actual network/device before calling the app release-ready.
