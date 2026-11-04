@@ -321,10 +321,11 @@ private class EncryptedRoomSessionStore(context: Context) {
     private val preferences = context.getSharedPreferences("nexus_room_session", Context.MODE_PRIVATE)
     private val alias = "nexus_room_session_aes_gcm"
 
-    fun read(): RoomSession? = runCatching {
-        val encoded = preferences.getString("session", null) ?: return null
+    fun read(): RoomSession? {
+        return runCatching {
+        val encoded = preferences.getString("session", null) ?: return@runCatching null
         val packed = Base64.decode(encoded, Base64.NO_WRAP)
-        if (packed.size <= 12) return null
+        if (packed.size <= 12) return@runCatching null
         val iv = packed.copyOfRange(0, 12)
         val encrypted = packed.copyOfRange(12, packed.size)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
@@ -336,7 +337,8 @@ private class EncryptedRoomSessionStore(context: Context) {
             json.getString("refresh_token"),
             json.getLong("expires_at")
         )
-    }.getOrNull()
+        }.getOrNull()
+    }
 
     fun write(session: RoomSession) {
         val json = JSONObject()
