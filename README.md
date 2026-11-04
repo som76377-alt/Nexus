@@ -9,12 +9,13 @@ The intended product combines a broad music/video catalogue, background playback
 The first NewPipe integration milestone is now implemented in the codebase:
 
 - [x] Native Kotlin Android application
-- [x] Media3 / ExoPlayer dependencies and background service skeleton
+- [x] Media3 / ExoPlayer service and MediaController integration
 - [x] NewPipe Extractor pinned to an upstream-used commit
 - [x] OkHttp downloader adapter for NewPipe's Downloader contract
 - [x] YouTube search scopes: everything, music songs and videos
 - [x] Search result mapping into app-owned catalogue models
-- [x] Audio stream resolution and direct-URL quality selection
+- [x] Audio stream resolution, validated HTTP(S) URLs and bitrate-first quality selection
+- [x] Media3 DASH, HLS and SmoothStreaming playback modules
 - [x] Native Android search screen with All / Songs / Videos scopes
 - [x] Thumbnail result cards with duration and view metadata
 - [x] Tap-to-resolve flow with loading, empty and error states
@@ -42,7 +43,7 @@ The first NewPipe integration milestone is now implemented in the codebase:
 - Gradle Kotlin DSL and version catalog
 - GitHub Actions for repeatable cloud builds and tests
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md), [docs/BUILDING.md](docs/BUILDING.md), and [docs/NEWPIPE_INTEGRATION.md](docs/NEWPIPE_INTEGRATION.md).
+See [docs/PROJECT_MAP.md](docs/PROJECT_MAP.md) for the codebase map, plus [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md), [docs/BUILDING.md](docs/BUILDING.md), and [docs/NEWPIPE_INTEGRATION.md](docs/NEWPIPE_INTEGRATION.md).
 
 ## Build and test
 
@@ -64,7 +65,7 @@ Build the debug APK:
 gradle --no-daemon :app:assembleDebug
 ```
 
-The repository includes a Codespaces dev container and a GitHub Actions workflow that builds the debug APK and runs unit tests.
+The repository includes a Codespaces dev container and a GitHub Actions workflow that runs unit tests, Android lint, and a debug APK build. Gradle 9.6.0 is installed by the dev-container bootstrap and CI; a checked-in Gradle Wrapper has not yet been added.
 
 ## Important
 
