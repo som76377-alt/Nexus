@@ -354,9 +354,12 @@ class MainActivity : Activity() {
     }
 
     private fun installUpdate(update: NexusUpdate) {
+        if (downloadJob?.isActive == true) return
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
             !packageManager.canRequestPackageInstalls()
         ) {
+            updateStatusText.text = "Android needs permission to install Nexus updates."
             AlertDialog.Builder(this)
                 .setTitle("Allow Nexus to install updates")
                 .setMessage("Android needs you to allow installs from Nexus. This is a one-time Android setting.")
@@ -375,25 +378,66 @@ class MainActivity : Activity() {
 
         updateButton.isEnabled = false
         updateButton.text = "Downloading…"
-        activityScope.launch {
+        updateProgressContainer.visibility = View.VISIBLE
+        updateProgressBar.isIndeterminate = false
+        updateProgressBar.progress = 0
+        updateProgressText.text = "Connecting to GitHub…"
+        updateStatusText.text = "Downloading Nexus ${update.versionName}…"
+
+        downloadJob = activityScope.launch {
+            var installerOpened = false
             try {
                 val cachedApk = withContext(Dispatchers.IO) {
-                    runCatching { updateChecker.findVerifiedCachedUpdate(this@MainActivity, update) }.getOrNull()
+                    runCatching {
+                        updateChecker.findVerifiedCachedUpdate(this@MainActivity, update)
+                    }.getOrNull()
                 }
-                val apk = cachedApk ?: updateChecker.downloadAndVerify(this@MainActivity, update)
+                val apk = cachedApk ?: updateChecker.downloadAndVerify(
+                    this@MainActivity,
+                    update
+                ) { downloadedBytes, totalBytes ->
+                    runOnUiThread {
+                        if (!isFinishing && !isDestroyed) {
+                            if (totalBytes > 0L) {
+                                val percent = ((downloadedBytes * 100L) / totalBytes)
+                                    .toInt().coerceIn(0, 100)
+                                updateProgressBar.isIndeterminate = false
+                                updateProgressBar.progress = percent
+                                updateProgressText.text =
+                                    "${formatBytes(downloadedBytes)} / ${formatBytes(totalBytes)} · $percent%"
+                            } else {
+                                updateProgressBar.isIndeterminate = true
+                                updateProgressText.text =
+                                    "${formatBytes(downloadedBytes)} downloaded"
+                            }
+                        }
+                    }
+                }
+
+                updateProgressBar.isIndeterminate = false
+                updateProgressBar.progress = 100
+                updateProgressText.text = if (cachedApk != null) {
+                    "Previously downloaded APK verified."
+                } else {
+                    "Download complete · APK integrity and signing verified."
+                }
+                updateStatusText.text = "Verified · opening Android installer…"
+                updateButton.text = "Opening installer…"
+
                 NexusUpdateInstaller.install(this@MainActivity, apk)
-                if (!isFinishing && !isDestroyed) {
-                    updateButton.text = "Install request sent"
-                    Toast.makeText(
-                        this@MainActivity,
-                        "Android should show its update approval screen. Approve it there to finish.",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
+                installerOpened = true
+                updateStatusText.text = "Android installer opened · approve the update to finish."
+                updateButton.text = "Install again"
+                Toast.makeText(
+                    this@MainActivity,
+                    "Approve the update in Android's installer to finish.",
+                    Toast.LENGTH_LONG
+                ).show()
             } catch (error: CancellationException) {
                 throw error
             } catch (error: InstallPermissionRequiredException) {
-                updateButton.text = "Update ${update.versionName}"
+                updateStatusText.text = "Allow installs from Nexus in Android settings, then retry."
+                updateButton.text = "Download"
                 AlertDialog.Builder(this@MainActivity)
                     .setTitle("Android install permission needed")
                     .setMessage(error.message)
@@ -408,17 +452,18 @@ class MainActivity : Activity() {
                     .setNegativeButton("Cancel", null)
                     .show()
             } catch (error: Exception) {
-                updateButton.text = "Update ${update.versionName}"
-                if (!isFinishing && !isDestroyed) {
-                    AlertDialog.Builder(this@MainActivity)
-                        .setTitle("Update could not be installed")
-                        .setMessage(error.message ?: "The download or verification failed.")
-                        .setPositiveButton("OK", null)
-                        .show()
-                }
+                updateStatusText.text = "Download failed · ${error.message ?: "Please try again."}"
+                updateProgressText.text = "The update was not installed. Tap Retry to try again."
+                updateButton.text = "Retry download"
+                updateButton.visibility = View.VISIBLE
             } finally {
                 if (!isFinishing && !isDestroyed) {
+                    downloadJob = null
                     updateButton.isEnabled = true
+                    if (installerOpened) {
+                        updateButton.text = "Install again"
+                        updateButton.visibility = View.VISIBLE
+                    }
                 }
             }
         }
@@ -731,15 +776,14 @@ class MainActivity : Activity() {
     private fun verticalParams(top: Int) =
         LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(top) }
 
+    private fun formatBytes(bytes: Long): String = when {
+        bytes < 1024L -> "${bytes} B"
+        bytes < 1024L * 1024L -> "${bytes / 1024L} KB"
+        else -> String.format("%.1f MB", bytes / (1024.0 * 1024.0))
+    }
+
     private fun dp(value: Int): Int =
         (value * resources.displayMetrics.density).toInt()
-
-    override fun onResume() {
-        super.onResume()
-        if (::updateButton.isInitialized && updateButton.text == "Install request sent") {
-            updateButton.text = pendingUpdate?.let { "Update ${it.versionName}" } ?: "Check updates"
-        }
-    }
 
     override fun onStart() {
         super.onStart()
@@ -761,6 +805,8 @@ class MainActivity : Activity() {
         playbackConnection = null
         updateCheckJob?.cancel()
         updateCheckJob = null
+        downloadJob?.cancel()
+        downloadJob = null
         activityScope.cancel()
         super.onDestroy()
     }
