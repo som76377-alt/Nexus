@@ -476,7 +476,9 @@ class ListeningRoomActivity : Activity() {
             try {
                 val audio = catalog.resolveAudio(url)
                 applyingRemoteUntil = 0L
-                playback?.play(audio)
+                if (playback?.play(audio) == false) {
+                    throw java.io.IOException("The player could not accept this track.")
+                }
                 trackInput.text.clear()
                 status.text = "Track sent to the shared player."
             } catch (error: CancellationException) {
@@ -564,7 +566,9 @@ class ListeningRoomActivity : Activity() {
             val audio = catalog.resolveAudio(remote.sourceUrl)
             // Prepare directly into the remote play/pause state so a paused room never
             // briefly starts audio while the client catches up.
-            activePlayer.play(audio, remote.isPlaying)
+            if (!activePlayer.play(audio, remote.isPlaying)) {
+                throw java.io.IOException("The player rejected the shared track. Retrying sync…")
+            }
             delay(350L)
         }
         val elapsed = parseTimestamp(remote.updatedAt)
