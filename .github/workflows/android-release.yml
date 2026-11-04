@@ -56,15 +56,37 @@ jobs:
               exit 1
             fi
           done
-          printf '%s' "$NEXUS_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/nexus-signing.jks"
-          test -s "$RUNNER_TEMP/nexus-signing.jks"
-          keytool -list -keystore "$RUNNER_TEMP/nexus-signing.jks" -storepass "$NEXUS_KEYSTORE_PASSWORD" -alias "$NEXUS_KEY_ALIAS" >/dev/null
-          echo "Nexus signing key validation" > "$RUNNER_TEMP/nexus-key-check.txt"
-          jar --create --file "$RUNNER_TEMP/nexus-key-check.jar" -C "$RUNNER_TEMP" nexus-key-check.txt
-          if ! jarsigner -keystore "$RUNNER_TEMP/nexus-signing.jks" -storepass "$NEXUS_KEYSTORE_PASSWORD" -keypass "$NEXUS_KEY_PASSWORD" "$RUNNER_TEMP/nexus-key-check.jar" "$NEXUS_KEY_ALIAS" >/dev/null 2>&1; then
-            echo "::error::NEXUS_KEY_PASSWORD does not unlock the private key for NEXUS_KEY_ALIAS. Re-enter the private-key password from the local signing setup; do not change the keystore or regenerate the key."
+
+          if ! printf '%s' "$NEXUS_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/nexus-signing.jks"; then
+            echo "::error::NEXUS_KEYSTORE_BASE64 is not valid Base64."
             exit 1
           fi
+          if [ ! -s "$RUNNER_TEMP/nexus-signing.jks" ]; then
+            echo "::error::The decoded keystore file is empty."
+            exit 1
+          fi
+
+          if ! keytool -list -keystore "$RUNNER_TEMP/nexus-signing.jks" -storepass "$NEXUS_KEYSTORE_PASSWORD" -alias "$NEXUS_KEY_ALIAS" > "$RUNNER_TEMP/keytool-check.log" 2>&1; then
+            echo "::error::The keystore could not be opened with NEXUS_KEYSTORE_PASSWORD and NEXUS_KEY_ALIAS. Check those two secrets against the local signing files."
+            sed -n '1,6p' "$RUNNER_TEMP/keytool-check.log"
+            exit 1
+          fi
+          echo "Keystore password and alias verified."
+
+          echo "Nexus signing key validation" > "$RUNNER_TEMP/nexus-key-check.txt"
+          if ! jar --create --file "$RUNNER_TEMP/nexus-key-check.jar" -C "$RUNNER_TEMP" nexus-key-check.txt > "$RUNNER_TEMP/jar-check.log" 2>&1; then
+            echo "::error::Could not create the temporary signing validation archive."
+            cat "$RUNNER_TEMP/jar-check.log"
+            exit 1
+          fi
+
+          if ! jarsigner -keystore "$RUNNER_TEMP/nexus-signing.jks" -storepass "$NEXUS_KEYSTORE_PASSWORD" -keypass "$NEXUS_KEY_PASSWORD" "$RUNNER_TEMP/nexus-key-check.jar" "$NEXUS_KEY_ALIAS" > "$RUNNER_TEMP/jarsigner-check.log" 2>&1; then
+            echo "::error::NEXUS_KEY_PASSWORD does not unlock the private key for NEXUS_KEY_ALIAS. Re-enter the private-key password from the local signing setup; do not change the keystore or regenerate the key."
+            sed -n '1,8p' "$RUNNER_TEMP/jarsigner-check.log"
+            exit 1
+          fi
+          echo "Private-key password verified."
+
           echo "NEXUS_KEYSTORE_PATH=$RUNNER_TEMP/nexus-signing.jks" >> "$GITHUB_ENV"
           echo "NEXUS_KEYSTORE_PASSWORD=$NEXUS_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
           echo "NEXUS_KEY_ALIAS=$NEXUS_KEY_ALIAS" >> "$GITHUB_ENV"
