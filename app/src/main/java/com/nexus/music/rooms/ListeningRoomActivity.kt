@@ -330,7 +330,9 @@ class ListeningRoomActivity : Activity() {
         syncJob?.cancel()
         syncJob = scope.launch {
             var lastHeartbeat = 0L
+            var consecutiveFailures = 0
             while (isActive && roomId == id) {
+                var iterationFailed = false
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastHeartbeat >= 25_000L) {
                     try {
@@ -341,6 +343,7 @@ class ListeningRoomActivity : Activity() {
                     } catch (error: CancellationException) {
                         throw error
                     } catch (error: Exception) {
+                        iterationFailed = true
                         status.text = "Room reconnecting · ${error.message ?: "heartbeat failed"}"
                     }
                 }
@@ -350,6 +353,7 @@ class ListeningRoomActivity : Activity() {
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Exception) {
+                    iterationFailed = true
                     status.text = "Chat reconnecting · ${error.message ?: "connection interrupted"}"
                 }
 
@@ -370,6 +374,7 @@ class ListeningRoomActivity : Activity() {
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Exception) {
+                    iterationFailed = true
                     status.text = "Playback reconnecting · ${error.message ?: "connection interrupted"}"
                 }
 
@@ -378,9 +383,21 @@ class ListeningRoomActivity : Activity() {
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Exception) {
+                    iterationFailed = true
                     status.text = "Playback update failed · ${error.message ?: "try again"}"
                 }
-                delay(1800L)
+
+                consecutiveFailures = if (iterationFailed) {
+                    (consecutiveFailures + 1).coerceAtMost(4)
+                } else {
+                    0
+                }
+                val nextDelay = if (consecutiveFailures == 0) {
+                    1800L
+                } else {
+                    (1800L * (1L shl consecutiveFailures)).coerceAtMost(15_000L)
+                }
+                delay(nextDelay)
             }
         }
     }
