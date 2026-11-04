@@ -762,7 +762,10 @@ class MainActivity : Activity() {
         playerSubtitle.text = "Sending audio to player…"
         playerArtwork.load(audio.thumbnailUrl?.takeIf(String::isNotBlank))
         playPauseButton.isEnabled = true
-        playbackConnection?.play(audio)
+        if (playbackConnection?.play(audio) != true) {
+            statusText.text = "The player could not accept this track. Try selecting it again."
+            return
+        }
         statusText.text = "Starting playback: ${audio.title}"
         Toast.makeText(this, "Starting playback", Toast.LENGTH_SHORT).show()
     }
