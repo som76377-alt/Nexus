@@ -4,7 +4,7 @@ This folder contains the database migrations for Nexus's private two-person list
 
 ## Data model
 
-- `rooms`: one row per room. Only a SHA-256 hash of the one-time invite code is stored.
+- `rooms`: one row per room. Only a SHA-256 hash of the invite code is stored.
 - `room_members`: membership scoped to a room. The database serializes joins against the room row and rejects a third member.
 - `room_messages`: every message has a required `room_id`; chat history is therefore isolated by room. Messages are readable only by members of that room.
 - `room_playback`: one current playback snapshot per room. It stores the canonical source identity/URL, not a temporary extracted audio-stream URL.
