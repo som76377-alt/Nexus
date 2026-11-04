@@ -37,7 +37,6 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlin.math.abs
 
 /**
  * In-app prototype for private two-person listening rooms.
@@ -531,16 +530,15 @@ class ListeningRoomActivity : Activity() {
         if (source.isBlank() || snapshot.title.isBlank()) return
 
         val now = SystemClock.elapsedRealtime()
-        val expectedPosition = if (lastPublishedPlaying) {
-            lastPublishedPositionMs + (now - lastPublishedAtElapsed).coerceAtLeast(0L)
-        } else {
-            lastPublishedPositionMs
-        }
-        val positionDrift = abs(snapshot.positionMs - expectedPosition)
+        val expectedPosition = RoomPlaybackMath.expectedLocalPositionMs(
+            positionMs = lastPublishedPositionMs,
+            isPlaying = lastPublishedPlaying,
+            lastPublishedElapsedMs = lastPublishedAtElapsed,
+            nowElapsedMs = now
+        )
         val stateChanged = source != lastPublishedSource || snapshot.isPlaying != lastPublishedPlaying
-        // Compare against the expected natural playback position so a user seek is sent even
-        // when it lands inside the same coarse time bucket as the previous poll.
-        if (!stateChanged && positionDrift < 650L) return
+        // Compare against expected natural playback progression so a user seek is still published.
+        if (!stateChanged && !RoomPlaybackMath.shouldPublishPosition(snapshot.positionMs, expectedPosition)) return
 
         api.publishPlayback(
             roomId = id,
@@ -583,10 +581,14 @@ class ListeningRoomActivity : Activity() {
         }
         val elapsed = parseTimestamp(remote.updatedAt)
             ?.let { (System.currentTimeMillis() - it).coerceAtLeast(0L) } ?: 0L
-        val expectedPosition = (remote.positionMs + if (remote.isPlaying) elapsed else 0L)
-            .coerceAtMost(remote.durationMs.takeIf { it > 0L } ?: Long.MAX_VALUE)
+        val expectedPosition = RoomPlaybackMath.expectedRemotePositionMs(
+            positionMs = remote.positionMs,
+            isPlaying = remote.isPlaying,
+            elapsedSinceUpdateMs = elapsed,
+            durationMs = remote.durationMs
+        )
         val latest = activePlayer.snapshot()
-        if (abs(latest.positionMs - expectedPosition) > 1400L &&
+        if (RoomPlaybackMath.needsSeek(latest.positionMs, expectedPosition) &&
             !activePlayer.seekTo(expectedPosition)
         ) {
             throw java.io.IOException("The player is not ready to seek yet. Retrying sync…")
