@@ -142,7 +142,7 @@ jobs:
           test -s "$APK"
           CERT_INFO="$("$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$APK")"
           echo "$CERT_INFO"
-          ACTUAL_CERT_SHA256="$(printf '%s\\n' "$CERT_INFO" | awk -F': ' '/certificate SHA-256 digest:/ { print tolower($2); exit }' | tr -d ':')"
+          ACTUAL_CERT_SHA256="$(printf '%s\n' "$CERT_INFO" | awk -F': ' '/certificate SHA-256 digest:/ { print tolower($2); exit }' | tr -d ':')"
           EXPECTED_CERT_SHA256="c8b263a4b2aecac65df71e6ee9f6e8ab47a33688a46a4cf0f4248506975d6e2b"
           if [ "$ACTUAL_CERT_SHA256" != "$EXPECTED_CERT_SHA256" ]; then
             echo "::error::The APK was signed with a different certificate. Do not publish it; check the Nexus signing secrets."
