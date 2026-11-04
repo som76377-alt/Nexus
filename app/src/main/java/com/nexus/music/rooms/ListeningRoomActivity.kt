@@ -75,7 +75,10 @@ class ListeningRoomActivity : Activity() {
     private var isSeeking = false
     private var applyingRemoteUntil = 0L
     private var lastRemoteRevision = 0L
-    private var lastPublishedSignature = ""
+    private var lastPublishedSource = ""
+    private var lastPublishedPlaying = false
+    private var lastPublishedPositionMs = 0L
+    private var lastPublishedAtElapsed = 0L
     private var isResolvingTrack = false
     private var lastSnapshot = PlaybackSnapshot(connected = false)
 
@@ -322,33 +325,60 @@ class ListeningRoomActivity : Activity() {
         codeInput.visibility = View.GONE
         joinButton.visibility = View.GONE
         inviteText.text = inviteCode?.let { "Invite code: $it" } ?: "Room connected"
-        refreshMessages()
-        api.loadPlayback(id)?.let {
-            lastRemoteRevision = it.revision
-            if (it.updatedBy != userId) applyRemotePlayback(it)
-        }
+        status.text = "Connected · syncing room…"
+
         syncJob?.cancel()
         syncJob = scope.launch {
             var lastHeartbeat = 0L
             while (isActive && roomId == id) {
-                try {
-                    val now = SystemClock.elapsedRealtime()
-                    if (now - lastHeartbeat >= 25_000L) {
-                        api.touchRoom(id)
+                val now = SystemClock.elapsedRealtime()
+                if (now - lastHeartbeat >= 25_000L) {
+                    try {
+                        if (!api.touchRoom(id)) {
+                            throw java.io.IOException("Your room membership is no longer active. Rejoin with the invite code.")
+                        }
                         lastHeartbeat = now
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        status.text = "Room reconnecting · ${error.message ?: "heartbeat failed"}"
                     }
+                }
+
+                try {
                     refreshMessages()
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    status.text = "Chat reconnecting · ${error.message ?: "connection interrupted"}"
+                }
+
+                try {
                     api.loadPlayback(id)?.let { remote ->
-                        if (remote.updatedBy != userId && remote.revision > lastRemoteRevision) {
+                        if (remote.revision > lastRemoteRevision) {
+                            val localSource = playback?.snapshot()?.sourceId.orEmpty()
+                            if (remote.updatedBy != userId || localSource != remote.sourceUrl) {
+                                applyRemotePlayback(remote)
+                            } else {
+                                rememberPublishedPlayback(playback?.snapshot())
+                            }
+                            // Only mark the revision after applying it successfully. A failed
+                            // stream resolution must be retried on the next polling cycle.
                             lastRemoteRevision = remote.revision
-                            applyRemotePlayback(remote)
                         }
                     }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    status.text = "Playback reconnecting · ${error.message ?: "connection interrupted"}"
+                }
+
+                try {
                     publishLocalPlaybackIfChanged()
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Exception) {
-                    status.text = "Room reconnecting · ${error.message ?: "connection interrupted"}"
+                    status.text = "Playback update failed · ${error.message ?: "try again"}"
                 }
                 delay(1800L)
             }
@@ -464,9 +494,19 @@ class ListeningRoomActivity : Activity() {
         val snapshot = playback?.snapshot() ?: return
         val source = snapshot.sourceId
         if (source.isBlank() || snapshot.title.isBlank()) return
-        val positionBucket = if (snapshot.isPlaying) snapshot.positionMs / 3000L else snapshot.positionMs / 1000L
-        val signature = "$source|${snapshot.isPlaying}|$positionBucket"
-        if (signature == lastPublishedSignature) return
+
+        val now = SystemClock.elapsedRealtime()
+        val expectedPosition = if (lastPublishedPlaying) {
+            lastPublishedPositionMs + (now - lastPublishedAtElapsed).coerceAtLeast(0L)
+        } else {
+            lastPublishedPositionMs
+        }
+        val positionDrift = abs(snapshot.positionMs - expectedPosition)
+        val stateChanged = source != lastPublishedSource || snapshot.isPlaying != lastPublishedPlaying
+        // Compare against the expected natural playback position so a user seek is sent even
+        // when it lands inside the same coarse time bucket as the previous poll.
+        if (!stateChanged && positionDrift < 650L) return
+
         api.publishPlayback(
             roomId = id,
             userId = sender,
@@ -478,7 +518,15 @@ class ListeningRoomActivity : Activity() {
             positionMs = snapshot.positionMs,
             durationMs = snapshot.durationMs
         )
-        lastPublishedSignature = signature
+        rememberPublishedPlayback(snapshot)
+    }
+
+    private fun rememberPublishedPlayback(snapshot: PlaybackSnapshot?) {
+        if (snapshot == null || snapshot.sourceId.isBlank()) return
+        lastPublishedSource = snapshot.sourceId
+        lastPublishedPlaying = snapshot.isPlaying
+        lastPublishedPositionMs = snapshot.positionMs
+        lastPublishedAtElapsed = SystemClock.elapsedRealtime()
     }
 
     private suspend fun applyRemotePlayback(remote: RoomPlayback) {
@@ -500,7 +548,13 @@ class ListeningRoomActivity : Activity() {
             activePlayer.seekTo(expectedPosition)
         }
         activePlayer.setPlaying(remote.isPlaying)
-        lastPublishedSignature = "${remote.sourceUrl}|${remote.isPlaying}|${expectedPosition / 3000L}"
+        rememberPublishedPlayback(
+            latest.copy(
+                sourceId = remote.sourceUrl,
+                isPlaying = remote.isPlaying,
+                positionMs = expectedPosition
+            )
+        )
         status.text = "Synced with the other device."
     }
 
@@ -530,7 +584,10 @@ class ListeningRoomActivity : Activity() {
         inviteCode = null
         userId = null
         lastRemoteRevision = 0L
-        lastPublishedSignature = ""
+        lastPublishedSource = ""
+        lastPublishedPlaying = false
+        lastPublishedPositionMs = 0L
+        lastPublishedAtElapsed = 0L
         roomPanel.visibility = View.GONE
         createButton.visibility = View.VISIBLE
         codeInput.visibility = View.VISIBLE
