@@ -3,6 +3,10 @@ plugins {
     alias(libs.plugins.kotlin.android)
 }
 
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 val nexusVersionName = providers.gradleProperty("nexusVersionName").orElse("0.1.0").get()
 val nexusVersionCode = providers.gradleProperty("nexusVersionCode").orNull?.toIntOrNull() ?: 1000
 val updateRepositoryOwner = providers.gradleProperty("nexusUpdateOwner").orElse("som76377-alt").get()
@@ -12,17 +16,11 @@ val nexusKeystorePath = providers.environmentVariable("NEXUS_KEYSTORE_PATH").orN
 val nexusKeystorePassword = providers.environmentVariable("NEXUS_KEYSTORE_PASSWORD").orNull
 val nexusKeyAlias = providers.environmentVariable("NEXUS_KEY_ALIAS").orNull
 val nexusKeyPassword = providers.environmentVariable("NEXUS_KEY_PASSWORD").orNull
-val hasNexusSigningKey = listOf(
-    nexusKeystorePath,
-    nexusKeystorePassword,
-    nexusKeyAlias,
-    nexusKeyPassword
-).all { !it.isNullOrBlank() }
+val hasNexusSigningKey = listOf(nexusKeystorePath, nexusKeystorePassword, nexusKeyAlias, nexusKeyPassword).all { !it.isNullOrBlank() }
 
 android {
     namespace = "com.nexus.music"
     compileSdk = 36
-
     defaultConfig {
         applicationId = "com.nexus.music"
         minSdk = 24
@@ -32,11 +30,7 @@ android {
         buildConfigField("String", "UPDATE_REPOSITORY_OWNER", "\"$updateRepositoryOwner\"")
         buildConfigField("String", "UPDATE_REPOSITORY_NAME", "\"$updateRepositoryName\"")
     }
-
-    buildFeatures {
-        buildConfig = true
-    }
-
+    buildFeatures { buildConfig = true }
     signingConfigs {
         create("nexus") {
             if (hasNexusSigningKey) {
@@ -47,31 +41,21 @@ android {
             }
         }
     }
-
     buildTypes {
         getByName("release") {
             isMinifyEnabled = false
-            if (hasNexusSigningKey) {
-                signingConfig = signingConfigs.getByName("nexus")
-            }
+            if (hasNexusSigningKey) signingConfig = signingConfigs.getByName("nexus")
         }
     }
-
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-
-    testOptions {
-        unitTests.isReturnDefaultValues = true
-    }
+    testOptions { unitTests.isReturnDefaultValues = true }
 }
 
 tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
-    systemProperty(
-        "nexus.liveExtractorTests",
-        providers.gradleProperty("nexus.liveExtractorTests").orNull ?: "false"
-    )
+    systemProperty("nexus.liveExtractorTests", providers.gradleProperty("nexus.liveExtractorTests").orNull ?: "false")
 }
 
 dependencies {
@@ -86,7 +70,9 @@ dependencies {
     implementation(libs.coroutines.android)
     implementation(libs.coil)
     implementation(libs.coil.network.okhttp)
-
+    implementation("androidx.work:work-runtime-ktx:2.10.1")
+    implementation("androidx.core:core-ktx:1.16.0")
+    implementation("com.google.firebase:firebase-messaging:24.1.1")
     testImplementation(libs.junit)
     testImplementation(libs.mockwebserver)
 }
