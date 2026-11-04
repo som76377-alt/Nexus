@@ -388,15 +388,22 @@ class ListeningRoomActivity : Activity() {
     private suspend fun refreshMessages() {
         val id = roomId ?: return
         val messages = api.loadMessages(id)
+        if (messages.isEmpty()) {
+            if (messagesBox.childCount == 1 && messagesBox.getChildAt(0).tag == "empty") return
+            messagesBox.removeAllViews()
+            messagesBox.addView(
+                label("No messages yet. Start the conversation.", 12f, muted).apply {
+                    tag = "empty"
+                }
+            )
+            return
+        }
         val currentIds = (0 until messagesBox.childCount).mapNotNull { index ->
             messagesBox.getChildAt(index).tag as? String
         }.toSet()
         if (messages.all { it.id in currentIds } && messages.size == currentIds.size) return
         messagesBox.removeAllViews()
-        if (messages.isEmpty()) {
-            messagesBox.addView(label("No messages yet. Start the conversation.", 12f, muted))
-        } else {
-            messages.forEach { message ->
+        messages.forEach { message ->
                 val mine = message.senderId == userId
                 val bubble = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
@@ -417,7 +424,6 @@ class ListeningRoomActivity : Activity() {
                     bottomMargin = dp(8)
                 })
                 messagesBox.addView(row)
-            }
         }
     }
 
@@ -559,6 +565,12 @@ class ListeningRoomActivity : Activity() {
     }
 
     private fun parseTimestamp(value: String): Long? {
+        // Postgres may return microsecond precision; SimpleDateFormat's SSS pattern expects
+        // milliseconds, so trim any extra fractional digits before parsing.
+        val normalized = value.replace(
+            Regex("(\\.\\d{3})\\d+(?=Z|[+-]\\d{2}:?\\d{2}$)"),
+            "$1"
+        )
         val patterns = listOf(
             "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
             "yyyy-MM-dd'T'HH:mm:ssXXX",
@@ -570,7 +582,7 @@ class ListeningRoomActivity : Activity() {
                 SimpleDateFormat(pattern, Locale.US).apply {
                     isLenient = false
                     timeZone = java.util.TimeZone.getTimeZone("UTC")
-                }.parse(value)?.time
+                }.parse(normalized)?.time
             }.getOrNull()
             if (parsed != null) return parsed
         }
