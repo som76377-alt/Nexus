@@ -257,11 +257,16 @@ class RoomsApi(context: Context) {
 
     private fun ensureSession(): RoomSession {
         val saved = sessionStore.read()
-        if (saved != null && saved.expiresAtEpochSeconds > System.currentTimeMillis() / 1000L + 90L) {
-            return saved
-        }
-        if (saved != null && saved.refreshToken.isNotBlank()) {
-            runCatching { return refreshSession(saved) }
+        if (saved != null) {
+            if (saved.expiresAtEpochSeconds > System.currentTimeMillis() / 1000L + 90L) {
+                return saved
+            }
+            if (saved.refreshToken.isBlank()) {
+                throw IOException("The saved room identity has expired and cannot be refreshed. It was not replaced with a new identity.")
+            }
+            // Never silently create a new anonymous identity when an old one fails to refresh:
+            // that would strand this device's existing room memberships.
+            return refreshSession(saved)
         }
         val response = authRequest("/auth/v1/signup", "{}")
         val userId = JSONObject(response).optJSONObject("user")?.optString("id").orEmpty()
@@ -322,22 +327,27 @@ private class EncryptedRoomSessionStore(context: Context) {
     private val alias = "nexus_room_session_aes_gcm"
 
     fun read(): RoomSession? {
-        return runCatching {
-        val encoded = preferences.getString("session", null) ?: return@runCatching null
-        val packed = Base64.decode(encoded, Base64.NO_WRAP)
-        if (packed.size <= 12) return@runCatching null
-        val iv = packed.copyOfRange(0, 12)
-        val encrypted = packed.copyOfRange(12, packed.size)
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, getKey(), GCMParameterSpec(128, iv))
-        val json = JSONObject(String(cipher.doFinal(encrypted), Charsets.UTF_8))
-        RoomSession(
-            json.getString("user_id"),
-            json.getString("access_token"),
-            json.getString("refresh_token"),
-            json.getLong("expires_at")
-        )
-        }.getOrNull()
+        val encoded = preferences.getString("session", null) ?: return null
+        try {
+            val packed = Base64.decode(encoded, Base64.NO_WRAP)
+            if (packed.size <= 12) throw IOException("Saved room session data is incomplete.")
+            val iv = packed.copyOfRange(0, 12)
+            val encrypted = packed.copyOfRange(12, packed.size)
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.DECRYPT_MODE, getKey(), GCMParameterSpec(128, iv))
+            val json = JSONObject(String(cipher.doFinal(encrypted), Charsets.UTF_8))
+            return RoomSession(
+                json.getString("user_id"),
+                json.getString("access_token"),
+                json.getString("refresh_token"),
+                json.getLong("expires_at")
+            )
+        } catch (error: Exception) {
+            throw IOException(
+                "Nexus could not unlock this device's saved room identity. It has not created a replacement identity.",
+                error
+            )
+        }
     }
 
     fun write(session: RoomSession) {
