@@ -334,7 +334,7 @@ class ListeningRoomActivity : Activity() {
 
         syncJob?.cancel()
         syncJob = scope.launch {
-            var lastHeartbeat = 0L
+            var lastHeartbeat = SystemClock.elapsedRealtime() - 25_000L
             var consecutiveFailures = 0
             while (isActive && roomId == id) {
                 var iterationFailed = false
@@ -342,7 +342,9 @@ class ListeningRoomActivity : Activity() {
                 if (now - lastHeartbeat >= 25_000L) {
                     try {
                         if (!api.touchRoom(id)) {
-                            throw java.io.IOException("Your room membership is no longer active. Rejoin with the invite code.")
+                            exitRoom()
+                            status.text = "This room has expired or your membership ended. Join with a current invite code."
+                            return@launch
                         }
                         lastHeartbeat = now
                     } catch (error: CancellationException) {
