@@ -17,6 +17,7 @@ import java.util.concurrent.Executor
 
 data class PlaybackSnapshot(
     val connected: Boolean,
+    val sourceId: String = "",
     val title: String = "",
     val artist: String = "",
     val isPlaying: Boolean = false,
@@ -41,6 +42,7 @@ class PlaybackConnection(
     private var closed = false
     private var controller: MediaController? = null
     private var pendingRequest: PlaybackRequest? = null
+    private var pendingPlayWhenReady = true
 
     private val controllerFuture = MediaController.Builder(
         context,
@@ -65,8 +67,9 @@ class PlaybackConnection(
                 val connectedController = controllerFuture.get()
                 controller = connectedController
                 connectedController.addListener(playerListener)
-                pendingRequest?.let(::startPlayback)
+                pendingRequest?.let { startPlayback(it, pendingPlayWhenReady) }
                 pendingRequest = null
+                pendingPlayWhenReady = true
                 onReady()
                 publishState()
             } catch (error: Exception) {
@@ -76,18 +79,22 @@ class PlaybackConnection(
         }, mainExecutor)
     }
 
-    fun play(audio: ResolvedAudio) {
+    fun play(audio: ResolvedAudio, shouldPlay: Boolean = true): Boolean {
         val request = PlaybackRequest.from(audio)
-        pendingRequest = request
-        if (controller != null) {
-            startPlayback(request)
-            pendingRequest = null
+        val activeController = controller
+        if (activeController == null) {
+            pendingRequest = request
+            pendingPlayWhenReady = shouldPlay
+            return true
         }
+        pendingRequest = null
+        pendingPlayWhenReady = true
+        return startPlayback(request, shouldPlay)
     }
 
-    private fun startPlayback(request: PlaybackRequest) {
-        val activeController = controller ?: return
-        try {
+    private fun startPlayback(request: PlaybackRequest, shouldPlay: Boolean): Boolean {
+        val activeController = controller ?: return false
+        return try {
             val metadata = MediaMetadata.Builder()
                 .setTitle(request.title)
                 .setArtist(request.artist ?: "")
@@ -101,10 +108,12 @@ class PlaybackConnection(
 
             activeController.setMediaItem(item)
             activeController.prepare()
-            activeController.play()
+            if (shouldPlay) activeController.play() else activeController.pause()
             publishState()
+            true
         } catch (error: Exception) {
             onError(error.message ?: "The selected audio could not be sent to the player.")
+            false
         }
     }
 
@@ -126,11 +135,31 @@ class PlaybackConnection(
         publishState()
     }
 
-    fun seekTo(positionMs: Long) {
-        val activeController = controller ?: return
-        if (activeController.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)) {
-            activeController.seekTo(positionMs.coerceAtLeast(0L))
+    fun seekTo(positionMs: Long): Boolean {
+        val activeController = controller ?: return false
+        if (!activeController.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)) {
+            return false
         }
+        activeController.seekTo(positionMs.coerceAtLeast(0L))
+        return true
+    }
+
+    fun setPlaying(shouldPlay: Boolean) {
+        val activeController = controller ?: return
+        if (shouldPlay) {
+            if (activeController.playbackState == Player.STATE_IDLE ||
+                activeController.playbackState == Player.STATE_ENDED
+            ) {
+                if (activeController.playbackState == Player.STATE_ENDED) {
+                    activeController.seekTo(0L)
+                }
+                activeController.prepare()
+            }
+            activeController.play()
+        } else {
+            activeController.pause()
+        }
+        publishState()
     }
 
     fun snapshot(): PlaybackSnapshot {
@@ -141,6 +170,7 @@ class PlaybackConnection(
         }
         return PlaybackSnapshot(
             connected = true,
+            sourceId = item?.mediaId.orEmpty(),
             title = item?.mediaMetadata?.title?.toString().orEmpty(),
             artist = item?.mediaMetadata?.artist?.toString().orEmpty(),
             isPlaying = activeController.isPlaying,

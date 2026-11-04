@@ -2,7 +2,7 @@
 
 ## Product direction
 
-Nexus is a native Android music-discovery and social-listening app. The playback service owns playback state; the UI observes and commands it through a Media3 `MediaController`. The UI must never become the source of truth for the active item, queue, playback state, or position.
+Nexus is a native Android music-discovery and social-listening prototype. The playback service owns playback state; Activities observe and command it through a Media3 `MediaController`. The UI must never become the source of truth for the active item, queue, playback state, or position.
 
 ## Implemented source layout
 
@@ -10,68 +10,90 @@ Nexus is a native Android music-discovery and social-listening app. The playback
 app/src/main/
   AndroidManifest.xml
   java/com/nexus/music/
-    MainActivity.kt                 # Native search screen and persistent mini-player
-    CatalogFormatting.kt            # Compact duration and view-count formatting
+    MainActivity.kt                 # Search screen, mini-player, updater, room entry
+    CatalogFormatting.kt            # Duration and view-count formatting
     catalog/
       CatalogModels.kt              # App-owned catalogue and resolved-audio models
-      ExtractorRuntime.kt            # One-time NewPipe process initialization
-      OkHttpDownloader.kt            # NewPipe Downloader -> OkHttp transport adapter
-      AudioStreamSelector.kt         # Validated HTTP(S) stream selection
-      YoutubeCatalogRepository.kt    # YouTube search and stream-resolution boundary
+      ExtractorRuntime.kt           # One-time NewPipe process initialization
+      OkHttpDownloader.kt           # NewPipe Downloader -> OkHttp transport
+      AudioStreamSelector.kt        # Validated HTTP(S) stream selection
+      YoutubeCatalogRepository.kt   # YouTube search and stream resolution
     playback/
-      PlaybackService.kt             # ExoPlayer + MediaSession lifetime
-      PlaybackConnection.kt           # Activity-side MediaController bridge
-      PlaybackRequest.kt              # Short-lived metadata/stream handoff
-  res/                                # Manifest resources and theme
-
-app/src/test/
-  java/com/nexus/music/
-    CatalogFormattingTest.kt
-    catalog/
-      AudioStreamSelectorTest.kt
-      OkHttpDownloaderTest.kt
-      YoutubeExtractorLiveSmokeTest.kt
+      PlaybackService.kt            # ExoPlayer + MediaSession lifetime
+      PlaybackConnection.kt         # Activity-side MediaController bridge
+      PlaybackRequest.kt            # Short-lived metadata/stream handoff
+    rooms/
+      RoomsApi.kt                   # Supabase Auth/REST client and encrypted session
+      ListeningRoomActivity.kt      # Create/join, chat, heartbeat, playback sync
+    update/
+      GitHubReleaseUpdater.kt       # Release metadata, APK integrity/signature checks
+      NexusUpdateInstaller.kt       # Android PackageInstaller hand-off
+      NexusUpdateScheduler.kt       # Cancels legacy silent background jobs
+      UpdateInstallStatusActivity.kt
+      ...
+  res/
+  test/
+    java/com/nexus/music/
+      CatalogFormattingTest.kt
+      catalog/
+      playback/
+      update/
 ```
 
-### Catalogue
+## Catalogue
 
 `YoutubeCatalogRepository` is currently the only provider adapter. It runs synchronous NewPipe extraction on `Dispatchers.IO`, maps extractor results into Nexus-owned models, and resolves a fresh playable URL just before playback. `ExtractorRuntime` configures NewPipe's process-wide downloader once.
 
-The current catalogue supports first-page YouTube search for all results, music songs, and videos. Pagination, playlist/channel browsing, caching, and a provider-neutral interface are not implemented yet. Before another source is added, introduce a Nexus-owned provider interface so the UI and playback layers do not depend on NewPipe types.
+The current catalogue supports first-page YouTube search for all results, music songs, and videos. Pagination, playlist/channel browsing, caching, and a provider-neutral interface are not implemented yet.
 
-### Playback
+## Playback
 
-`PlaybackService` owns ExoPlayer and MediaSession. It uses ExoPlayer's local wake mode so the CPU stays awake only while audio is ready/buffering and playback is requested. Media3 creates and maintains the platform media notification and media controls while the service is actively playing; the default service lifecycle stops it when playback is no longer active. `PlaybackConnection` attaches a MediaController, forwards a resolved stream as a MediaItem, and exposes a small playback snapshot to the Activity. Media3's progressive, DASH, HLS, and SmoothStreaming modules are included so the source format can be handled by the corresponding media-source implementation.
+`PlaybackService` owns ExoPlayer and MediaSession. It uses ExoPlayer's local wake mode so the CPU stays awake only while audio is ready/buffering and playback is requested. Media3 maintains the platform media notification and controls while the service is actively playing.
 
-Resolved stream URLs are short-lived and may expire. Persist the canonical source URL (for example, the YouTube video URL) in any future history or playlist feature; resolve a new stream URL immediately before playback. Never persist the signed stream URL as the durable content identity.
+`PlaybackConnection` attaches a MediaController and forwards a resolved stream as a MediaItem. The canonical source URL is stored as the media ID; the expiring audio stream URL is used only for playback.
 
-### UI and lifecycle
+Resolved stream URLs may expire. Persist the canonical source URL (for example, the YouTube video URL) in any future history or playlist feature; resolve a new stream URL immediately before playback. Never persist a signed stream URL as durable content identity.
 
-The current UI uses Android framework Views in `MainActivity`, not Compose. Search requests are scoped to a generation so a late response cannot replace newer results. A new search cancels the previous coroutine, and Activity destruction cancels its work and releases the controller connection. System-bar insets are applied to the root view because the app targets API 36.
+## Private listening rooms
 
-The Activity owns only presentation and controller connection state. Playback continues in the service when the Activity stops. The media notification and lock-screen/system controls are tied to the active MediaSession. The local wake lock is released when playback is not active; Nexus does not run a permanent keep-alive service.
+The room backend is a Supabase Postgres project. It contains:
+- `rooms`: hashed invite code, creator, creation and activity timestamps
+- `room_members`: membership keyed by room and authenticated user
+- `room_messages`: chat rows scoped to one room
+- `room_playback`: one shared playback snapshot per room
+- `private.room_join_attempts`: internal join-attempt rate-limit records
 
-## Social listening model — planned, not implemented
+All public room tables have RLS. Access policies require room membership, sender identity is checked against `auth.uid()`, and table grants are narrowed to the operations used by the app. Invite codes are random 16-character hex values; only SHA-256 hashes are stored. A room accepts at most two members.
 
-A room server should coordinate metadata and playback commands, not relay raw audio by default. The room state should eventually include:
+The Android client uses Supabase anonymous Auth through REST and encrypts the access/refresh session with an Android Keystore AES-GCM key. This identity is device-local: app data loss or reinstall can lose the identity. Anonymous sign-ins must be enabled in the Supabase project. The backend does not yet enforce a project-wide allowlist of the two intended people.
 
-- room identifier and participant membership
-- current canonical content identifier and queue revision
-- host/controller identity
-- playing/paused state and authoritative position timestamp
-- playback speed and a monotonically increasing event sequence
+Chat and playback are scoped by room ID. The UI loads the latest 100 messages in chronological order. A heartbeat runs every 25 seconds while the room Activity is active. The client polls chat/playback about every 1.8 seconds and backs off during network failures; it does not yet use a persistent Realtime/WebSocket connection. Playback commands resolve the canonical source URL independently on each phone and update the existing Media3 service. Position correction uses the server timestamp and local playback position, but network/polling latency means perfect zero-lag sync is not possible.
 
-Clients should resolve and play media locally, then correct drift against the room clock. The server must handle late joins, host departure, reconnects, stale commands, and content that cannot be resolved on one participant's device.
+Room access is blocked after one hour of inactivity. The scheduled cleanup runs every five minutes and deletes the room, its chat, membership, and playback state by cascade. Physical deletion can therefore occur up to about five minutes after the one-hour threshold.
 
-No account system, room protocol, chat, WebSocket client, or backend is present yet. Choose the backend only after the room protocol, privacy model, and expected scale are specified.
+Room chat is protected by authenticated membership and RLS but is not end-to-end encrypted. Messages are stored as ordinary text in the database. Add client-side encryption before treating the room chat as confidential from the backend operator.
+
+## UI and lifecycle
+
+The current UI uses Android framework Views in `MainActivity` and `ListeningRoomActivity`, not Compose. Search requests are scoped to a generation so a late response cannot replace newer results. Activities cancel their coroutine scopes and release their MediaController connections on destruction. Playback continues in the service when the Activity stops.
+
+## Not implemented
+
+- Durable Google/email sign-in and global two-account allowlist
+- End-to-end encrypted chat
+- Persistent Realtime/WebSocket transport
+- Full chat-history pagination and attachments
+- Playlist/queue persistence, local library, offline caching, and media downloads
+- Voice/video calling
 
 ## Verification gates
 
-1. CI resolves dependencies, runs unit tests and Android lint, and assembles a debug APK.
-2. The deterministic downloader and stream-selection tests pass without contacting YouTube.
-3. A live extractor smoke test can search and resolve a public test item when explicitly enabled.
-4. A physical Android device can play a resolved stream in the foreground through MediaController.
-5. Playback continues after app switching and screen lock; notification, lock-screen, Bluetooth, audio-focus, noisy-route, seek, and service-recreation behaviours are checked.
-6. Only after those gates should the project add persistent queues, playlists, local library, accounts, and social rooms.
+1. CI lint, unit tests, and debug APK assembly pass for the exact commit being tested.
+2. Deterministic downloader and stream-selection tests pass without contacting YouTube.
+3. The opt-in live extractor smoke test can search and resolve a public item when explicitly enabled.
+4. A physical Android device can play a resolved stream through MediaController.
+5. Background playback, screen lock, notification, lock-screen controls, audio focus, noisy-route, seek, and service-recreation behaviour are checked.
+6. Two physical devices verify room creation/join, room-isolated chat, one-hour expiry, reconnect, and shared playback.
+7. Before broader distribution, review the account allowlist, E2E encryption, privacy, and NewPipe GPL-3.0-or-later obligations.
 
-A successful CI build does not prove that YouTube extraction or playback works on every device or network.
+A successful CI build does not prove that YouTube extraction or two-device playback works on every device or network.

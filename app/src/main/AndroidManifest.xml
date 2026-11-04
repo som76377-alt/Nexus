@@ -26,6 +26,11 @@
         </activity>
 
         <activity
+            android:name=".rooms.ListeningRoomActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
             android:name=".update.UpdateInstallStatusActivity"
             android:excludeFromRecents="true"
             android:exported="false"

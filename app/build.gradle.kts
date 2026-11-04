@@ -29,6 +29,8 @@ android {
         versionName = nexusVersionName
         buildConfigField("String", "UPDATE_REPOSITORY_OWNER", "\"$updateRepositoryOwner\"")
         buildConfigField("String", "UPDATE_REPOSITORY_NAME", "\"$updateRepositoryName\"")
+        buildConfigField("String", "SUPABASE_URL", "\"https://fdptukvfcpkpbutgoolj.supabase.co\"")
+        buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"sb_publishable_jYtp6H2E2SKakHkb-Z1u4g_-ZlAai42\"")
     }
     buildFeatures { buildConfig = true }
     signingConfigs {

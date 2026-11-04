@@ -49,7 +49,7 @@ A failure may indicate an upstream extractor/service change or network restricti
 
 ## GitHub Actions
 
-The `Android CI` workflow installs JDK 17 and Android SDK Platform 36 / Build Tools 36.0.0, then uses the checked-in wrapper to run Android lint, unit tests, and a debug APK build. It uploads the APK as a 14-day artifact. If the `NEXUS_KEYSTORE_*` signing secrets are configured, CI signs debug APKs with the same stable key so later testing builds can update the previous one in place.
+The `Android CI` workflow installs JDK 17 and Android SDK Platform 36 / Build Tools 36.0.0, then uses the checked-in wrapper to run Android lint, unit tests, and a debug APK build. It uploads the APK as a 14-day artifact. Debug APKs use the standard debug signing key and are for CI/testing only; they are not suitable for updating the permanently signed release installation. The separate `Nexus Signed Release` workflow uses the `NEXUS_KEYSTORE_*` secrets to create release APKs.
 
 ## Signed APK and release workflow\n\nSee [UPDATES.md](UPDATES.md) for the required signing-key setup and release process. Do not lose the signing key: Android rejects future in-place updates signed with a different key.\n\n## Physical-device verification
 
