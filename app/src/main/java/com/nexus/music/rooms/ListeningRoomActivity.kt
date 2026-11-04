@@ -72,6 +72,7 @@ class ListeningRoomActivity : Activity() {
     private var userId: String? = null
     private var inviteCode: String? = null
     private var syncJob: Job? = null
+    private var trackResolveJob: Job? = null
     private var isSeeking = false
     private var applyingRemoteUntil = 0L
     private var lastRemoteRevision = 0L
@@ -265,7 +266,6 @@ class ListeningRoomActivity : Activity() {
             onStateChanged = ::onPlaybackChanged,
             onError = { message -> status.text = "Player: $message" }
         )
-        handler.post(playerTicker)
     }
 
     private fun createRoom() {
@@ -299,6 +299,11 @@ class ListeningRoomActivity : Activity() {
     private fun joinRoom() {
         if (syncJob?.isActive == true) return
         val code = codeInput.text.toString().trim()
+        if (!code.matches(Regex("^[0-9a-fA-F]{16}$"))) {
+            codeInput.error = "Enter the 16-character invite code"
+            return
+        }
+        codeInput.error = null
         setBusy(true, "Joining room…")
         scope.launch {
             try {
@@ -472,7 +477,7 @@ class ListeningRoomActivity : Activity() {
         isResolvingTrack = true
         trackButton.isEnabled = false
         status.text = "Preparing track for both devices…"
-        scope.launch {
+        trackResolveJob = scope.launch {
             try {
                 val audio = catalog.resolveAudio(url)
                 applyingRemoteUntil = 0L
@@ -488,6 +493,7 @@ class ListeningRoomActivity : Activity() {
             } finally {
                 isResolvingTrack = false
                 trackButton.isEnabled = true
+                trackResolveJob = null
             }
         }
     }
@@ -618,6 +624,15 @@ class ListeningRoomActivity : Activity() {
     private fun exitRoom() {
         syncJob?.cancel()
         syncJob = null
+        trackResolveJob?.cancel()
+        trackResolveJob = null
+        isResolvingTrack = false
+        trackButton.isEnabled = true
+        messageInput.text.clear()
+        trackInput.text.clear()
+        codeInput.text.clear()
+        isSeeking = false
+        applyingRemoteUntil = 0L
         roomId = null
         inviteCode = null
         userId = null
@@ -682,8 +697,20 @@ class ListeningRoomActivity : Activity() {
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
+    override fun onStart() {
+        super.onStart()
+        handler.removeCallbacks(playerTicker)
+        handler.post(playerTicker)
+    }
+
+    override fun onStop() {
+        handler.removeCallbacks(playerTicker)
+        super.onStop()
+    }
+
     override fun onDestroy() {
         syncJob?.cancel()
+        trackResolveJob?.cancel()
         handler.removeCallbacks(playerTicker)
         playback?.close()
         playback = null
