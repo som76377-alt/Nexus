@@ -60,7 +60,7 @@ class MainActivity : Activity() {
     private var isSeeking = false
     private var lastPlaybackSnapshot = PlaybackSnapshot(connected = false)
 
-    private val background = Color.rgb(12, 14, 18)
+    private val screenBackground = Color.rgb(12, 14, 18)
     private val surface = Color.rgb(24, 28, 35)
     private val surfaceRaised = Color.rgb(31, 36, 44)
     private val accent = Color.rgb(167, 240, 106)
@@ -76,13 +76,13 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = background
-        window.navigationBarColor = background
+        window.statusBarColor = screenBackground
+        window.navigationBarColor = screenBackground
         window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(background)
+            setBackgroundColor(screenBackground)
         }
         val scroll = ScrollView(this).apply {
             isFillViewport = true
@@ -110,7 +110,7 @@ class MainActivity : Activity() {
             setHintTextColor(secondaryText)
             setTextColor(primaryText)
             textSize = 15f
-            singleLine = true
+            isSingleLine = true
             imeOptions = EditorInfo.IME_ACTION_SEARCH
             setBackgroundColor(Color.TRANSPARENT)
             setPadding(0, dp(15), 0, dp(15))
@@ -406,7 +406,7 @@ class MainActivity : Activity() {
             background = rounded(surfaceRaised, 10)
             contentDescription = "Track thumbnail"
         }
-        track.thumbnailUrl?.let { thumbnail.load(it) { crossfade(true) } }
+        track.thumbnailUrl?.let { thumbnail.load(it) }
         card.addView(thumbnail, LinearLayout.LayoutParams(dp(112), dp(72)))
 
         val details = LinearLayout(this).apply {
@@ -449,7 +449,7 @@ class MainActivity : Activity() {
     private fun showResolved(audio: ResolvedAudio) {
         playerTitle.text = audio.title
         playerSubtitle.text = "Sending audio to player…"
-        playerArtwork.load(audio.thumbnailUrl?.takeIf(String::isNotBlank)) { crossfade(true) }
+        playerArtwork.load(audio.thumbnailUrl?.takeIf(String::isNotBlank))
         playPauseButton.isEnabled = true
         playbackConnection?.play(audio)
         statusText.text = "Starting playback: ${audio.title}"
