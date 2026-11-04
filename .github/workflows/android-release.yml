@@ -129,14 +129,20 @@ jobs:
           -PnexusVersionCode="${{ steps.version.outputs.version_code }}"
           :app:assembleRelease
 
-      - name: Verify APK signature and create checksum
+      - name: Verify APK signature, package version and checksum
+        env:
+          EXPECTED_VERSION_NAME: ${{ steps.version.outputs.version_name }}
+          EXPECTED_VERSION_CODE: ${{ steps.version.outputs.version_code }}
         run: |
           APK="app/build/outputs/apk/release/app-release.apk"
           test -s "$APK"
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$APK"
+          BADGING="$("$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK")"
+          echo "$BADGING" | grep -F "package: name='com.nexus.music' versionCode='$EXPECTED_VERSION_CODE' versionName='$EXPECTED_VERSION_NAME'"
           cd app/build/outputs/apk/release
           cp app-release.apk nexus-release.apk
           sha256sum nexus-release.apk > nexus-release.apk.sha256
+          sha256sum --check nexus-release.apk.sha256
 
       - name: Upload validation APK artifact
         if: github.event_name != 'release'
