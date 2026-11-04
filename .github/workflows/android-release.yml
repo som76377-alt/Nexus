@@ -66,9 +66,14 @@ jobs:
             exit 1
           fi
 
-          if ! keytool -list -keystore "$RUNNER_TEMP/nexus-signing.jks" -storepass "$NEXUS_KEYSTORE_PASSWORD" -alias "$NEXUS_KEY_ALIAS" > "$RUNNER_TEMP/keytool-check.log" 2>&1; then
-            echo "::error::The keystore could not be opened with NEXUS_KEYSTORE_PASSWORD and NEXUS_KEY_ALIAS. Check those two secrets against the local signing files."
-            sed -n '1,6p' "$RUNNER_TEMP/keytool-check.log"
+          if ! keytool -list -keystore "$RUNNER_TEMP/nexus-signing.jks" -storepass "$NEXUS_KEYSTORE_PASSWORD" > "$RUNNER_TEMP/keytool-store-check.log" 2>&1; then
+            echo "::error::NEXUS_KEYSTORE_PASSWORD is incorrect for the decoded keystore. Re-enter the keystore password from the local signing setup."
+            sed -n '1,6p' "$RUNNER_TEMP/keytool-store-check.log"
+            exit 1
+          fi
+          if ! keytool -list -keystore "$RUNNER_TEMP/nexus-signing.jks" -storepass "$NEXUS_KEYSTORE_PASSWORD" -alias "$NEXUS_KEY_ALIAS" > "$RUNNER_TEMP/keytool-alias-check.log" 2>&1; then
+            echo "::error::NEXUS_KEY_ALIAS was not found in the keystore. The expected alias from the local setup is nexus-upload."
+            sed -n '1,6p' "$RUNNER_TEMP/keytool-alias-check.log"
             exit 1
           fi
           echo "Keystore password and alias verified."
