@@ -77,12 +77,19 @@ class RoomsApi(context: Context) {
         if (!normalized.matches(Regex("^[0-9a-f]{16}$"))) {
             throw IOException("Enter the 16-character room code.")
         }
-        val result = apiRequest(
-            "POST",
-            "/rest/v1/rpc/join_room",
-            JSONObject().put("p_code", normalized).toString()
-        ).trim()
-        result.removeSurrounding("\"")
+        val rows = JSONArray(
+            apiRequest(
+                "POST",
+                "/rest/v1/rpc/join_room",
+                JSONObject().put("p_code", normalized).toString()
+            )
+        )
+        if (rows.length() == 0) throw IOException("The server did not return a room result.")
+        val row = rows.getJSONObject(0)
+        val serverError = row.optString("error").takeIf { it.isNotBlank() && it != "null" }
+        if (serverError != null) throw IOException(serverError)
+        row.optString("room_id").takeIf { it.isNotBlank() && it != "null" }
+            ?: throw IOException("The server did not return a valid room ID.")
     }
 
     suspend fun touchRoom(roomId: String): Boolean = withContext(Dispatchers.IO) {
