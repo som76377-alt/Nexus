@@ -55,7 +55,12 @@ class PlaybackConnection(
         }
 
         override fun onPlayerError(error: PlaybackException) {
-            onError(error.message ?: "Playback failed. Try selecting the track again.")
+            val detail = buildList {
+                add(error.errorCodeName)
+                error.cause?.message?.takeIf(String::isNotBlank)?.let(::add)
+                error.message?.takeIf(String::isNotBlank)?.let(::add)
+            }.distinct().joinToString(" · ")
+            onError(detail.ifBlank { "Playback failed. Try selecting the track again." })
             publishState()
         }
     }
@@ -103,6 +108,7 @@ class PlaybackConnection(
             val item = MediaItem.Builder()
                 .setMediaId(request.sourceId)
                 .setUri(request.streamUrl)
+                .setMimeType(request.mimeType)
                 .setMediaMetadata(metadata)
                 .build()
 
