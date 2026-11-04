@@ -352,10 +352,12 @@ class MainActivity : Activity() {
 
         // A newer query or scope always supersedes the previous request.
         searchJob?.cancel()
+        queryInput.error = null
         val requestGeneration = ++searchGeneration
         val requestScope = selectedScope
-        searchButton.isEnabled = false
-        searchButton.text = "Searching"
+        // Keep the button available so a new query can supersede a slow request.
+        searchButton.isEnabled = true
+        searchButton.text = "Search"
         statusText.text = "Searching YouTube..."
         resultsContainer.removeAllViews()
 

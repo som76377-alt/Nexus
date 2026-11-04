@@ -40,12 +40,14 @@ class YoutubeCatalogRepository(
         SearchInfo.getInfo(extractor).relatedItems
             .filterIsInstance<StreamInfoItem>()
             .mapNotNull { item ->
-                val url = item.url?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+                val url = item.url?.takeIf(CatalogUrlValidator::isValidHttpsUrl)
+                    ?: return@mapNotNull null
                 CatalogTrack(
                     url = url,
                     title = item.name.orEmpty(),
                     artist = item.uploaderName?.takeIf(String::isNotBlank),
-                    thumbnailUrl = item.thumbnails.firstOrNull()?.url,
+                    thumbnailUrl = item.thumbnails.firstOrNull()?.url
+                        ?.takeIf(CatalogUrlValidator::isValidHttpsUrl),
                     durationSeconds = item.duration.takeIf { it >= 0L },
                     viewCount = item.viewCount.takeIf { it >= 0L }
                 )
@@ -53,20 +55,23 @@ class YoutubeCatalogRepository(
     }
 
     suspend fun resolveAudio(videoUrl: String): ResolvedAudio = withContext(Dispatchers.IO) {
-        require(videoUrl.startsWith("https://") || videoUrl.startsWith("http://")) {
-            "A valid video URL is required."
+        require(CatalogUrlValidator.isValidHttpsUrl(videoUrl)) {
+            "A valid HTTPS video URL is required."
         }
 
         val service = NewPipe.getServiceByUrl(videoUrl)
         val info = StreamInfo.getInfo(service, videoUrl)
+        val canonicalSourceUrl = info.url.takeIf(CatalogUrlValidator::isValidHttpsUrl)
+            ?: throw IOException("The source returned an invalid video URL.")
         val selected = AudioStreamSelector.bestPlayable(info.audioStreams)
             ?: throw IOException("No directly playable audio stream was returned for this item.")
 
         ResolvedAudio(
-            sourceUrl = info.url,
+            sourceUrl = canonicalSourceUrl,
             title = info.name,
             artist = info.uploaderName?.takeIf(String::isNotBlank),
-            thumbnailUrl = info.thumbnails.firstOrNull()?.url,
+            thumbnailUrl = info.thumbnails.firstOrNull()?.url
+                ?.takeIf(CatalogUrlValidator::isValidHttpsUrl),
             durationSeconds = info.duration.takeIf { it >= 0L },
             audioUrl = selected.content,
             averageBitrate = selected.averageBitrate.takeIf { it > 0 }

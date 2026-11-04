@@ -62,7 +62,7 @@ This document separates what exists in the repository from features that are sti
 
 | Area | Current state |
 |---|---|
-| Android app shell | Implemented |
+| Android app shell | Implemented; automatic app-data backup disabled until a safe data/backup policy exists |
 | YouTube search (All / Songs / Videos) | First page only |
 | Thumbnail and result metadata | Implemented |
 | Audio stream resolution | Implemented; depends on upstream extractor |
