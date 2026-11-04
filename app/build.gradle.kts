@@ -33,6 +33,9 @@ tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
 
 dependencies {
     implementation(libs.media3.exoplayer)
+    implementation(libs.media3.exoplayer.dash)
+    implementation(libs.media3.exoplayer.hls)
+    implementation(libs.media3.exoplayer.smoothstreaming)
     implementation(libs.media3.session)
     implementation(libs.media3.ui)
     implementation(libs.newpipe.extractor)
