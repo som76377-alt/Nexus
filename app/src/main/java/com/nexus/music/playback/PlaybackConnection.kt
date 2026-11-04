@@ -79,20 +79,22 @@ class PlaybackConnection(
         }, mainExecutor)
     }
 
-    fun play(audio: ResolvedAudio, shouldPlay: Boolean = true) {
+    fun play(audio: ResolvedAudio, shouldPlay: Boolean = true): Boolean {
         val request = PlaybackRequest.from(audio)
-        pendingRequest = request
-        pendingPlayWhenReady = shouldPlay
-        if (controller != null) {
-            startPlayback(request, shouldPlay)
-            pendingRequest = null
-            pendingPlayWhenReady = true
+        val activeController = controller
+        if (activeController == null) {
+            pendingRequest = request
+            pendingPlayWhenReady = shouldPlay
+            return true
         }
+        pendingRequest = null
+        pendingPlayWhenReady = true
+        return startPlayback(request, shouldPlay)
     }
 
-    private fun startPlayback(request: PlaybackRequest, shouldPlay: Boolean) {
-        val activeController = controller ?: return
-        try {
+    private fun startPlayback(request: PlaybackRequest, shouldPlay: Boolean): Boolean {
+        val activeController = controller ?: return false
+        return try {
             val metadata = MediaMetadata.Builder()
                 .setTitle(request.title)
                 .setArtist(request.artist ?: "")
@@ -108,8 +110,10 @@ class PlaybackConnection(
             activeController.prepare()
             if (shouldPlay) activeController.play() else activeController.pause()
             publishState()
+            true
         } catch (error: Exception) {
             onError(error.message ?: "The selected audio could not be sent to the player.")
+            false
         }
     }
 
