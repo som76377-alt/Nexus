@@ -57,6 +57,12 @@ jobs:
           printf '%s' "$NEXUS_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/nexus-signing.jks"
           test -s "$RUNNER_TEMP/nexus-signing.jks"
           keytool -list -keystore "$RUNNER_TEMP/nexus-signing.jks" -storepass "$NEXUS_KEYSTORE_PASSWORD" -alias "$NEXUS_KEY_ALIAS" >/dev/null
+          printf '%s\\n' "Nexus signing key validation" > "$RUNNER_TEMP/nexus-key-check.txt"
+          jar --create --file "$RUNNER_TEMP/nexus-key-check.jar" -C "$RUNNER_TEMP" nexus-key-check.txt
+          if ! jarsigner -keystore "$RUNNER_TEMP/nexus-signing.jks" -storepass "$NEXUS_KEYSTORE_PASSWORD" -keypass "$NEXUS_KEY_PASSWORD" "$RUNNER_TEMP/nexus-key-check.jar" "$NEXUS_KEY_ALIAS" >/dev/null 2>&1; then
+            echo "::error::NEXUS_KEY_PASSWORD does not unlock the private key for NEXUS_KEY_ALIAS. Re-enter the private-key password from the local signing setup; do not change the keystore or regenerate the key."
+            exit 1
+          fi
           echo "NEXUS_KEYSTORE_PATH=$RUNNER_TEMP/nexus-signing.jks" >> "$GITHUB_ENV"
           echo "NEXUS_KEYSTORE_PASSWORD=$NEXUS_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
           echo "NEXUS_KEY_ALIAS=$NEXUS_KEY_ALIAS" >> "$GITHUB_ENV"
