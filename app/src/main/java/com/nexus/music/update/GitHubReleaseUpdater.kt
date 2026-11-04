@@ -128,7 +128,11 @@ class GitHubReleaseUpdater(
         }
     }
 
-    suspend fun downloadAndVerify(context: Context, update: NexusUpdate): File =
+    suspend fun downloadAndVerify(
+        context: Context,
+        update: NexusUpdate,
+        onProgress: (downloadedBytes: Long, totalBytes: Long) -> Unit = { _, _ -> }
+    ): File =
         withContext(Dispatchers.IO) {
             validateUpdateMetadata(update)
 
@@ -174,6 +178,7 @@ class GitHubReleaseUpdater(
                         throw IOException("The update APK is larger than the allowed download size.")
                     }
 
+                    onProgress(0L, expectedLength)
                     val digest = MessageDigest.getInstance("SHA-256")
                     var totalBytes = 0L
                     body.byteStream().use { input ->
@@ -188,6 +193,7 @@ class GitHubReleaseUpdater(
                                 }
                                 digest.update(buffer, 0, count)
                                 output.write(buffer, 0, count)
+                                onProgress(totalBytes, expectedLength)
                             }
                             output.flush()
                         }
