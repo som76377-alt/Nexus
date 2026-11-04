@@ -31,9 +31,8 @@ sealed interface UpdateCheckResult {
 }
 
 /**
- * Reads public GitHub Releases only. No GitHub token is embedded in the APK.
- * The source repository is private today, so a public release feed/mirror must be configured
- * before the installed app can check updates successfully.
+ * Reads published public GitHub Releases only. No GitHub token is embedded in the APK.
+ * The public repository must have at least one published, non-draft, non-prerelease release.
  */
 class GitHubReleaseUpdater(
     private val client: OkHttpClient = OkHttpClient.Builder()
@@ -54,8 +53,7 @@ class GitHubReleaseUpdater(
         client.newCall(request).execute().use { response ->
             if (response.code == 404) {
                 throw IOException(
-                    "No public Nexus release feed was found. The current source repository is private; " +
-                        "configure a public releases repository before in-app updates can work."
+                    "No published Nexus release was found. Publish a GitHub Release with a vMAJOR.MINOR.PATCH tag before checking for updates."
                 )
             }
             if (!response.isSuccessful) {
