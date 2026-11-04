@@ -28,7 +28,6 @@ data class PlaybackSnapshot(
 )
 
 /** Activity-side bridge to the player owned by PlaybackService. */
-@UnstableApi
 class PlaybackConnection(
     context: Context,
     private val onReady: () -> Unit,
@@ -56,6 +55,7 @@ class PlaybackConnection(
             publishState()
         }
 
+        @UnstableApi
         override fun onPlayerError(error: PlaybackException) {
             val detail = buildList {
                 add(error.errorCodeName)
