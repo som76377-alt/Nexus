@@ -14,7 +14,7 @@ The first NewPipe integration milestone is now implemented in the codebase:
 - [x] OkHttp downloader adapter for NewPipe's Downloader contract
 - [x] YouTube search scopes: everything, music songs and videos
 - [x] Search result mapping into app-owned catalogue models
-- [x] Audio stream resolution, validated HTTP(S) URLs and bitrate-first quality selection
+- [x] Audio stream resolution, validated HTTPS URLs and bitrate-first quality selection
 - [x] Media3 DASH, HLS and SmoothStreaming playback modules
 - [x] Native Android search screen with All / Songs / Videos scopes
 - [x] Thumbnail result cards with duration and view metadata
@@ -50,22 +50,22 @@ See [docs/PROJECT_MAP.md](docs/PROJECT_MAP.md) for the codebase map, plus [docs/
 Run the deterministic unit tests:
 
 ```bash
-gradle --no-daemon :app:testDebugUnitTest
+./gradlew --no-daemon :app:testDebugUnitTest
 ```
 
 Run the opt-in live extractor smoke test (requires network access):
 
 ```bash
-gradle --no-daemon -Pnexus.liveExtractorTests=true :app:testDebugUnitTest
+./gradlew --no-daemon -Pnexus.liveExtractorTests=true :app:testDebugUnitTest
 ```
 
 Build the debug APK:
 
 ```bash
-gradle --no-daemon :app:assembleDebug
+./gradlew --no-daemon :app:assembleDebug
 ```
 
-The repository includes a Codespaces dev container and a GitHub Actions workflow that runs unit tests, Android lint, and a debug APK build. Gradle 9.6.0 is installed by the dev-container bootstrap and CI; a checked-in Gradle Wrapper has not yet been added.
+The repository includes a checked-in Gradle Wrapper that pins Gradle 9.6.0 and verifies the downloaded distribution checksum. The Codespaces bootstrap only installs Android SDK command-line tools; no separate Gradle installation is needed.
 
 ## Important
 

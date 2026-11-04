@@ -5,14 +5,13 @@
 - JDK 17 or newer (CI uses JDK 17; the Codespaces image uses JDK 21).
 - Android SDK Platform 36.
 - Android Build Tools 36.0.0.
-- Gradle 9.6.0.
 - Android Gradle Plugin 9.5.0.
 
-The repository currently does not contain `gradlew`, `gradlew.bat`, or the Gradle Wrapper JAR. Use the pinned Gradle 9.6.0 installation supplied by the Codespaces bootstrap or CI; do not substitute an arbitrary system Gradle version.
+The repository includes the official Gradle Wrapper scripts and JAR. The wrapper downloads the pinned Gradle 9.6.0 distribution and verifies its published SHA-256 checksum. You do not need to install Gradle globally.
 
 ## GitHub Codespaces
 
-The repository dev container is based on the Microsoft Java 21 development image. Its post-create bootstrap installs Gradle 9.6.0 and Android command-line tools.
+The repository dev container is based on the Microsoft Java 21 development image. Its post-create bootstrap installs Android command-line tools. The checked-in Gradle Wrapper downloads the exact Gradle version on the first build.
 
 The SDK platform/build-tools packages are installed after the user reviews and accepts the Android SDK licence:
 
@@ -24,14 +23,14 @@ sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 Build the debug APK:
 
 ```bash
-gradle --no-daemon :app:assembleDebug
+./gradlew --no-daemon :app:assembleDebug
 ```
 
 Run unit tests and Android lint:
 
 ```bash
-gradle --no-daemon :app:testDebugUnitTest
-gradle --no-daemon :app:lintDebug
+./gradlew --no-daemon :app:testDebugUnitTest
+./gradlew --no-daemon :app:lintDebug
 ```
 
 APK output:
@@ -43,14 +42,14 @@ APK output:
 The live test intentionally depends on public YouTube availability and is excluded from normal CI. Run it only when you want a real network smoke test:
 
 ```bash
-gradle --no-daemon -Pnexus.liveExtractorTests=true :app:testDebugUnitTest
+./gradlew --no-daemon -Pnexus.liveExtractorTests=true :app:testDebugUnitTest
 ```
 
 A failure may indicate an upstream extractor/service change or network restrictions; it is not necessarily a regression in the deterministic unit tests.
 
 ## GitHub Actions
 
-The `Android CI` workflow installs JDK 17, Android SDK Platform 36, Build Tools 36.0.0, and Gradle 9.6.0. It runs unit tests, Android lint, and a debug APK build, then uploads the APK as a 14-day artifact.
+The `Android CI` workflow installs JDK 17 and Android SDK Platform 36 / Build Tools 36.0.0, then uses the checked-in wrapper to run Android lint, unit tests, and a debug APK build. It uploads the APK as a 14-day artifact.
 
 ## Physical-device verification
 

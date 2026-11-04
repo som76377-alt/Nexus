@@ -7,7 +7,7 @@ This document separates what exists in the repository from features that are sti
 ```text
 .
 ├── .devcontainer/
-│   ├── bootstrap.sh              # Verified Gradle + Android CLI tool bootstrap
+│   ├── bootstrap.sh              # Android command-line tools bootstrap
 │   └── devcontainer.json         # Codespaces image and environment
 ├── .github/workflows/
 │   └── android-ci.yml            # Lint, unit tests, debug APK build, artifact upload
@@ -30,7 +30,12 @@ This document separates what exists in the repository from features that are sti
 │   ├── NEWPIPE_INTEGRATION.md
 │   └── PROJECT_MAP.md
 ├── gradle/
-│   └── libs.versions.toml         # Central pinned dependency versions
+│   ├── libs.versions.toml         # Central pinned dependency versions
+│   └── wrapper/
+│       ├── gradle-wrapper.jar
+│       └── gradle-wrapper.properties # Pinned Gradle version + checksum
+├── gradlew                       # POSIX Gradle Wrapper entrypoint
+├── gradlew.bat                   # Windows Gradle Wrapper entrypoint
 ├── build.gradle.kts
 ├── gradle.properties
 └── settings.gradle.kts
@@ -77,6 +82,6 @@ This document separates what exists in the repository from features that are sti
 - Choose an application licence and review NewPipe Extractor's GPL-3.0-or-later obligations before distributing binaries.
 - Review the platform/service terms and privacy requirements for the intended release regions and feature set.
 
-## Known repository tooling limitation
+## Build reproducibility
 
-The repository does not yet include Gradle Wrapper scripts or the wrapper JAR. Codespaces bootstrap and CI both install Gradle 9.6.0, but a checked-in wrapper should be added before broad external contributor onboarding.
+The repository includes the Gradle Wrapper scripts and JAR, pinned to Gradle 9.6.0. The wrapper verifies the downloaded distribution against Gradle's published SHA-256 checksum. Codespaces bootstrap only installs Android command-line tools; CI and local builds use the same `./gradlew` entrypoint.

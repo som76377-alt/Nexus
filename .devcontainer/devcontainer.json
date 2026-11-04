@@ -5,8 +5,7 @@
   "remoteEnv": {
     "ANDROID_HOME": "/home/vscode/Android/Sdk",
     "ANDROID_SDK_ROOT": "/home/vscode/Android/Sdk",
-    "GRADLE_HOME": "/home/vscode/.local/gradle/gradle-9.6.0",
-    "PATH": "/home/vscode/.local/gradle/gradle-9.6.0/bin:/home/vscode/Android/Sdk/cmdline-tools/latest/bin:/home/vscode/Android/Sdk/platform-tools:${containerEnv:PATH}"
+    "PATH": "/home/vscode/Android/Sdk/cmdline-tools/latest/bin:/home/vscode/Android/Sdk/platform-tools:${containerEnv:PATH}"
   },
   "customizations": {
     "vscode": {
