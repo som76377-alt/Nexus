@@ -41,7 +41,7 @@ The current catalogue supports first-page YouTube search for all results, music 
 
 ### Playback
 
-`PlaybackService` owns ExoPlayer and MediaSession. `PlaybackConnection` attaches a MediaController, forwards a resolved stream as a MediaItem, and exposes a small playback snapshot to the Activity. Media3's progressive, DASH, HLS, and SmoothStreaming modules are included so the source format can be handled by the corresponding media-source implementation.
+`PlaybackService` owns ExoPlayer and MediaSession. It uses ExoPlayer's local wake mode so the CPU stays awake only while audio is ready/buffering and playback is requested. Media3 creates and maintains the platform media notification and media controls while the service is actively playing; the default service lifecycle stops it when playback is no longer active. `PlaybackConnection` attaches a MediaController, forwards a resolved stream as a MediaItem, and exposes a small playback snapshot to the Activity. Media3's progressive, DASH, HLS, and SmoothStreaming modules are included so the source format can be handled by the corresponding media-source implementation.
 
 Resolved stream URLs are short-lived and may expire. Persist the canonical source URL (for example, the YouTube video URL) in any future history or playlist feature; resolve a new stream URL immediately before playback. Never persist the signed stream URL as the durable content identity.
 
@@ -49,7 +49,7 @@ Resolved stream URLs are short-lived and may expire. Persist the canonical sourc
 
 The current UI uses Android framework Views in `MainActivity`, not Compose. Search requests are scoped to a generation so a late response cannot replace newer results. A new search cancels the previous coroutine, and Activity destruction cancels its work and releases the controller connection. System-bar insets are applied to the root view because the app targets API 36.
 
-The Activity owns only presentation and controller connection state. Playback itself is designed to continue in the service when the Activity stops; this still needs verification on physical devices.
+The Activity owns only presentation and controller connection state. Playback continues in the service when the Activity stops. The media notification and lock-screen/system controls are tied to the active MediaSession. The local wake lock is released when playback is not active; Nexus does not run a permanent keep-alive service.
 
 ## Social listening model — planned, not implemented
 

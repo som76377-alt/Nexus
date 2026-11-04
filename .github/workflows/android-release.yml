@@ -1,0 +1,101 @@
+name: Nexus Signed Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build and attach signed Nexus APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install compile SDK packages
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
+
+      - name: Check signing secrets and decode key
+        env:
+          NEXUS_KEYSTORE_BASE64: ${{ secrets.NEXUS_KEYSTORE_BASE64 }}
+          NEXUS_KEYSTORE_PASSWORD: ${{ secrets.NEXUS_KEYSTORE_PASSWORD }}
+          NEXUS_KEY_ALIAS: ${{ secrets.NEXUS_KEY_ALIAS }}
+          NEXUS_KEY_PASSWORD: ${{ secrets.NEXUS_KEY_PASSWORD }}
+        run: |
+          for name in NEXUS_KEYSTORE_BASE64 NEXUS_KEYSTORE_PASSWORD NEXUS_KEY_ALIAS NEXUS_KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing GitHub Actions secret: $name"
+              exit 1
+            fi
+          done
+          echo "$NEXUS_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/nexus-signing.jks"
+          echo "NEXUS_KEYSTORE_PATH=$RUNNER_TEMP/nexus-signing.jks" >> "$GITHUB_ENV"
+          echo "NEXUS_KEYSTORE_PASSWORD=$NEXUS_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "NEXUS_KEY_ALIAS=$NEXUS_KEY_ALIAS" >> "$GITHUB_ENV"
+          echo "NEXUS_KEY_PASSWORD=$NEXUS_KEY_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Derive Android version from release tag
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          if [[ ! "$VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "::error::Release tag must use vMAJOR.MINOR.PATCH (example: v0.1.1)."
+            exit 1
+          fi
+          MAJOR="${BASH_REMATCH[1]}"
+          MINOR="${BASH_REMATCH[2]}"
+          PATCH="${BASH_REMATCH[3]}"
+          if (( MINOR > 999 || PATCH > 999 )); then
+            echo "::error::Minor and patch version numbers must be below 1000."
+            exit 1
+          fi
+          VERSION_CODE=$((MAJOR * 1000000 + MINOR * 1000 + PATCH))
+          if (( VERSION_CODE < 1 || VERSION_CODE > 2100000000 )); then
+            echo "::error::Release version is outside Android's supported versionCode range."
+            exit 1
+          fi
+          echo "version_name=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+
+      - name: Build signed release APK
+        run: >
+          ./gradlew --no-daemon --stacktrace
+          -PnexusVersionName="${{ steps.version.outputs.version_name }}"
+          -PnexusVersionCode="${{ steps.version.outputs.version_code }}"
+          :app:assembleRelease
+
+      - name: Create SHA-256 companion file
+        run: |
+          cd app/build/outputs/apk/release
+          cp app-release.apk nexus-release.apk
+          sha256sum nexus-release.apk > nexus-release.apk.sha256
+
+      - name: Attach APK and checksum to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: |
+            app/build/outputs/apk/release/nexus-release.apk
+            app/build/outputs/apk/release/nexus-release.apk.sha256
+          fail_on_unmatched_files: true

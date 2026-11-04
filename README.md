@@ -28,14 +28,14 @@ The first NewPipe integration milestone is now implemented in the codebase:
 - [ ] Verify live extraction from a real Android device/network
 - [x] Connect resolved audio to the Media3 playback service through MediaController
 - [x] Add persistent mini-player with play/pause and seeking
-- [x] Configure service audio focus and noisy-route handling
-- [ ] Verify background playback and notification controls on a physical Android device
+- [x] Configure service audio focus, noisy-route handling, and a screen-off wake lock during active playback
+- [x] MediaSessionService-backed media notification and Android media controls while playback is active\n- [ ] Verify background playback, notification permission behaviour, and lock-screen controls on a physical Android device
 - [ ] Add pagination, playlists and local library
-- [ ] Design and implement social listening rooms and chat
+- [ ] Design and implement social listening rooms and chat\n- [x] In-app GitHub release checking, SHA-256 APK verification, and Android installer hand-off (requires public release feed and stable signing key)
 
 ## Technology
 
-- Kotlin with Android Gradle Plugin built-in Kotlin support
+- Kotlin with the explicitly versioned Kotlin Gradle Plugin
 - AndroidX Media3 / ExoPlayer / MediaSession
 - NewPipe Extractor for community-maintained service extraction
 - OkHttp transport adapter
@@ -43,7 +43,7 @@ The first NewPipe integration milestone is now implemented in the codebase:
 - Gradle Kotlin DSL and version catalog
 - GitHub Actions for repeatable cloud builds and tests
 
-See [docs/PROJECT_MAP.md](docs/PROJECT_MAP.md) for the codebase map, plus [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md), [docs/BUILDING.md](docs/BUILDING.md), and [docs/NEWPIPE_INTEGRATION.md](docs/NEWPIPE_INTEGRATION.md).
+See [docs/UPDATES.md](docs/UPDATES.md) for release signing and in-app update setup. See [docs/PROJECT_MAP.md](docs/PROJECT_MAP.md) for the codebase map, plus [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md), [docs/BUILDING.md](docs/BUILDING.md), and [docs/NEWPIPE_INTEGRATION.md](docs/NEWPIPE_INTEGRATION.md).
 
 ## Build and test
 

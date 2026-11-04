@@ -10,7 +10,7 @@ This document separates what exists in the repository from features that are sti
 │   ├── bootstrap.sh              # Android command-line tools bootstrap
 │   └── devcontainer.json         # Codespaces image and environment
 ├── .github/workflows/
-│   └── android-ci.yml            # Lint, unit tests, debug APK build, artifact upload
+│   ├── android-ci.yml             # Lint, unit tests, debug APK build, artifact upload\n│   └── android-release.yml        # Signed release APK and GitHub Release assets
 ├── app/
 │   ├── build.gradle.kts          # Android SDK, app config, dependencies, test options
 │   └── src/
@@ -67,11 +67,11 @@ This document separates what exists in the repository from features that are sti
 | Thumbnail and result metadata | Implemented |
 | Audio stream resolution | Implemented; depends on upstream extractor |
 | Media3 playback service/controller | Implemented in code; physical-device verification pending |
-| Background/lock-screen playback | Intended by service architecture; not yet verified on a physical device |
+| Background/lock-screen playback | MediaSessionService, media notification, and screen-off wake mode implemented; physical-device verification pending |
 | Pagination, playlists, local library, persistent queue | Not implemented |
 | Accounts, social rooms, chat, WebSocket sync, backend | Not implemented |
 | Offline caching and media downloads | Not implemented |
-| Release signing and store/distribution pipeline | Not implemented |
+| In-app update checker and APK verification | Implemented; requires a public release feed |\n| Android update installation hand-off | Implemented; Android confirmation required |\n| Signed release pipeline | Implemented; requires the owner's signing-key secrets |
 
 ## Reliability gates before release
 

@@ -3,6 +3,22 @@ plugins {
     alias(libs.plugins.kotlin.android)
 }
 
+val nexusVersionName = providers.gradleProperty("nexusVersionName").orElse("0.1.0").get()
+val nexusVersionCode = providers.gradleProperty("nexusVersionCode").orNull?.toIntOrNull() ?: 1000
+val updateRepositoryOwner = providers.gradleProperty("nexusUpdateOwner").orElse("som76377-alt").get()
+val updateRepositoryName = providers.gradleProperty("nexusUpdateRepository").orElse("Nexus").get()
+
+val nexusKeystorePath = providers.environmentVariable("NEXUS_KEYSTORE_PATH").orNull
+val nexusKeystorePassword = providers.environmentVariable("NEXUS_KEYSTORE_PASSWORD").orNull
+val nexusKeyAlias = providers.environmentVariable("NEXUS_KEY_ALIAS").orNull
+val nexusKeyPassword = providers.environmentVariable("NEXUS_KEY_PASSWORD").orNull
+val hasNexusSigningKey = listOf(
+    nexusKeystorePath,
+    nexusKeystorePassword,
+    nexusKeyAlias,
+    nexusKeyPassword
+).all { !it.isNullOrBlank() }
+
 android {
     namespace = "com.nexus.music"
     compileSdk = 36
@@ -11,8 +27,39 @@ android {
         applicationId = "com.nexus.music"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = nexusVersionCode
+        versionName = nexusVersionName
+        buildConfigField("String", "UPDATE_REPOSITORY_OWNER", "\"$updateRepositoryOwner\"")
+        buildConfigField("String", "UPDATE_REPOSITORY_NAME", "\"$updateRepositoryName\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
+    }
+
+    signingConfigs {
+        create("nexus") {
+            if (hasNexusSigningKey) {
+                storeFile = file(nexusKeystorePath!!)
+                storePassword = nexusKeystorePassword
+                keyAlias = nexusKeyAlias
+                keyPassword = nexusKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        getByName("debug") {
+            if (hasNexusSigningKey) {
+                signingConfig = signingConfigs.getByName("nexus")
+            }
+        }
+        getByName("release") {
+            isMinifyEnabled = false
+            if (hasNexusSigningKey) {
+                signingConfig = signingConfigs.getByName("nexus")
+            }
+        }
     }
 
     compileOptions {
