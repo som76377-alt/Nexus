@@ -229,6 +229,27 @@ class GitHubReleaseUpdater(
             }
         }
 
+    /** Re-checks a previously downloaded APK before handing it to PackageInstaller. */
+    fun findVerifiedCachedUpdate(context: Context, update: NexusUpdate): File? {
+        val file = File(File(context.cacheDir, "updates"), "nexus-${update.versionName}.apk")
+        if (!file.isFile || file.length() <= 0L) return null
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered().use { input ->
+            val buffer = ByteArray(DOWNLOAD_BUFFER_BYTES)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        if (!digest.digest().toHexString().equals(update.sha256, ignoreCase = true)) {
+            file.delete()
+            return null
+        }
+        verifyApk(context, file, update)
+        return file
+    }
+
     private fun validateUpdateMetadata(update: NexusUpdate) {
         val tagVersion = AppVersioning.normalize(update.tagName)
         val expectedCode = AppVersioning.versionCodeFromTag(update.tagName)
