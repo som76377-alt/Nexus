@@ -15,7 +15,7 @@ Versions are pinned; do not replace them with floating versions.
 | Kotlin coroutines | 1.10.2 | Off-main-thread extraction |
 | Coil | 3.5.0 | Thumbnail and artwork loading |
 
-AGP's built-in Kotlin compiler is disabled for this project and the explicit Kotlin Gradle Plugin is used. This avoids compiling Kotlin source with compiler 2.2.0 against standard-library classes that declare Kotlin 2.4 metadata, which the first CI run exposed.
+AGP's built-in Kotlin compiler is disabled for this project and the explicit Kotlin Gradle Plugin is used. The first CI run exposed a mismatch between the compiler bundled with AGP and Kotlin 2.4 standard-library metadata. The external Kotlin plugin currently needs AGP's new DSL temporarily disabled (`android.newDsl=false`). Keep these compatibility switches documented and recheck them before upgrading AGP or Kotlin; do not remove them without a successful full CI run.
 
 ## Reusable projects to study
 
