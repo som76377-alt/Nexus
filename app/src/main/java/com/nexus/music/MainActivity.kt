@@ -310,111 +310,47 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun showStoredBackgroundUpdate() {
-        val preferences = getSharedPreferences(NexusUpdateWorker.PREFS, MODE_PRIVATE)
-        val version = preferences.getString(NexusUpdateWorker.KEY_VERSION, null) ?: return
-        val apkPath = preferences.getString(NexusUpdateWorker.KEY_APK_PATH, null) ?: return
-        if (!AppVersioning.isNewer(version, BuildConfig.VERSION_NAME)) {
-            preferences.edit()
-                .remove(NexusUpdateWorker.KEY_VERSION)
-                .remove(NexusUpdateWorker.KEY_VERSION_CODE)
-                .remove(NexusUpdateWorker.KEY_TAG)
-                .remove(NexusUpdateWorker.KEY_NOTES)
-                .remove(NexusUpdateWorker.KEY_URL)
-                .remove(NexusUpdateWorker.KEY_SHA256)
-                .remove(NexusUpdateWorker.KEY_APK_PATH)
-                .apply()
-            java.io.File(apkPath).delete()
-            return
-        }
-        if (!java.io.File(apkPath).isFile) return
-        val update = NexusUpdate(
-            versionName = version,
-            versionCode = preferences.getInt(NexusUpdateWorker.KEY_VERSION_CODE, 0),
-            tagName = preferences.getString(NexusUpdateWorker.KEY_TAG, "") ?: "",
-            releaseNotes = preferences.getString(NexusUpdateWorker.KEY_NOTES, "") ?: "",
-            apkUrl = preferences.getString(NexusUpdateWorker.KEY_URL, "") ?: "",
-            sha256 = preferences.getString(NexusUpdateWorker.KEY_SHA256, "") ?: ""
-        )
-        pendingUpdate = update
-        updateButton.text = "Update ${update.versionName}"
-        if (intent.getBooleanExtra(NexusUpdateWorker.EXTRA_UPDATE_READY, false)) {
-            showUpdateDialog(update)
-        }
-    }
-
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        if (intent.getBooleanExtra(NexusUpdateWorker.EXTRA_UPDATE_READY, false)) {
-            showStoredBackgroundUpdate()
-        }
-    }
-
-    private fun maybeCheckForUpdates() {
-        val preferences = getSharedPreferences("nexus_update_check", MODE_PRIVATE)
-        val lastCheck = preferences.getLong("last_check_ms", 0L)
-        val now = System.currentTimeMillis()
-        if (now - lastCheck < UPDATE_CHECK_INTERVAL_MS) return
-        checkForUpdates(showResult = false)
-    }
-
-    private fun checkForUpdates(showResult: Boolean) {
+    /** Checks the latest stable GitHub release every time Nexus is opened. */
+    private fun checkForUpdates() {
         if (updateCheckJob?.isActive == true) return
-        updateButton.isEnabled = false
-        updateButton.text = "Checking…"
+
+        updateStatusText.text = "Checking for updates…"
+        updateStatusText.setTextColor(secondaryText)
+        updateButton.visibility = View.GONE
+        updateProgressContainer.visibility = View.GONE
+
         updateCheckJob = activityScope.launch {
             try {
                 when (val result = updateChecker.checkForUpdate(this@MainActivity)) {
                     is UpdateCheckResult.UpToDate -> {
-                        getSharedPreferences("nexus_update_check", MODE_PRIVATE)
-                            .edit().putLong("last_check_ms", System.currentTimeMillis()).apply()
                         pendingUpdate = null
-                        updateButton.text = "Check updates"
-                        if (showResult) {
-                            Toast.makeText(this@MainActivity, "Nexus is up to date.", Toast.LENGTH_SHORT).show()
-                        }
+                        updateStatusText.text = "You're up to date · ${result.installedVersion}"
+                        updateStatusText.setTextColor(accent)
+                        updateButton.visibility = View.GONE
                     }
 
                     is UpdateCheckResult.Available -> {
-                        getSharedPreferences("nexus_update_check", MODE_PRIVATE)
-                            .edit().putLong("last_check_ms", System.currentTimeMillis()).apply()
                         pendingUpdate = result.update
-                        updateButton.text = "Update ${result.update.versionName}"
-                        if (!isFinishing) showUpdateDialog(result.update)
+                        updateStatusText.text = "Update available · ${result.update.versionName}"
+                        updateStatusText.setTextColor(primaryText)
+                        updateButton.text = "Download"
+                        updateButton.isEnabled = true
+                        updateButton.visibility = View.VISIBLE
                     }
                 }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                updateButton.text = "Check updates"
-                if (showResult && !isFinishing && !isDestroyed) {
-                    AlertDialog.Builder(this@MainActivity)
-                        .setTitle("Update check unavailable")
-                        .setMessage(error.message ?: "Could not contact the Nexus update feed.")
-                        .setPositiveButton("OK", null)
-                        .show()
-                }
+                updateStatusText.text =
+                    "Update check failed · ${error.message ?: "Check your connection and retry."}"
+                updateStatusText.setTextColor(Color.rgb(255, 170, 120))
+                updateButton.text = "Retry"
+                updateButton.isEnabled = true
+                updateButton.visibility = View.VISIBLE
             } finally {
-                if (!isFinishing && !isDestroyed) {
-                    updateButton.isEnabled = true
-                    updateCheckJob = null
-                }
+                if (!isFinishing && !isDestroyed) updateCheckJob = null
             }
         }
-    }
-
-    private fun showUpdateDialog(update: NexusUpdate) {
-        val notes = update.releaseNotes.ifBlank { "A newer version of Nexus is ready." }
-        AlertDialog.Builder(this)
-            .setTitle("Nexus update ${update.versionName}")
-            .setMessage(
-                notes + "\n\nThe APK will be checked before Android's installer is opened. " +
-                    "Android will ask you to approve the installation."
-            )
-            .setNegativeButton("Later", null)
-            .setPositiveButton("Download update") { _, _ -> installUpdate(update) }
-            .show()
     }
 
     private fun installUpdate(update: NexusUpdate) {
