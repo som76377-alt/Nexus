@@ -1,6 +1,7 @@
 package com.nexus.music
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
@@ -85,6 +86,7 @@ class MainActivity : Activity() {
     private var isResolving = false
     private var isSeeking = false
     private var lastPlaybackSnapshot = PlaybackSnapshot(connected = false)
+    private var backInvokedCallback: android.window.OnBackInvokedCallback? = null
 
     private val screenBackground = Color.rgb(12, 14, 18)
     private val surface = Color.rgb(24, 28, 35)
@@ -264,10 +266,22 @@ class MainActivity : Activity() {
         root.addView(buildPlayerPanel(), LinearLayout.LayoutParams(-1, -2))
         root.addView(buildBottomNavigation(), LinearLayout.LayoutParams(-1, dp(62)))
         setContentView(root)
+        registerBackNavigation()
         applySystemBarInsets(root)
         connectPlaybackService()
         NexusUpdateScheduler.disableBackgroundUpdates(this)
         requestUpdateNotificationPermission()
+    }
+
+    private fun registerBackNavigation() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val callback = android.window.OnBackInvokedCallback { finishAffinity() }
+            onBackInvokedDispatcher.registerOnBackInvokedCallback(
+                android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                callback
+            )
+            backInvokedCallback = callback
+        }
     }
 
     private fun buildBottomNavigation(): LinearLayout {
@@ -821,6 +835,8 @@ class MainActivity : Activity() {
     private fun dp(value: Int): Int =
         (value * resources.displayMetrics.density).toInt()
 
+    @SuppressLint("GestureBackNavigation")
+    @Deprecated("Use the platform back callback on Android 13 and newer.")
     override fun onBackPressed() {
         finishAffinity()
     }
@@ -838,6 +854,10 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            backInvokedCallback?.let(onBackInvokedDispatcher::unregisterOnBackInvokedCallback)
+            backInvokedCallback = null
+        }
         searchGeneration++
         searchJob?.cancel()
         searchJob = null
