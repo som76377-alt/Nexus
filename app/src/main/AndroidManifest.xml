@@ -33,6 +33,14 @@
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <service
+            android:name=".update.NexusFirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <service
             android:name=".playback.PlaybackService"
             android:exported="true"
             android:foregroundServiceType="mediaPlayback">
