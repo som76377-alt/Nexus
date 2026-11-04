@@ -4,17 +4,42 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 import org.schabi.newpipe.extractor.stream.AudioStream
+import org.schabi.newpipe.extractor.stream.DeliveryMethod
 
 class AudioStreamSelectorTest {
     @Test
-    fun choosesHighestBitrateDirectAudioUrl() {
-        val low = audio("low", "https://media.example/low.m4a", 96_000)
-        val high = audio("high", "https://media.example/high.m4a", 160_000)
+    fun choosesHighestBitrateBeforeDeliveryMethodPreference() {
+        val progressiveLow = audio(
+            "progressive-low",
+            "https://media.example/low.m4a",
+            96_000,
+            DeliveryMethod.PROGRESSIVE_HTTP
+        )
+        val dashHigh = audio(
+            "dash-high",
+            "https://media.example/high.m4a",
+            256_000,
+            DeliveryMethod.DASH
+        )
 
-        val selected = AudioStreamSelector.bestPlayable(listOf(low, high))
+        val selected = AudioStreamSelector.bestPlayable(listOf(progressiveLow, dashHigh))
 
-        assertEquals("high", selected?.id)
-        assertEquals(160_000, selected?.averageBitrate)
+        assertEquals("dash-high", selected?.id)
+    }
+
+    @Test
+    fun prefersProgressiveHttpWhenBitratesTie() {
+        val hls = audio("hls", "https://media.example/audio.m3u8", 160_000, DeliveryMethod.HLS)
+        val progressive = audio(
+            "progressive",
+            "https://media.example/audio.m4a",
+            160_000,
+            DeliveryMethod.PROGRESSIVE_HTTP
+        )
+
+        val selected = AudioStreamSelector.bestPlayable(listOf(hls, progressive))
+
+        assertEquals("progressive", selected?.id)
     }
 
     @Test
@@ -28,10 +53,24 @@ class AudioStreamSelectorTest {
         assertNull(AudioStreamSelector.bestPlayable(listOf(manifest)))
     }
 
-    private fun audio(id: String, url: String, bitrate: Int): AudioStream =
+    @Test
+    fun rejectsMalformedAndNonHttpUrls() {
+        val malformed = audio("malformed", "https://", 320_000)
+        val localFile = audio("local-file", "file:///tmp/audio.m4a", 320_000)
+
+        assertNull(AudioStreamSelector.bestPlayable(listOf(malformed, localFile)))
+    }
+
+    private fun audio(
+        id: String,
+        url: String,
+        bitrate: Int,
+        deliveryMethod: DeliveryMethod = DeliveryMethod.PROGRESSIVE_HTTP
+    ): AudioStream =
         AudioStream.Builder()
             .setId(id)
             .setContent(url, true)
             .setAverageBitrate(bitrate)
+            .setDeliveryMethod(deliveryMethod)
             .build()
 }
