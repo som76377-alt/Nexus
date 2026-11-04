@@ -12,7 +12,9 @@ internal object AppVersioning {
         val major = match.groupValues[1].toLongOrNull() ?: return null
         val minor = match.groupValues[2].toLongOrNull() ?: return null
         val patch = match.groupValues[3].toLongOrNull() ?: return null
-        if (minor > 999L || patch > 999L) return null
+        // Bound the major component before multiplication so oversized tags cannot
+        // overflow Long and wrap back into Android's accepted versionCode range.
+        if (major > 2_100L || minor > 999L || patch > 999L) return null
 
         val code = major * 1_000_000L + minor * 1_000L + patch
         return code.takeIf { it in 1L..2_100_000_000L }?.toInt()
