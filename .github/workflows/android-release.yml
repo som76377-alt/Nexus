@@ -3,19 +3,26 @@ name: Nexus Signed Release
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build for signing validation (for example 0.1.1)"
+        required: true
+        default: "0.1.1"
+        type: string
 
 permissions:
   contents: write
 
 jobs:
   build-release:
-    name: Build and attach signed Nexus APK
+    name: Build and verify signed Nexus APK
     runs-on: ubuntu-latest
     steps:
-      - name: Check out release tag
+      - name: Check out source
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.event.release.tag_name || github.ref }}
 
       - name: Set up JDK
         uses: actions/setup-java@v5
@@ -47,20 +54,22 @@ jobs:
               exit 1
             fi
           done
-          echo "$NEXUS_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/nexus-signing.jks"
+          printf '%s' "$NEXUS_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/nexus-signing.jks"
+          test -s "$RUNNER_TEMP/nexus-signing.jks"
+          keytool -list -keystore "$RUNNER_TEMP/nexus-signing.jks" -storepass "$NEXUS_KEYSTORE_PASSWORD" -alias "$NEXUS_KEY_ALIAS" >/dev/null
           echo "NEXUS_KEYSTORE_PATH=$RUNNER_TEMP/nexus-signing.jks" >> "$GITHUB_ENV"
           echo "NEXUS_KEYSTORE_PASSWORD=$NEXUS_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
           echo "NEXUS_KEY_ALIAS=$NEXUS_KEY_ALIAS" >> "$GITHUB_ENV"
           echo "NEXUS_KEY_PASSWORD=$NEXUS_KEY_PASSWORD" >> "$GITHUB_ENV"
 
-      - name: Derive Android version from release tag
+      - name: Derive Android version
         id: version
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.version }}
         run: |
           VERSION="${RELEASE_TAG#v}"
           if [[ ! "$VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-            echo "::error::Release tag must use vMAJOR.MINOR.PATCH (example: v0.1.1)."
+            echo "::error::Version must use MAJOR.MINOR.PATCH (example: 0.1.1)."
             exit 1
           fi
           MAJOR="${BASH_REMATCH[1]}"
@@ -72,7 +81,7 @@ jobs:
           fi
           VERSION_CODE=$((MAJOR * 1000000 + MINOR * 1000 + PATCH))
           if (( VERSION_CODE < 1 || VERSION_CODE > 2100000000 )); then
-            echo "::error::Release version is outside Android's supported versionCode range."
+            echo "::error::Version is outside Android's supported versionCode range."
             exit 1
           fi
           echo "version_name=$VERSION" >> "$GITHUB_OUTPUT"
@@ -85,13 +94,28 @@ jobs:
           -PnexusVersionCode="${{ steps.version.outputs.version_code }}"
           :app:assembleRelease
 
-      - name: Create SHA-256 companion file
+      - name: Verify APK signature and create checksum
         run: |
+          APK="app/build/outputs/apk/release/app-release.apk"
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$APK"
           cd app/build/outputs/apk/release
           cp app-release.apk nexus-release.apk
           sha256sum nexus-release.apk > nexus-release.apk.sha256
 
+      - name: Upload validation APK artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-signed-release-validation
+          path: |
+            app/build/outputs/apk/release/nexus-release.apk
+            app/build/outputs/apk/release/nexus-release.apk.sha256
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Attach APK and checksum to GitHub Release
+        if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.release.tag_name }}
