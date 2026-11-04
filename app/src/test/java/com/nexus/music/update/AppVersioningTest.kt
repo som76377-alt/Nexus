@@ -22,6 +22,11 @@ class AppVersioningTest {
         assertNull(AppVersioning.versionCodeFromTag("v0.1000.0"))
         assertNull(AppVersioning.versionCodeFromTag("v2101.0.0"))
         assertNull(AppVersioning.versionCodeFromTag("v999999999999999999.0.0"))
+        assertNull(AppVersioning.versionCodeFromTag("v01.2.3"))
+        assertNull(AppVersioning.versionCodeFromTag("v1.02.3"))
+        assertNull(AppVersioning.versionCodeFromTag("v1.2.03"))
+        assertEquals(2_100_000_000, AppVersioning.versionCodeFromTag("v2100.0.0"))
+        assertNull(AppVersioning.versionCodeFromTag("v2100.0.1"))
     }
 
     @Test

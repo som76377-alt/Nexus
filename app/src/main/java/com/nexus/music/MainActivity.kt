@@ -280,9 +280,11 @@ class MainActivity : Activity() {
                         if (!isFinishing) showUpdateDialog(result.update)
                     }
                 }
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: Exception) {
                 updateButton.text = "Check updates"
-                if (showResult && !isFinishing) {
+                if (showResult && !isFinishing && !isDestroyed) {
                     AlertDialog.Builder(this@MainActivity)
                         .setTitle("Update check unavailable")
                         .setMessage(error.message ?: "Could not contact the Nexus update feed.")
@@ -290,8 +292,10 @@ class MainActivity : Activity() {
                         .show()
                 }
             } finally {
-                updateButton.isEnabled = true
-                updateCheckJob = null
+                if (!isFinishing && !isDestroyed) {
+                    updateButton.isEnabled = true
+                    updateCheckJob = null
+                }
             }
         }
     }
@@ -335,7 +339,16 @@ class MainActivity : Activity() {
             try {
                 val apk = updateChecker.downloadAndVerify(this@MainActivity, update)
                 NexusUpdateInstaller.install(this@MainActivity, apk)
-                updateButton.text = "Installer opened"
+                if (!isFinishing && !isDestroyed) {
+                    updateButton.text = "Install request sent"
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Android should show its update approval screen. Approve it there to finish.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: InstallPermissionRequiredException) {
                 updateButton.text = "Update ${update.versionName}"
                 AlertDialog.Builder(this@MainActivity)
@@ -353,13 +366,17 @@ class MainActivity : Activity() {
                     .show()
             } catch (error: Exception) {
                 updateButton.text = "Update ${update.versionName}"
-                AlertDialog.Builder(this@MainActivity)
-                    .setTitle("Update could not be installed")
-                    .setMessage(error.message ?: "The download or verification failed.")
-                    .setPositiveButton("OK", null)
-                    .show()
+                if (!isFinishing && !isDestroyed) {
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Update could not be installed")
+                        .setMessage(error.message ?: "The download or verification failed.")
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
             } finally {
-                updateButton.isEnabled = true
+                if (!isFinishing && !isDestroyed) {
+                    updateButton.isEnabled = true
+                }
             }
         }
     }
@@ -673,6 +690,13 @@ class MainActivity : Activity() {
 
     private fun dp(value: Int): Int =
         (value * resources.displayMetrics.density).toInt()
+
+    override fun onResume() {
+        super.onResume()
+        if (::updateButton.isInitialized && updateButton.text == "Install request sent") {
+            updateButton.text = pendingUpdate?.let { "Update ${it.versionName}" } ?: "Check updates"
+        }
+    }
 
     override fun onStart() {
         super.onStart()
