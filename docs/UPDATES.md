@@ -2,7 +2,7 @@
 
 ## Update behaviour
 
-Nexus checks the configured GitHub repository's latest published release when the app opens (at most once every six hours), and also provides a manual **Check updates** action. A newer release is downloaded, checked against its SHA-256 digest, validated for package name and version, and handed to Android's package installer.
+Nexus checks the latest stable GitHub Release whenever its main screen opens or returns to the foreground. The update panel clearly shows whether it is checking, up to date, or has found a newer version. When an update is available, tap **Download** to start a foreground download with a visible progress bar, downloaded size, and percentage. Nexus verifies the APK's SHA-256 digest, package name, version, and signing identity before opening Android's installer. Failed checks and downloads remain visible and can be retried.
 
 Android displays its own installation approval screen. An ordinary Android app cannot silently install its own updates. When the installed and downloaded APKs use the same package name and signing certificate, Android updates the existing installation and retains app data.
 
