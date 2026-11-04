@@ -173,6 +173,7 @@ jobs:
         with:
           tag_name: "${{ (github.ref_type == 'tag' && github.ref_name) || 'v0.1.4' }}"
           generate_release_notes: true
+          overwrite_files: true
           files: |
             app/build/outputs/apk/release/nexus-release.apk
             app/build/outputs/apk/release/nexus-release.apk.sha256
