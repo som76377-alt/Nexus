@@ -17,7 +17,8 @@ import java.util.concurrent.Executor
 
 data class PlaybackSnapshot(
     val connected: Boolean,
-    val title: String = "",
+    val sourceId: String = "",
+    val title: String = ""
     val artist: String = "",
     val isPlaying: Boolean = false,
     val playbackState: Int = Player.STATE_IDLE,
@@ -133,6 +134,24 @@ class PlaybackConnection(
         }
     }
 
+    fun setPlaying(shouldPlay: Boolean) {
+        val activeController = controller ?: return
+        if (shouldPlay) {
+            if (activeController.playbackState == Player.STATE_IDLE ||
+                activeController.playbackState == Player.STATE_ENDED
+            ) {
+                if (activeController.playbackState == Player.STATE_ENDED) {
+                    activeController.seekTo(0L)
+                }
+                activeController.prepare()
+            }
+            activeController.play()
+        } else {
+            activeController.pause()
+        }
+        publishState()
+    }
+
     fun snapshot(): PlaybackSnapshot {
         val activeController = controller ?: return PlaybackSnapshot(connected = false)
         val item = activeController.currentMediaItem
@@ -141,6 +160,7 @@ class PlaybackConnection(
         }
         return PlaybackSnapshot(
             connected = true,
+            sourceId = item?.mediaId.orEmpty(),
             title = item?.mediaMetadata?.title?.toString().orEmpty(),
             artist = item?.mediaMetadata?.artist?.toString().orEmpty(),
             isPlaying = activeController.isPlaying,

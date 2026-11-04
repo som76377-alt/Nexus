@@ -27,13 +27,14 @@ The Android room screen must call `touch_room` periodically while a room is open
 
 The messages, playback snapshot, and membership tables are included in the `supabase_realtime` publication. Clients must subscribe with the authenticated user's session; RLS controls which room rows are visible.
 
-## Android integration still required
+## Android prototype
 
-1. Enable anonymous sign-ins in Supabase Auth (or choose a durable sign-in method).
-2. Add the Supabase Kotlin Auth, PostgREST, and Realtime clients.
-3. Persist the anonymous session securely so each phone keeps its own identity after app restarts.
-4. Build the Create Room / Join by Code / room chat UI.
-5. Connect playback events to the existing Media3 `PlaybackService`, and periodically publish/consume playback snapshots with drift correction.
-6. Add integration tests using two authenticated test users.
+The main Nexus screen now opens a Listening Room prototype. It includes device-local anonymous sign-in with an Android Keystore-encrypted session, Create Room and Join by Code, room-scoped chat, a 25-second heartbeat, shared YouTube URL playback through the existing Media3 service, and play/pause/seek synchronisation.
+
+The first client version polls the room API about every 1.8 seconds instead of maintaining a persistent Realtime socket. The database publication is already enabled for a later transport upgrade. The server cleanup still removes rooms after one hour of inactivity, with the scheduled job running every five minutes.
+
+Anonymous sign-ins must be enabled in the Nexus Supabase project's Authentication settings. If disabled, the app displays that setup requirement. Anonymous identity survives normal app restarts but cannot be recovered after app data is cleared or the app is reinstalled.
+
+The backend currently limits each room to two members; it does not yet enforce a project-wide allowlist of the two intended people. A durable sign-in and global two-account allowlist remain follow-up hardening work. Two-device end-to-end validation is still required.
 
 A Supabase anonymous user is device-local and cannot recover its identity after app data is cleared or the app is reinstalled. For a durable two-person private app, a permanent sign-in method may be preferable.

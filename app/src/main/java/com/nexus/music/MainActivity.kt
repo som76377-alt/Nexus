@@ -129,6 +129,20 @@ class MainActivity : Activity() {
         )
         content.addView(appHeader)
 
+        val roomsButton = Button(this).apply {
+            text = "Listening Room  ·  Create or join"
+            textSize = 13f
+            isAllCaps = false
+            setTextColor(Color.rgb(14, 20, 12))
+            typeface = Typeface.DEFAULT_BOLD
+            background = rounded(accent, 12)
+            setPadding(dp(14), 0, dp(14), 0)
+            setOnClickListener {
+                startActivity(Intent(this@MainActivity, com.nexus.music.rooms.ListeningRoomActivity::class.java))
+            }
+        }
+        content.addView(roomsButton, verticalParams(14))
+
         val updatePanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = rounded(surface, 14)
