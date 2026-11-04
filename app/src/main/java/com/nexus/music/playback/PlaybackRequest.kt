@@ -8,7 +8,8 @@ data class PlaybackRequest(
     val streamUrl: String,
     val title: String,
     val artist: String?,
-    val thumbnailUrl: String?
+    val thumbnailUrl: String?,
+    val mimeType: String?
 ) {
     companion object {
         fun from(audio: ResolvedAudio) = PlaybackRequest(
@@ -16,7 +17,8 @@ data class PlaybackRequest(
             streamUrl = audio.audioUrl,
             title = audio.title,
             artist = audio.artist,
-            thumbnailUrl = audio.thumbnailUrl
+            thumbnailUrl = audio.thumbnailUrl,
+            mimeType = audio.mimeType
         )
     }
 }
