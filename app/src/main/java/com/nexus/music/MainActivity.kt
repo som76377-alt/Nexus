@@ -16,11 +16,13 @@ import android.os.Looper
 import android.net.Uri
 import android.provider.Settings
 import android.view.Gravity
+import android.view.View
 import android.view.WindowInsets
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageView
+import android.widget.ProgressBar
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
@@ -34,13 +36,11 @@ import com.nexus.music.catalog.YoutubeCatalogRepository
 import com.nexus.music.catalog.YoutubeSearchScope
 import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackSnapshot
-import com.nexus.music.update.AppVersioning
 import com.nexus.music.update.GitHubReleaseUpdater
 import com.nexus.music.update.InstallPermissionRequiredException
 import com.nexus.music.update.NexusUpdate
 import com.nexus.music.update.NexusUpdateInstaller
 import com.nexus.music.update.NexusUpdateScheduler
-import com.nexus.music.update.NexusUpdateWorker
 import com.nexus.music.update.UpdateCheckResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -62,6 +62,10 @@ class MainActivity : Activity() {
     private lateinit var queryInput: EditText
     private lateinit var searchButton: Button
     private lateinit var updateButton: Button
+    private lateinit var updateStatusText: TextView
+    private lateinit var updateProgressContainer: LinearLayout
+    private lateinit var updateProgressText: TextView
+    private lateinit var updateProgressBar: ProgressBar
     private lateinit var scopeButtons: Map<YoutubeSearchScope, Button>
     private lateinit var playerArtwork: ImageView
     private lateinit var playerTitle: TextView
@@ -71,6 +75,7 @@ class MainActivity : Activity() {
 
     private var playbackConnection: PlaybackConnection? = null
     private var updateCheckJob: Job? = null
+    private var downloadJob: Job? = null
     private var pendingUpdate: NexusUpdate? = null
     private var pendingNotificationTrack: CatalogTrack? = null
     private var notificationPermissionRequested = false
@@ -118,47 +123,66 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        val brandAndTest = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        brandAndTest.addView(
+        appHeader.addView(
             text("NEXUS", 12f, accent, bold = true).apply { letterSpacing = 0.22f },
             LinearLayout.LayoutParams(-2, -2)
         )
-        val updateTestButton = Button(this).apply {
-            text = "TEST"
-            textSize = 9f
-            isAllCaps = true
-            minWidth = 0
-            minimumWidth = 0
-            minHeight = 0
-            minimumHeight = 0
-            setTextColor(accent)
-            background = rounded(surfaceRaised, 8)
-            setPadding(dp(8), 0, dp(8), 0)
-            contentDescription = "Test the update checker"
-            setOnClickListener { checkForUpdates(showResult = true) }
+        content.addView(appHeader)
+
+        val updatePanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(surface, 14)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
         }
-        brandAndTest.addView(
-            updateTestButton,
-            LinearLayout.LayoutParams(-2, dp(28)).apply { marginStart = dp(10) }
-        )
-        appHeader.addView(brandAndTest, LinearLayout.LayoutParams(0, -2, 1f))
+        val updateRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        updateStatusText = text("Checking for updates…", 12f, secondaryText, maxLines = 2)
+        updateRow.addView(updateStatusText, LinearLayout.LayoutParams(0, -2, 1f))
         updateButton = Button(this).apply {
-            text = "Check updates"
+            text = "Download"
             textSize = 11f
             isAllCaps = false
-            setTextColor(primaryText)
-            background = rounded(surfaceRaised, 10)
-            setPadding(dp(8), 0, dp(8), 0)
+            minWidth = 0
+            minimumWidth = 0
+            setTextColor(Color.rgb(14, 20, 12))
+            typeface = Typeface.DEFAULT_BOLD
+            background = rounded(accent, 10)
+            setPadding(dp(12), 0, dp(12), 0)
+            visibility = View.GONE
             setOnClickListener {
-                val available = pendingUpdate
-                if (available != null) showUpdateDialog(available) else checkForUpdates(showResult = true)
+                val update = pendingUpdate
+                if (update != null) installUpdate(update) else checkForUpdates()
             }
         }
-        appHeader.addView(updateButton, LinearLayout.LayoutParams(-2, dp(38)))
-        content.addView(appHeader)
+        updateRow.addView(updateButton, LinearLayout.LayoutParams(-2, dp(36)).apply {
+            marginStart = dp(10)
+        })
+        updatePanel.addView(updateRow)
+
+        updateProgressContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
+        updateProgressText = text("Preparing download…", 11f, secondaryText).apply {
+            setPadding(0, dp(8), 0, dp(3))
+        }
+        updateProgressContainer.addView(updateProgressText)
+        updateProgressBar = ProgressBar(
+            this,
+            null,
+            android.R.attr.progressBarStyleHorizontal
+        ).apply {
+            max = 100
+            progress = 0
+            isIndeterminate = false
+            progressTintList = ColorStateList.valueOf(accent)
+            progressBackgroundTintList = ColorStateList.valueOf(surfaceRaised)
+        }
+        updateProgressContainer.addView(updateProgressBar, LinearLayout.LayoutParams(-1, dp(6)))
+        updatePanel.addView(updateProgressContainer)
+        content.addView(updatePanel, verticalParams(14))
         content.addView(text("Find your next\nfavourite track.", 31f, primaryText, bold = true).apply {
             setPadding(0, dp(12), 0, dp(8))
         })
@@ -241,10 +265,9 @@ class MainActivity : Activity() {
         setContentView(root)
         applySystemBarInsets(root)
         connectPlaybackService()
-        NexusUpdateScheduler.schedule(this)
+        NexusUpdateScheduler.disableBackgroundUpdates(this)
         requestUpdateNotificationPermission()
-        maybeCheckForUpdates()
-        showStoredBackgroundUpdate()
+        checkForUpdates()
     }
 
     /**
