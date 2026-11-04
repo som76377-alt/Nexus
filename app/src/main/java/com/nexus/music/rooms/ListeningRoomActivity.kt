@@ -57,6 +57,7 @@ class ListeningRoomActivity : Activity() {
     private lateinit var joinButton: Button
     private lateinit var createButton: Button
     private lateinit var roomPanel: LinearLayout
+    private lateinit var roomActions: LinearLayout
     private lateinit var inviteText: TextView
     private lateinit var messagesBox: LinearLayout
     private lateinit var messageInput: EditText
@@ -129,7 +130,7 @@ class ListeningRoomActivity : Activity() {
         status.background = rounded(surface, 12)
         root.addView(status, params(16))
 
-        val roomActions = LinearLayout(this).apply {
+        roomActions = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = rounded(surface, 14)
             setPadding(dp(12), dp(12), dp(12), dp(12))
@@ -282,7 +283,7 @@ class ListeningRoomActivity : Activity() {
                 inviteText.text = "Invite code: ${created.inviteCode}"
                 android.app.AlertDialog.Builder(this@ListeningRoomActivity)
                     .setTitle("Room created")
-                    .setMessage("Share this one-time invite code:\n\n${created.inviteCode}\n\nThe other person can enter it in Nexus.")
+                    .setMessage("Share this invite code:\n\n${created.inviteCode}\n\nThe other person can enter it in Nexus.")
                     .setPositiveButton("Copy code") { _, _ -> copyCode(created.inviteCode) }
                     .setNegativeButton("Close", null)
                     .show()
@@ -326,6 +327,7 @@ class ListeningRoomActivity : Activity() {
     private suspend fun enterRoom(id: String) {
         roomId = id
         roomPanel.visibility = View.VISIBLE
+        roomActions.visibility = View.GONE
         createButton.visibility = View.GONE
         codeInput.visibility = View.GONE
         joinButton.visibility = View.GONE
@@ -644,6 +646,7 @@ class ListeningRoomActivity : Activity() {
         lastPublishedPositionMs = 0L
         lastPublishedAtElapsed = 0L
         roomPanel.visibility = View.GONE
+        roomActions.visibility = View.VISIBLE
         createButton.visibility = View.VISIBLE
         codeInput.visibility = View.VISIBLE
         joinButton.visibility = View.VISIBLE
