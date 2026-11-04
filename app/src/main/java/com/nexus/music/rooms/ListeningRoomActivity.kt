@@ -476,7 +476,7 @@ class ListeningRoomActivity : Activity() {
             try {
                 val audio = catalog.resolveAudio(url)
                 applyingRemoteUntil = 0L
-                if (playback?.play(audio) == false) {
+                if (playback?.play(audio) != true) {
                     throw java.io.IOException("The player could not accept this track.")
                 }
                 trackInput.text.clear()
