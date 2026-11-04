@@ -57,8 +57,9 @@ class AudioStreamSelectorTest {
     fun rejectsMalformedAndNonHttpUrls() {
         val malformed = audio("malformed", "https://", 320_000)
         val localFile = audio("local-file", "file:///tmp/audio.m4a", 320_000)
+        val cleartextHttp = audio("cleartext-http", "http://media.example/audio.m4a", 320_000)
 
-        assertNull(AudioStreamSelector.bestPlayable(listOf(malformed, localFile)))
+        assertNull(AudioStreamSelector.bestPlayable(listOf(malformed, localFile, cleartextHttp)))
     }
 
     private fun audio(
