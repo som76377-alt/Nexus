@@ -7,7 +7,8 @@
 - HTTP 429 is surfaced as NewPipe's `ReCaptchaException`; the app does not spin in an automatic retry loop.
 - `YoutubeCatalogRepository.search` supports all-results, music-song and video search scopes.
 - Search items are mapped into app-owned `CatalogTrack` models.
-- `resolveAudio` extracts stream metadata and selects the highest-bitrate directly addressable audio stream, preferring progressive HTTP when bitrate is otherwise comparable.
+- `resolveAudio` extracts stream metadata and selects the highest-bitrate directly addressable audio stream; progressive HTTP is only a tie-breaker when bitrates match.
+- The selector accepts only well-formed HTTPS URLs with a host, and skips manifest bodies. Cleartext HTTP playback is disabled in the Android manifest.
 - Extractor calls run on `Dispatchers.IO`.
 
 ## Important stream URL rule
