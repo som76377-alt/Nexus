@@ -34,6 +34,7 @@ import com.nexus.music.catalog.YoutubeCatalogRepository
 import com.nexus.music.catalog.YoutubeSearchScope
 import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackSnapshot
+import com.nexus.music.update.AppVersioning
 import com.nexus.music.update.GitHubReleaseUpdater
 import com.nexus.music.update.InstallPermissionRequiredException
 import com.nexus.music.update.NexusUpdate
@@ -267,6 +268,19 @@ class MainActivity : Activity() {
         val preferences = getSharedPreferences(NexusUpdateWorker.PREFS, MODE_PRIVATE)
         val version = preferences.getString(NexusUpdateWorker.KEY_VERSION, null) ?: return
         val apkPath = preferences.getString(NexusUpdateWorker.KEY_APK_PATH, null) ?: return
+        if (!AppVersioning.isNewer(version, BuildConfig.VERSION_NAME)) {
+            preferences.edit()
+                .remove(NexusUpdateWorker.KEY_VERSION)
+                .remove(NexusUpdateWorker.KEY_VERSION_CODE)
+                .remove(NexusUpdateWorker.KEY_TAG)
+                .remove(NexusUpdateWorker.KEY_NOTES)
+                .remove(NexusUpdateWorker.KEY_URL)
+                .remove(NexusUpdateWorker.KEY_SHA256)
+                .remove(NexusUpdateWorker.KEY_APK_PATH)
+                .apply()
+            java.io.File(apkPath).delete()
+            return
+        }
         if (!java.io.File(apkPath).isFile) return
         val update = NexusUpdate(
             versionName = version,
