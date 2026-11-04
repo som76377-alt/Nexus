@@ -180,7 +180,7 @@ class MainActivity : Activity() {
             progressTintList = ColorStateList.valueOf(accent)
             progressBackgroundTintList = ColorStateList.valueOf(surfaceRaised)
         }
-        updateProgressContainer.addView(updateProgressBar, LinearLayout.LayoutParams(-1, dp(6)))
+        updateProgressContainer.addView(updateProgressBar, LinearLayout.LayoutParams(-1, dp(9)))
         updatePanel.addView(updateProgressContainer)
         content.addView(updatePanel, verticalParams(14))
         content.addView(text("Find your next\nfavourite track.", 31f, primaryText, bold = true).apply {
@@ -267,7 +267,6 @@ class MainActivity : Activity() {
         connectPlaybackService()
         NexusUpdateScheduler.disableBackgroundUpdates(this)
         requestUpdateNotificationPermission()
-        checkForUpdates()
     }
 
     /**
@@ -787,6 +786,7 @@ class MainActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
+        if (::updateStatusText.isInitialized) checkForUpdates()
         progressHandler.removeCallbacks(progressTicker)
         progressHandler.post(progressTicker)
     }
@@ -813,6 +813,5 @@ class MainActivity : Activity() {
 
     companion object {
         private const val REQUEST_POST_NOTIFICATIONS = 1001
-        private const val UPDATE_CHECK_INTERVAL_MS = 6L * 60L * 60L * 1000L
     }
 }
