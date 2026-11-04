@@ -311,7 +311,7 @@ class MainActivity : Activity() {
 
     /** Checks the latest stable GitHub release every time Nexus is opened. */
     private fun checkForUpdates() {
-        if (updateCheckJob?.isActive == true) return
+        if (updateCheckJob?.isActive == true || downloadJob?.isActive == true) return
 
         updateStatusText.text = "Checking for updates…"
         updateStatusText.setTextColor(secondaryText)
