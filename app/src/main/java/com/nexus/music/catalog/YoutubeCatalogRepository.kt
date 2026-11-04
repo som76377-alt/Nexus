@@ -74,7 +74,8 @@ class YoutubeCatalogRepository(
                 ?.takeIf(CatalogUrlValidator::isValidHttpsUrl),
             durationSeconds = info.duration.takeIf { it >= 0L },
             audioUrl = selected.content,
-            averageBitrate = selected.averageBitrate.takeIf { it > 0 }
+            averageBitrate = selected.averageBitrate.takeIf { it > 0 },
+            mimeType = selected.format?.mimeType
         )
     }
 
