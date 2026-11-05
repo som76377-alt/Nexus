@@ -41,8 +41,14 @@ data class RoomPlayback(
     val durationMs: Long,
     val revision: Long,
     val updatedBy: String,
-    val updatedAt: String
+    val updatedAt: String,
+    val actionId: String = "",
+    val actionType: String = "STATE",
+    val originDeviceId: String? = null,
+    val commandAt: String = ""
 )
+
+data class PlaybackPublishResult(val applied: Boolean, val revision: Long)
 
 /**
  * Small REST client for the two-person room prototype.
@@ -157,7 +163,7 @@ class RoomsApi(context: Context) {
             apiRequest(
                 "GET",
                 "/rest/v1/room_playback?select=source_id,source_url,title,artist,is_playing," +
-                    "position_ms,duration_ms,revision,updated_by,updated_at" +
+                    "position_ms,duration_ms,revision,updated_by,updated_at,action_id,action_type,origin_device_id,command_at" +
                     "&room_id=eq.$roomId&limit=1",
                 null
             )
@@ -174,36 +180,49 @@ class RoomsApi(context: Context) {
             durationMs = row.optLong("duration_ms"),
             revision = row.optLong("revision"),
             updatedBy = row.getString("updated_by"),
-            updatedAt = row.optString("updated_at")
+            updatedAt = row.optString("updated_at"),
+            actionId = row.optString("action_id"),
+            actionType = row.optString("action_type", "STATE"),
+            originDeviceId = row.optString("origin_device_id").takeIf(String::isNotBlank),
+            commandAt = row.optString("command_at")
         )
     }
 
     suspend fun publishPlayback(
         roomId: String,
-        userId: String,
+        expectedRevision: Long,
         sourceId: String,
         sourceUrl: String,
         title: String,
         artist: String,
         isPlaying: Boolean,
         positionMs: Long,
-        durationMs: Long
-    ) = withContext(Dispatchers.IO) {
+        durationMs: Long,
+        actionId: String,
+        actionType: String,
+        originDeviceId: String
+    ): PlaybackPublishResult = withContext(Dispatchers.IO) {
         val payload = JSONObject()
-            .put("room_id", roomId)
-            .put("source_id", sourceId)
-            .put("source_url", sourceUrl)
-            .put("title", title)
-            .put("artist", artist)
-            .put("is_playing", isPlaying)
-            .put("position_ms", positionMs.coerceAtLeast(0L))
-            .put("duration_ms", durationMs.coerceAtLeast(0L))
-            .put("updated_by", userId)
-        apiRequest(
-            "POST",
-            "/rest/v1/room_playback?on_conflict=room_id",
-            payload.toString(),
-            prefer = "resolution=merge-duplicates,return=minimal"
+            .put("p_room_id", roomId)
+            .put("p_expected_revision", expectedRevision)
+            .put("p_source_id", sourceId)
+            .put("p_source_url", sourceUrl)
+            .put("p_title", title)
+            .put("p_artist", artist)
+            .put("p_is_playing", isPlaying)
+            .put("p_position_ms", positionMs.coerceAtLeast(0L))
+            .put("p_duration_ms", durationMs.coerceAtLeast(0L))
+            .put("p_action_id", actionId)
+            .put("p_action_type", actionType)
+            .put("p_origin_device_id", originDeviceId)
+        val rows = JSONArray(
+            apiRequest("POST", "/rest/v1/rpc/publish_room_playback", payload.toString())
+        )
+        if (rows.length() == 0) throw IOException("The server did not confirm the playback update.")
+        val row = rows.getJSONObject(0)
+        PlaybackPublishResult(
+            applied = row.optBoolean("applied"),
+            revision = row.optLong("revision")
         )
     }
 
