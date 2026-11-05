@@ -14,11 +14,9 @@ import okhttp3.Request
 import java.io.File
 import java.io.IOException
 import java.net.SocketTimeoutException
-import java.net.URI
 import java.security.MessageDigest
 import java.util.Locale
 import java.util.concurrent.TimeUnit
-import org.json.JSONObject
 
 data class NexusUpdate(
     val versionName: String,
@@ -70,61 +68,12 @@ class GitHubReleaseUpdater(
 
             val payload = response.body?.string()
                 ?: throw IOException("GitHub returned an empty release response.")
-            val release = JSONObject(payload)
-            if (release.optBoolean("draft", false) || release.optBoolean("prerelease", false)) {
-                throw IOException("The latest Nexus release is not a stable published release.")
-            }
-
-            val tag = release.optString("tag_name").takeIf(String::isNotBlank)
-                ?: throw IOException("The latest release has no version tag.")
-            val versionName = AppVersioning.normalize(tag)
-                ?: throw IOException("Release tag '$tag' must use canonical vMAJOR.MINOR.PATCH format.")
-            val versionCode = AppVersioning.versionCodeFromTag(tag)
-                ?: throw IOException("Release tag '$tag' has an invalid version number.")
-
-            if (!AppVersioning.isNewer(versionCode, installedVersionCode)) {
-                return@withContext UpdateCheckResult.UpToDate(installedVersion)
-            }
-
-            val assets = release.optJSONArray("assets")
-                ?: throw IOException("The latest release has no downloadable assets.")
-            var apkAsset: JSONObject? = null
-            for (index in 0 until assets.length()) {
-                val asset = assets.optJSONObject(index) ?: continue
-                if (asset.optString("name").equals(APK_ASSET_NAME, ignoreCase = true)) {
-                    apkAsset = asset
-                    break
-                }
-            }
-            val selectedAsset = apkAsset
-                ?: throw IOException("The latest release does not contain $APK_ASSET_NAME.")
-
-            val apkUrl = selectedAsset.optString("browser_download_url")
-            if (!isTrustedReleaseUrl(apkUrl)) {
-                throw IOException("The release APK link is not a trusted HTTPS Nexus GitHub release URL.")
-            }
-
-            val digest = selectedAsset.optString("digest")
-                .removePrefix("sha256:")
-                .lowercase(Locale.US)
-            if (!SHA256_PATTERN.matches(digest)) {
-                throw IOException("The release APK is missing GitHub's SHA-256 asset digest.")
-            }
-
-            val assetSize = selectedAsset.optLong("size", -1L)
-            if (assetSize == 0L || assetSize > MAX_APK_BYTES) {
-                throw IOException("The release APK has an invalid or excessive file size.")
-            }
-
-            UpdateCheckResult.Available(
-                NexusUpdate(
-                    versionName = versionName,
-                    versionCode = versionCode,
-                    tagName = tag,
-                    releaseNotes = release.optString("body").take(MAX_RELEASE_NOTES_CHARS),
-                    apkUrl = apkUrl,
-                    sha256 = digest
-                )
+            return@withContext parseLatestReleasePayload(
+                payload = payload,
+                installedVersion = installedVersion,
+                installedVersionCode = installedVersionCode,
+                repositoryOwner = BuildConfig.UPDATE_REPOSITORY_OWNER,
+                repositoryName = BuildConfig.UPDATE_REPOSITORY_NAME
             )
         }
     }
@@ -266,7 +215,7 @@ class GitHubReleaseUpdater(
         if (!SHA256_PATTERN.matches(update.sha256)) {
             throw IOException("The release is missing a valid SHA-256 checksum.")
         }
-        if (!isTrustedReleaseUrl(update.apkUrl)) {
+        if (!isTrustedReleaseUrl(update.apkUrl, update.tagName, BuildConfig.UPDATE_REPOSITORY_OWNER, BuildConfig.UPDATE_REPOSITORY_NAME)) {
             throw IOException("The release APK link is not a trusted HTTPS Nexus GitHub release URL.")
         }
     }
@@ -383,25 +332,12 @@ class GitHubReleaseUpdater(
             ?: throw IOException("Android could not read the installed Nexus version.")
     }
 
-    private fun isTrustedReleaseUrl(value: String): Boolean {
-        val uri = runCatching { URI(value) }.getOrNull() ?: return false
-        val expectedPathPrefix =
-            "/${BuildConfig.UPDATE_REPOSITORY_OWNER}/${BuildConfig.UPDATE_REPOSITORY_NAME}/releases/download/"
-        return uri.scheme.equals("https", ignoreCase = true) &&
-            uri.host.equals("github.com", ignoreCase = true) &&
-            uri.port == -1 &&
-            uri.userInfo == null &&
-            uri.rawPath.startsWith(expectedPathPrefix)
-    }
-
     private fun isTrustedDownloadHost(host: String): Boolean =
         host.equals("github.com", ignoreCase = true) ||
             host.lowercase(Locale.US).endsWith(".githubusercontent.com")
 
     companion object {
-        private const val APK_ASSET_NAME = "nexus-release.apk"
         private const val MAX_APK_BYTES = 150L * 1024L * 1024L
-        private const val MAX_RELEASE_NOTES_CHARS = 2_000
         private const val DOWNLOAD_BUFFER_BYTES = 32 * 1024
         private const val GITHUB_API_VERSION = "2026-03-10"
         private val SHA256_PATTERN = Regex("^[a-f0-9]{64}$")

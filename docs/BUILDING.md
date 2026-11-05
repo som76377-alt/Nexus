@@ -20,7 +20,7 @@ sdkmanager --licenses
 sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 ```
 
-Build the debug APK:
+Debug builds use a development-only version (`0.0.0-dev-debug`, version code `1`) so they cannot masquerade as the current public release. Debug APKs are test-only and should not be distributed as official updates.\n\nBuild the debug APK:
 
 ```bash
 ./gradlew --no-daemon :app:assembleDebug
@@ -33,7 +33,7 @@ Run unit tests and Android lint:
 ./gradlew --no-daemon :app:lintDebug
 ```
 
-APK output:
+Release builds require the permanent keystore environment variables and explicit, matching `-PnexusVersionName` / `-PnexusVersionCode` values. The build fails rather than creating an unsigned or development-version release APK.\n\nAPK output:
 
 `app/build/outputs/apk/debug/app-debug.apk`
 

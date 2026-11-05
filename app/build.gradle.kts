@@ -7,8 +7,13 @@ if (file("google-services.json").exists()) {
     apply(plugin = "com.google.gms.google-services")
 }
 
-val nexusVersionName = providers.gradleProperty("nexusVersionName").orElse("0.1.8").get()
-val nexusVersionCode = providers.gradleProperty("nexusVersionCode").orNull?.toIntOrNull() ?: 1008
+val nexusVersionName = providers.gradleProperty("nexusVersionName").orElse("0.0.0-dev").get()
+val configuredVersionCode = providers.gradleProperty("nexusVersionCode").orNull
+val nexusVersionCode = configuredVersionCode?.toIntOrNull()
+    ?: if (configuredVersionCode == null) 1 else throw GradleException("nexusVersionCode must be a valid integer.")
+if (nexusVersionCode !in 1..2_100_000_000) {
+    throw GradleException("nexusVersionCode must be between 1 and 2100000000.")
+}
 val updateRepositoryOwner = providers.gradleProperty("nexusUpdateOwner").orElse("som76377-alt").get()
 val updateRepositoryName = providers.gradleProperty("nexusUpdateRepository").orElse("Nexus").get()
 
@@ -17,6 +22,35 @@ val nexusKeystorePassword = providers.environmentVariable("NEXUS_KEYSTORE_PASSWO
 val nexusKeyAlias = providers.environmentVariable("NEXUS_KEY_ALIAS").orNull
 val nexusKeyPassword = providers.environmentVariable("NEXUS_KEY_PASSWORD").orNull
 val hasNexusSigningKey = listOf(nexusKeystorePath, nexusKeystorePassword, nexusKeyAlias, nexusKeyPassword).all { !it.isNullOrBlank() }
+val hasExplicitReleaseVersion =
+    providers.gradleProperty("nexusVersionName").isPresent &&
+        providers.gradleProperty("nexusVersionCode").isPresent
+val releaseBuildRequested = gradle.startParameter.taskNames.any { task ->
+    task.contains("Release", ignoreCase = true) &&
+        (task.contains("assemble", ignoreCase = true) ||
+            task.contains("bundle", ignoreCase = true) ||
+            task.contains("package", ignoreCase = true))
+}
+if (releaseBuildRequested && !hasNexusSigningKey) {
+    throw GradleException("Release APKs must be signed with the permanent Nexus keystore. Configure all four NEXUS_KEYSTORE/NEXUS_KEY_* environment variables.")
+}
+if (releaseBuildRequested && !hasExplicitReleaseVersion) {
+    throw GradleException("Release APKs must receive explicit nexusVersionName and nexusVersionCode values derived from a vMAJOR.MINOR.PATCH tag.")
+}
+if (releaseBuildRequested) {
+    val parts = Regex("^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$").matchEntire(nexusVersionName)
+        ?: throw GradleException("Release versionName must use canonical MAJOR.MINOR.PATCH format.")
+    val major = parts.groupValues[1].toLong()
+    val minor = parts.groupValues[2].toLong()
+    val patch = parts.groupValues[3].toLong()
+    if (major > 2_100L || minor > 999L || patch > 999L) {
+        throw GradleException("Release version components exceed the supported range.")
+    }
+    val expectedVersionCode = major * 1_000_000L + minor * 1_000L + patch
+    if (expectedVersionCode != nexusVersionCode.toLong()) {
+        throw GradleException("Release versionCode does not match its semantic versionName.")
+    }
+}
 
 android {
     namespace = "com.nexus.music"
@@ -44,6 +78,7 @@ android {
         }
     }
     buildTypes {
+        getByName("debug") { versionNameSuffix = "-debug" }
         getByName("release") {
             isMinifyEnabled = false
             if (hasNexusSigningKey) signingConfig = signingConfigs.getByName("nexus")
