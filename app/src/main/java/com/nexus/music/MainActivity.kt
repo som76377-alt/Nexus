@@ -606,7 +606,7 @@ class MainActivity : Activity() {
             playerTitle.text = snapshot.title
             playerSubtitle.text = when (snapshot.playbackState) {
                 Player.STATE_BUFFERING -> "Loading audio…"
-                Player.STATE_READY -> if (snapshot.isPlaying) {
+                Player.STATE_READY -> if (snapshot.playWhenReady) {
                     "Playing" + snapshot.artist.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
                 } else {
                     "Paused" + snapshot.artist.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
@@ -620,7 +620,7 @@ class MainActivity : Activity() {
             playPauseButton.isEnabled = false
         }
 
-        playPauseButton.text = if (snapshot.isPlaying) "Ⅱ" else "▶"
+        playPauseButton.text = if (snapshot.playWhenReady) "Ⅱ" else "▶"
         if (!isSeeking) {
             playbackProgress.isEnabled = snapshot.durationMs > 0L
             playbackProgress.progress = if (snapshot.durationMs > 0L) {
