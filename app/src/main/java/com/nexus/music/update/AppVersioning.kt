@@ -18,6 +18,9 @@ internal object AppVersioning {
         return code.takeIf { it in 1L..2_100_000_000L }?.toInt()
     }
 
+    fun isNewer(candidateVersionCode: Int, installedVersionCode: Long): Boolean =
+        candidateVersionCode.toLong() > installedVersionCode
+
     fun isNewer(candidate: String, installed: String): Boolean {
         val candidateCode = versionCodeFromTag(candidate) ?: return false
         val installedCode = versionCodeFromTag(installed) ?: return false
