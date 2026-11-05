@@ -2,7 +2,7 @@
 
 ## Update behaviour
 
-Nexus checks the latest stable GitHub Release whenever its main screen opens or returns to the foreground. The update panel clearly shows whether it is checking, up to date, or has found a newer version. When an update is available, tap **Download** to start a foreground download with a visible progress bar, downloaded size, and percentage. Nexus verifies the APK's SHA-256 digest, package name, version, and signing identity before opening Android's installer. Failed checks and downloads remain visible and can be retried.
+Nexus checks the latest stable GitHub Release whenever its main screen opens or returns to the foreground. The update panel clearly shows whether it is checking, up to date, or has found a newer version. When an update is available, tap **Download** to start a foreground download with a visible progress bar, downloaded size, and percentage. Nexus verifies the APK's SHA-256 digest, package name, version, and signing identity before opening Android's installer. Before download, it also requires one uploaded APK asset with the exact repository/tag URL, a valid declared size, an APK-compatible content type, and a SHA-256 digest. Failed checks and downloads remain visible and can be retried.
 
 Android displays its own installation approval screen. An ordinary Android app cannot silently install its own updates. When the installed and downloaded APKs use the same package name and signing certificate, Android updates the existing installation and retains app data.
 
