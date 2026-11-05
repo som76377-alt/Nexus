@@ -39,6 +39,16 @@ The backend currently limits each room to two members; it does not yet enforce a
 
 A Supabase anonymous user is device-local and cannot recover its identity after app data is cleared or the app is reinstalled. For a durable two-person private app, a permanent sign-in method may be preferable.
 
+## Reliability migration
+
+`20261105110000_nexus_room_presence_and_playback_atomicity.sql` updates the room RPCs to:
+- reclaim a seat only after its previous device has missed heartbeats for three minutes;
+- release a member immediately through the authenticated `leave_room` RPC;
+- serialize join, leave, heartbeat and playback writes with a per-room transaction lock, preventing two phones from racing to create the first playback snapshot;
+- retain the two-member limit, existing short and legacy invite-code formats, rate limiting, row-level security, and revision-based compare-and-swap.
+
+The migration is checked into the Nexus branch. It must be applied to the connected Supabase project before the new `leave_room` call and stale-seat reclaim behavior are live.
+
 
 ## Playback synchronization and recovery
 
