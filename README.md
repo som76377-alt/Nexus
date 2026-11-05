@@ -31,6 +31,19 @@ It combines YouTube catalogue search, Media3 background playback, an in-app upda
 
 The open-source room/sync candidates were inspected and the integration choice is documented in [docs/OPEN_SOURCE_ROOM_SYNC_REVIEW.md](docs/OPEN_SOURCE_ROOM_SYNC_REVIEW.md). Nexus keeps its existing Supabase backend and native Media3 player rather than adding a second room service or an untested audio relay.
 
+## Browser room test client
+
+A lightweight browser participant is available in [web-room-test](web-room-test/README.md). It shares the live Supabase room backend with the Android app and can test room creation/joining, chat, playback command delivery, revision conflicts, Realtime updates, and polling recovery without an Android emulator.
+
+On Windows, install Node.js 22 LTS, open a terminal in the `web-room-test` folder, and run:
+
+```bash
+npm install
+npm run dev
+```
+
+Then open the local URL printed by Vite (normally `http://localhost:5173/`). The browser uses its own anonymous Supabase identity. It can send canonical YouTube track commands for the Android app to resolve, but it does not run NewPipe or Media3 and cannot validate two-player audio drift by itself. See the web client README for the full phone + laptop test procedure.
+
 ## Technology
 
 - Kotlin, Android SDK 36, Gradle Kotlin DSL, and a pinned version catalog
