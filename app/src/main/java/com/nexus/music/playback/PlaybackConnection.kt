@@ -165,7 +165,7 @@ class PlaybackConnection(
 
     fun togglePlayback() {
         val activeController = controller ?: return
-        if (activeController.isPlaying) {
+        if (activeController.playWhenReady) {
             activeController.pause()
         } else {
             if (activeController.playbackState == Player.STATE_IDLE ||
