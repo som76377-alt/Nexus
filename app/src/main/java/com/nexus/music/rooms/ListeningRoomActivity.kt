@@ -345,7 +345,13 @@ class ListeningRoomActivity : Activity() {
         joinButton.visibility = View.GONE
         inviteText.text = inviteCode?.let { "Invite code: $it" } ?: "Room connected"
         status.text = "Connected · calibrating room clock…"
-        runCatching { api.calibrateServerClock() }
+        try {
+            api.calibrateServerClock()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Clock calibration is best-effort; retain the previous offset on failure.
+        }
         playbackSignalSequence.set(0L)
         remoteRefreshRequested = false
         status.text = "Connected · starting live sync…"
@@ -375,20 +381,24 @@ class ListeningRoomActivity : Activity() {
             onChatSignal = {
                 scope.launch {
                     if (roomId == id) {
-                        runCatching { refreshMessages() }
-                            .onFailure { error ->
-                                if (error !is CancellationException) {
-                                    status.text = "Chat reconnecting · ${error.message ?: "retrying"}"
-                                }
+                        try {
+                            refreshMessages()
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (error: Exception) {
+                            if (roomId == id) {
+                                status.text = "Chat reconnecting · ${error.message ?: "retrying"}"
                             }
+                        }
                     }
                 }
             },
             onConnectionChanged = { connected ->
                 scope.launch {
-                    val wasConnected = realtimeConnected
-                    realtimeConnected = connected
+                    // Ignore delayed callbacks from a room that is no longer active.
                     if (roomId == id) {
+                        val wasConnected = realtimeConnected
+                        realtimeConnected = connected
                         status.text = if (connected) {
                             "Connected · live sync"
                         } else {
@@ -398,7 +408,15 @@ class ListeningRoomActivity : Activity() {
                         // during the network gap do not wait for the REST safety poll.
                         if (connected && !wasConnected) {
                             scheduleRemotePlaybackRefresh(id)
-                            runCatching { refreshMessages() }
+                            try {
+                                refreshMessages()
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (error: Exception) {
+                                if (roomId == id) {
+                                    status.text = "Chat reconnecting · ${error.message ?: "retrying"}"
+                                }
+                            }
                         }
                     }
                 }
@@ -415,7 +433,13 @@ class ListeningRoomActivity : Activity() {
                 var iterationFailed = false
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastClockCalibration >= 300_000L) {
-                    runCatching { api.calibrateServerClock() }
+                    try {
+                        api.calibrateServerClock()
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        // Keep the last valid calibration and retry at the next interval.
+                    }
                     lastClockCalibration = SystemClock.elapsedRealtime()
                 }
                 if (now - lastHeartbeat >= 25_000L) {
@@ -513,6 +537,8 @@ class ListeningRoomActivity : Activity() {
     private suspend fun refreshMessages() {
         val id = roomId ?: return
         val messages = api.loadMessages(id)
+        // A late response from an exited room must not repaint the next room.
+        if (roomId != id) return
         if (messages.isEmpty()) {
             if (messagesBox.childCount == 1 && messagesBox.getChildAt(0).tag == "empty") return
             messagesBox.removeAllViews()
@@ -561,12 +587,17 @@ class ListeningRoomActivity : Activity() {
         scope.launch {
             try {
                 api.sendMessage(id, sender, body)
+                if (roomId != id) return@launch
                 messageInput.text.clear()
                 refreshMessages()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: Exception) {
-                status.text = error.message ?: "Message could not be sent."
+                if (roomId == id) {
+                    status.text = error.message ?: "Message could not be sent."
+                }
             } finally {
-                sendButton.isEnabled = true
+                if (roomId == id) sendButton.isEnabled = true
             }
         }
     }
@@ -1025,7 +1056,15 @@ class ListeningRoomActivity : Activity() {
     private fun leaveRoom() {
         val id = roomId ?: return
         scope.launch {
-            val leaveFailed = runCatching { api.leaveRoom(id) }.isFailure
+            var leaveFailed = false
+            try {
+                api.leaveRoom(id)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                leaveFailed = true
+            }
+            if (roomId != id) return@launch
             exitRoom()
             if (leaveFailed) {
                 status.text = "Exited on this phone. The server will release this seat automatically if the connection was interrupted."
