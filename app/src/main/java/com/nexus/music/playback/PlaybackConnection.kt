@@ -50,6 +50,8 @@ class PlaybackConnection(
     private var pendingPlayWhenReady = true
     private var userActionSequence = 0L
     private var lastUserAction = ""
+    @Volatile private var programmaticSeekTargetMs: Long? = null
+    @Volatile private var programmaticSeekAtElapsedMs: Long = 0L
 
     private fun recordUserAction(action: String) {
         userActionSequence += 1L
@@ -80,7 +82,17 @@ class PlaybackConnection(
             newPosition: Player.PositionInfo,
             reason: Int
         ) {
-            if (reason == Player.DISCONTINUITY_REASON_SEEK) recordUserAction("SEEK")
+            if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+                val expected = programmaticSeekTargetMs
+                val recent = android.os.SystemClock.elapsedRealtime() - programmaticSeekAtElapsedMs <= 3_000L
+                val isProgrammaticCorrection = recent && expected != null &&
+                    kotlin.math.abs(newPosition.positionMs - expected) <= 500L
+                if (isProgrammaticCorrection) {
+                    programmaticSeekTargetMs = null
+                } else {
+                    recordUserAction("SEEK")
+                }
+            }
             publishState()
         }
 
@@ -181,12 +193,17 @@ class PlaybackConnection(
         publishState()
     }
 
-    fun seekTo(positionMs: Long): Boolean {
+    fun seekTo(positionMs: Long, userInitiated: Boolean = true): Boolean {
         val activeController = controller ?: return false
         if (!activeController.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)) {
             return false
         }
-        activeController.seekTo(positionMs.coerceAtLeast(0L))
+        val target = positionMs.coerceAtLeast(0L)
+        if (!userInitiated) {
+            programmaticSeekTargetMs = target
+            programmaticSeekAtElapsedMs = android.os.SystemClock.elapsedRealtime()
+        }
+        activeController.seekTo(target)
         return true
     }
 
@@ -198,7 +215,7 @@ class PlaybackConnection(
             ) {
                 val restartPosition = positionMs ?: 0L
                 if (activeController.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)) {
-                    activeController.seekTo(restartPosition.coerceAtLeast(0L))
+                    seekTo(restartPosition, userInitiated = false)
                 }
                 activeController.prepare()
             }
