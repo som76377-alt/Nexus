@@ -86,6 +86,7 @@ class MainActivity : Activity() {
     private var searchGeneration = 0L
     private var isResolving = false
     private var isSeeking = false
+    private var isActivityStarted = false
     private var lastPlaybackSnapshot = PlaybackSnapshot(connected = false)
     private var backInvokedCallback: android.window.OnBackInvokedCallback? = null
 
@@ -98,8 +99,16 @@ class MainActivity : Activity() {
 
     private val progressTicker = object : Runnable {
         override fun run() {
+            if (!isActivityStarted || isFinishing || isDestroyed) return
             playbackConnection?.let { updatePlaybackUi(it.snapshot()) }
-            if (!isFinishing) progressHandler.postDelayed(this, 500L)
+        }
+    }
+
+    /** Position polling is needed only while audio is advancing and this screen is visible. */
+    private fun scheduleProgressTicker(snapshot: PlaybackSnapshot) {
+        progressHandler.removeCallbacks(progressTicker)
+        if (isActivityStarted && snapshot.isPlaying && !isFinishing && !isDestroyed) {
+            progressHandler.postDelayed(progressTicker, 500L)
         }
     }
 
@@ -644,6 +653,7 @@ class MainActivity : Activity() {
 
     private fun updatePlaybackUi(snapshot: PlaybackSnapshot) {
         lastPlaybackSnapshot = snapshot
+        scheduleProgressTicker(snapshot)
         if (!snapshot.connected) {
             playerSubtitle.text = "Connecting to playback service…"
             playPauseButton.isEnabled = false
@@ -891,12 +901,13 @@ class MainActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
+        isActivityStarted = true
         if (::updateStatusText.isInitialized) checkForUpdates()
-        progressHandler.removeCallbacks(progressTicker)
-        progressHandler.post(progressTicker)
+        updatePlaybackUi(playbackConnection?.snapshot() ?: lastPlaybackSnapshot)
     }
 
     override fun onStop() {
+        isActivityStarted = false
         progressHandler.removeCallbacks(progressTicker)
         super.onStop()
     }
