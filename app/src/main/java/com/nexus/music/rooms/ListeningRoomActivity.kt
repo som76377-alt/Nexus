@@ -478,7 +478,7 @@ class ListeningRoomActivity : Activity() {
                 }
 
                 try {
-                    refreshRemotePlayback(id)
+                    refreshRemotePlayback(id, sessionGeneration)
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Exception) {
@@ -531,7 +531,7 @@ class ListeningRoomActivity : Activity() {
                 remoteRefreshRequested = false
                 if (roomId != id) return@launch
                 try {
-                    refreshRemotePlayback(id)
+                    refreshRemotePlayback(id, sessionGeneration)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
@@ -644,17 +644,27 @@ class ListeningRoomActivity : Activity() {
      * a fallback for lost callbacks/reconnects, not the primary command-delivery mechanism.
      */
     private fun scheduleLocalPlaybackPublish() {
+        val id = roomId ?: return
+        val sessionGeneration = roomSessionGeneration
         localPublishRequested = true
-        if (applyingRemote || roomId == null || localPublishJob?.isActive == true) return
+        if (applyingRemote || localPublishJob?.isActive == true) return
 
         localPublishJob = scope.launch {
             do {
                 localPublishRequested = false
                 delay(100L)
-                if (!applyingRemote && roomId != null) {
-                    publishLocalPlaybackIfChanged()
+                if (!applyingRemote &&
+                    roomId == id &&
+                    roomSessionGeneration == sessionGeneration
+                ) {
+                    publishLocalPlaybackIfChanged(sessionGeneration)
                 }
-            } while (localPublishRequested && roomId != null && isActive)
+            } while (
+                localPublishRequested &&
+                    roomId == id &&
+                    roomSessionGeneration == sessionGeneration &&
+                    isActive
+            )
         }
     }
 
@@ -673,11 +683,13 @@ class ListeningRoomActivity : Activity() {
         }
     }
 
-    private suspend fun publishLocalPlaybackIfChanged() {
+    private suspend fun publishLocalPlaybackIfChanged(
+        sessionGeneration: Long = roomSessionGeneration
+    ) {
         localPublishMutex.withLock publishLock@ {
             val id = roomId ?: return@publishLock
             val sender = userId ?: return@publishLock
-            if (applyingRemote) return@publishLock
+            if (roomSessionGeneration != sessionGeneration || applyingRemote) return@publishLock
             val snapshot = playback?.snapshot() ?: return@publishLock
             if (!snapshot.connected || snapshot.sourceId.isBlank() || snapshot.title.isBlank()) {
                 return@publishLock
@@ -722,6 +734,7 @@ class ListeningRoomActivity : Activity() {
                 )
 
             val result = send(lastRemoteRevision)
+            if (roomId != id || roomSessionGeneration != sessionGeneration) return@publishLock
             if (result.applied) {
                 lastRemoteRevision = result.revision
                 remoteApplyRetryPolicy.recordSuccess(result.revision)
@@ -736,6 +749,7 @@ class ListeningRoomActivity : Activity() {
             var localActionWins = false
             remoteApplyMutex.withLock remoteLock@ {
                 val latest = api.loadPlayback(id) ?: return@remoteLock
+                if (roomId != id || roomSessionGeneration != sessionGeneration) return@remoteLock
                 lastRemotePlayback = latest
                 lastRemoteRevision = maxOf(lastRemoteRevision, latest.revision)
 
@@ -758,13 +772,18 @@ class ListeningRoomActivity : Activity() {
 
                 val authoritative = if (localActionWins) {
                     val retried = send(latest.revision)
+                    if (roomId != id || roomSessionGeneration != sessionGeneration) return@remoteLock
                     if (retried.applied) {
                         lastRemoteRevision = retried.revision
                         rememberPublishedPlayback(snapshot, snapshot.isPlaying)
                         if (playbackStarted) playbackStartPending = false
                         null
                     } else {
-                        api.loadPlayback(id)
+                        val finalState = api.loadPlayback(id)
+                        if (roomId != id || roomSessionGeneration != sessionGeneration) {
+                            return@remoteLock
+                        }
+                        finalState
                     }
                 } else {
                     latest
@@ -800,7 +819,10 @@ class ListeningRoomActivity : Activity() {
                     }
                 }
             }
-            if (!localActionWins) {
+            if (!localActionWins &&
+                roomId == id &&
+                roomSessionGeneration == sessionGeneration
+            ) {
                 status.text = "The other phone changed playback at the same time. The newest action was kept."
             }
         }
@@ -834,10 +856,14 @@ class ListeningRoomActivity : Activity() {
         lastPublishedActionSequence = snapshot.userActionSequence
     }
 
-    private suspend fun refreshRemotePlayback(id: String) {
+    private suspend fun refreshRemotePlayback(
+        id: String,
+        sessionGeneration: Long = roomSessionGeneration
+    ) {
         remoteApplyMutex.withLock {
-            if (roomId != id) return
+            if (roomId != id || roomSessionGeneration != sessionGeneration) return
             val remote = api.loadPlayback(id) ?: return
+            if (roomId != id || roomSessionGeneration != sessionGeneration) return
             lastRemotePlayback = remote
             val isNewRevision = remote.revision > lastRemoteRevision
             if (isNewRevision) lastRemoteRevision = remote.revision
@@ -864,29 +890,29 @@ class ListeningRoomActivity : Activity() {
             } else if (isOurCurrentState) {
                 remoteApplyRetryPolicy.recordSuccess(remote.revision)
                 if (hasUnpublishedLocalIntent(local)) {
-                    // The server still has our previous snapshot. Never replay it over a
-                    // newer local tap while that command is waiting to be published.
                     scheduleLocalPlaybackPublish()
                 } else {
                     rememberPublishedPlayback(local, remote.isPlaying)
                 }
             } else if (shouldApplyNewState || shouldRetryFailedState) {
                 try {
-                    applyRemotePlayback(remote)
-                    remoteApplyRetryPolicy.recordSuccess(remote.revision)
+                    applyRemotePlayback(remote, sessionGeneration)
+                    if (roomId == id && roomSessionGeneration == sessionGeneration) {
+                        remoteApplyRetryPolicy.recordSuccess(remote.revision)
+                    }
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Exception) {
-                    val retryIn = remoteApplyRetryPolicy.recordFailure(
-                        remote.revision,
-                        SystemClock.elapsedRealtime()
-                    )
-                    status.text = "Shared track isn't ready yet · retrying in " +
-                        (retryIn / 1000L) + "s"
+                    if (roomId == id && roomSessionGeneration == sessionGeneration) {
+                        val retryIn = remoteApplyRetryPolicy.recordFailure(
+                            remote.revision,
+                            SystemClock.elapsedRealtime()
+                        )
+                        status.text = "Shared track isn't ready yet · retrying in " +
+                            (retryIn / 1000L) + "s"
+                    }
                 }
             }
-            // Drift has one owner: the 1-second scheduler. Realtime callbacks update the
-            // reference snapshot but never launch a second simultaneous correction.
         }
     }
 
@@ -945,13 +971,20 @@ class ListeningRoomActivity : Activity() {
         }
     }
 
-    private suspend fun applyRemotePlayback(remote: RoomPlayback) {
+    private suspend fun applyRemotePlayback(
+        remote: RoomPlayback,
+        sessionGeneration: Long = roomSessionGeneration
+    ) {
+        val activeRoomId = roomId ?: return
+        if (roomSessionGeneration != sessionGeneration) return
+        fun isCurrentRoomSession(): Boolean =
+            roomId == activeRoomId && roomSessionGeneration == sessionGeneration
+
         val activePlayer = playback ?: return
         val initial = activePlayer.snapshot()
         if (!initial.connected) {
             throw java.io.IOException("The playback service is still connecting. Retrying sync…")
         }
-        val activeRoomId = roomId ?: return
         val startingActionGeneration = localActionGeneration
         val startingPlaybackSignalSequence = playbackSignalSequence.get()
         applyingRemote = true
@@ -959,10 +992,12 @@ class ListeningRoomActivity : Activity() {
             if (initial.sourceId != remote.sourceUrl) {
                 status.text = "Loading the other device's track…"
                 val audio = mediaResolver.resolve(remote.sourceId, remote.sourceUrl)
-                // A user skip or a newer room command supersedes this extraction result.
-                if (localActionGeneration != startingActionGeneration) return
+                // A leave/rejoin, user skip or newer room command supersedes this extraction.
+                if (!isCurrentRoomSession() ||
+                    localActionGeneration != startingActionGeneration
+                ) return
                 if (playbackSignalSequence.get() != startingPlaybackSignalSequence) {
-                    scheduleRemotePlaybackRefresh(activeRoomId)
+                    scheduleRemotePlaybackRefresh(activeRoomId, sessionGeneration)
                     return
                 }
                 if (!activePlayer.play(audio, shouldPlay = false, userInitiated = false)) {
@@ -970,9 +1005,11 @@ class ListeningRoomActivity : Activity() {
                 }
                 val readyDeadline = SystemClock.elapsedRealtime() + 20_000L
                 while (SystemClock.elapsedRealtime() < readyDeadline) {
-                    if (localActionGeneration != startingActionGeneration) return
+                    if (!isCurrentRoomSession() ||
+                        localActionGeneration != startingActionGeneration
+                    ) return
                     if (playbackSignalSequence.get() != startingPlaybackSignalSequence) {
-                        scheduleRemotePlaybackRefresh(activeRoomId)
+                        scheduleRemotePlaybackRefresh(activeRoomId, sessionGeneration)
                         return
                     }
                     val state = activePlayer.snapshot().playbackState
@@ -983,31 +1020,37 @@ class ListeningRoomActivity : Activity() {
                         delay(50L)
                     }
                 }
-                if (localActionGeneration != startingActionGeneration) return
+                if (!isCurrentRoomSession() ||
+                    localActionGeneration != startingActionGeneration
+                ) return
                 if (activePlayer.snapshot().playbackState != Player.STATE_READY) {
                     throw java.io.IOException("The shared track is still buffering. Nexus will retry without restarting the other phone.")
                 }
             }
 
-            if (localActionGeneration != startingActionGeneration) return
+            if (!isCurrentRoomSession() ||
+                localActionGeneration != startingActionGeneration
+            ) return
             if (playbackSignalSequence.get() != startingPlaybackSignalSequence) {
-                scheduleRemotePlaybackRefresh(activeRoomId)
+                scheduleRemotePlaybackRefresh(activeRoomId, sessionGeneration)
                 return
             }
             val newestRoomState = api.loadPlayback(activeRoomId)
-            // A realtime signal can arrive while the final REST read is in flight. Do not
-            // apply the snapshot from before that signal; let the coalescer read again.
+            // A newer room session or a realtime signal supersedes this final REST snapshot.
+            if (!isCurrentRoomSession()) return
             if (playbackSignalSequence.get() != startingPlaybackSignalSequence) {
                 if (newestRoomState != null) lastRemotePlayback = newestRoomState
-                scheduleRemotePlaybackRefresh(activeRoomId)
+                scheduleRemotePlaybackRefresh(activeRoomId, sessionGeneration)
                 return
             }
             if (newestRoomState != null && newestRoomState.revision > remote.revision) {
                 lastRemotePlayback = newestRoomState
-                scheduleRemotePlaybackRefresh(activeRoomId)
+                scheduleRemotePlaybackRefresh(activeRoomId, sessionGeneration)
                 return
             }
-            if (localActionGeneration != startingActionGeneration) return
+            if (!isCurrentRoomSession() ||
+                localActionGeneration != startingActionGeneration
+            ) return
 
             val anchorTimestamp = remote.commandAt.ifBlank { remote.updatedAt }
             val elapsed = parseTimestamp(anchorTimestamp)
@@ -1018,6 +1061,7 @@ class ListeningRoomActivity : Activity() {
                 elapsedSinceUpdateMs = elapsed,
                 durationMs = remote.durationMs
             )
+            if (!isCurrentRoomSession()) return
             val latest = activePlayer.snapshot()
             if (RoomPlaybackMath.needsSeek(latest.positionMs, expectedPosition) &&
                 !activePlayer.seekTo(expectedPosition, userInitiated = false)
@@ -1028,20 +1072,24 @@ class ListeningRoomActivity : Activity() {
             driftSeekGate.reset()
             activePlayer.setPlaying(remote.isPlaying, expectedPosition)
             val afterApply = activePlayer.snapshot()
-            if (localActionGeneration == startingActionGeneration) {
+            if (isCurrentRoomSession() &&
+                localActionGeneration == startingActionGeneration
+            ) {
                 rememberPublishedPlayback(afterApply, remote.isPlaying)
+                status.text = "Synced with the other device."
             }
-            status.text = "Synced with the other device."
         } finally {
             applyingRemote = false
-            if (playbackSignalSequence.get() != startingPlaybackSignalSequence) {
-                scheduleRemotePlaybackRefresh(activeRoomId)
-            }
-            val current = activePlayer.snapshot()
-            if (current.userActionSequence > lastPublishedActionSequence ||
-                (current.sourceId.isNotBlank() && current.sourceId != lastPublishedSource)
-            ) {
-                scheduleLocalPlaybackPublish()
+            if (isCurrentRoomSession()) {
+                if (playbackSignalSequence.get() != startingPlaybackSignalSequence) {
+                    scheduleRemotePlaybackRefresh(activeRoomId, sessionGeneration)
+                }
+                val current = activePlayer.snapshot()
+                if (current.userActionSequence > lastPublishedActionSequence ||
+                    (current.sourceId.isNotBlank() && current.sourceId != lastPublishedSource)
+                ) {
+                    scheduleLocalPlaybackPublish()
+                }
             }
         }
     }
