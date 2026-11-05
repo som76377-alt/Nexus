@@ -23,7 +23,8 @@ It combines YouTube catalogue search, Media3 background playback, an in-app upda
 - [ ] Enable Supabase Anonymous Sign-Ins in the Nexus project before using the room prototype.
 - [ ] Replace anonymous device-only identity with a durable sign-in and restrict access to the two intended accounts.
 - [ ] Add client-side end-to-end encryption if chat confidentiality from the database operator is required.
-- [ ] Replace the initial 1.8-second REST polling transport with a persistent Realtime connection after validating the protocol.
+- [ ] Validate Realtime reconnect, token expiry, and missed-event recovery on two physical devices.
+- [ ] Verify stale-seat recovery and explicit Exit Room on two physical devices.
 - [ ] Verify YouTube extraction and playback on the target phone/network.
 - [ ] Add full chat-history pagination; the current room UI displays the latest 100 messages.
 - [ ] Add playlists, queue persistence, and local library support.
