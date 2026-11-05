@@ -66,7 +66,9 @@ The checked-in Gradle Wrapper pins Gradle 9.6.0 and verifies the downloaded dist
 
 ## Important limitations
 
-- The room client uses short-interval REST polling, not a WebSocket/Realtime client. Network latency and polling mean synchronisation is not instantaneous or perfectly drift-free.
+- Supabase Realtime WebSockets carry immediate playback and chat change signals. Authenticated REST reads remain the source-of-truth and recovery path, with slower polling while Realtime is healthy and faster polling while disconnected.
+- Playback is synchronized through independent device-local player and source-resolver adapters. It is not sample-accurate and still needs two-phone testing across Wi-Fi/mobile networks.
+- A room seat is reclaimed when another device joins after the previous member has missed heartbeats for three minutes; explicit Exit Room removes the current membership immediately once the backend migration is applied.
 - Room chat is protected by authenticated membership and RLS, but messages are not end-to-end encrypted.
 - Anonymous room identity is stored on one device. Clearing app data or reinstalling can lose that identity and strand its existing room membership.
 - The backend currently limits each room to two members; it does not yet enforce a project-wide allowlist for exactly two approved accounts.
