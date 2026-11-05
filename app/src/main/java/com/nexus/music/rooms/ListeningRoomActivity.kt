@@ -330,6 +330,8 @@ class ListeningRoomActivity : Activity() {
         codeInput.visibility = View.GONE
         joinButton.visibility = View.GONE
         inviteText.text = inviteCode?.let { "Invite code: $it" } ?: "Room connected"
+        status.text = "Connected · calibrating room clock…"
+        runCatching { api.calibrateServerClock() }
         status.text = "Connected · starting live sync…"
 
         driftJob?.cancel()
@@ -372,10 +374,15 @@ class ListeningRoomActivity : Activity() {
         syncJob?.cancel()
         syncJob = scope.launch {
             var lastHeartbeat = SystemClock.elapsedRealtime() - 25_000L
+            var lastClockCalibration = SystemClock.elapsedRealtime()
             var consecutiveFailures = 0
             while (isActive && roomId == id) {
                 var iterationFailed = false
                 val now = SystemClock.elapsedRealtime()
+                if (now - lastClockCalibration >= 300_000L) {
+                    runCatching { api.calibrateServerClock() }
+                    lastClockCalibration = SystemClock.elapsedRealtime()
+                }
                 if (now - lastHeartbeat >= 25_000L) {
                     try {
                         if (!api.touchRoom(id)) {
