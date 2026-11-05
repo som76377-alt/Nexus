@@ -9,7 +9,7 @@ on:
       version:
         description: "Version to build for signing validation (for example 0.1.4)"
         required: true
-        default: "0.1.4"
+        default: "0.1.7"
         type: string
 
 permissions:
@@ -99,7 +99,7 @@ jobs:
       - name: Derive Android version
         id: version
         env:
-          RELEASE_TAG: "${{ (github.ref_type == 'tag' && github.ref_name) || (github.event_name == 'push' && github.event.head_commit.message == 'release: v0.1.6' && 'v0.1.6') || (github.event_name == 'push' && github.event.head_commit.message == 'release: v0.1.5' && 'v0.1.5') || (github.event_name == 'push' && github.event.head_commit.message == 'release: v0.1.4' && 'v0.1.4') || inputs.version || '0.1.4' }}"
+          RELEASE_TAG: "${{ (github.ref_type == 'tag' && github.ref_name) || inputs.version || '0.1.7' }}"
         run: |
           VERSION="${RELEASE_TAG#v}"
           if [[ ! "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
