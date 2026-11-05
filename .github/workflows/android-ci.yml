@@ -50,6 +50,27 @@ jobs:
       - name: Assemble debug APK
         run: ./gradlew --no-daemon --stacktrace :app:assembleDebug
 
+      - name: Verify unsigned release builds fail closed
+        shell: bash
+        run: |
+          set +e
+          ./gradlew --no-daemon :app:assembleRelease > "$RUNNER_TEMP/nexus-release-guard.log" 2>&1
+          build_status=$?
+          set -e
+
+          if [ "$build_status" -eq 0 ]; then
+            echo "::error::An unsigned release APK was unexpectedly assembled."
+            exit 1
+          fi
+
+          if ! grep -Fq "Release APKs must be signed with the permanent Nexus keystore" "$RUNNER_TEMP/nexus-release-guard.log"; then
+            cat "$RUNNER_TEMP/nexus-release-guard.log"
+            echo "::error::Release build failed for an unexpected reason; the fail-closed guard was not verified."
+            exit 1
+          fi
+
+          echo "Unsigned release build correctly refused before producing an APK."
+
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
