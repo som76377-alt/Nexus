@@ -97,7 +97,7 @@ async function joinRoom(code) {
   if (state.busy) return;
   const normalized = normalizeCode(code);
   if (!/^(?:[A-HJ-NP-Z2-9]{5}|[0-9A-F]{16})$/.test(normalized)) {
-    toast("Enter the five-character room code.");
+    toast("Enter the room's five-character or legacy 16-character invite code.");
     return;
   }
   setBusy(true);
