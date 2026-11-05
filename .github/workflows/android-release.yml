@@ -168,7 +168,7 @@ jobs:
       # Publish only the verified APK. gh release upload --clobber also
       # handles rebuilding an already-published tag without an action-side lookup.
       - name: Publish GitHub Release with verified APK
-        if: github.ref_type == 'tag' || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release: v0.1.7'))
+        if: "${{ github.ref_type == 'tag' || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release: v0.1.7')) }}"
         env:
           GH_TOKEN: "${{ github.token }}"
         run: |
