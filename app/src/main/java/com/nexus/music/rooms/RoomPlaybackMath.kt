@@ -54,7 +54,7 @@ internal class DriftCorrectionController(
 ) {
     private var consecutiveDriftSamples = 0
     private var lastSeekAtMs = Long.MIN_VALUE
-    private var speedCorrectionActive = false
+    private var currentSpeed = 1f
 
     fun evaluate(driftMs: Long, isBuffering: Boolean, nowMs: Long): DriftCorrection {
         if (isBuffering) return DriftCorrection(DriftCorrectionType.NONE)
@@ -62,8 +62,8 @@ internal class DriftCorrectionController(
         val magnitude = kotlin.math.abs(driftMs)
         if (magnitude <= deadZoneMs) {
             consecutiveDriftSamples = 0
-            if (speedCorrectionActive) {
-                speedCorrectionActive = false
+            if (currentSpeed != 1f) {
+                currentSpeed = 1f
                 return DriftCorrection(DriftCorrectionType.RESET_SPEED)
             }
             return DriftCorrection(DriftCorrectionType.NONE)
@@ -76,22 +76,24 @@ internal class DriftCorrectionController(
         ) {
             lastSeekAtMs = nowMs
             consecutiveDriftSamples = 0
-            speedCorrectionActive = false
+            currentSpeed = 1f
             return DriftCorrection(DriftCorrectionType.SEEK)
         }
 
         if (consecutiveDriftSamples >= 2 && magnitude < seekThresholdMs) {
-            speedCorrectionActive = true
             // Positive drift means this player is ahead and must slow down.
             val speed = if (driftMs > 0L) 0.98f else 1.02f
-            return DriftCorrection(DriftCorrectionType.SET_SPEED, speed)
+            if (currentSpeed != speed) {
+                currentSpeed = speed
+                return DriftCorrection(DriftCorrectionType.SET_SPEED, speed)
+            }
         }
         return DriftCorrection(DriftCorrectionType.NONE)
     }
 
     fun reset() {
         consecutiveDriftSamples = 0
-        speedCorrectionActive = false
+        currentSpeed = 1f
         lastSeekAtMs = Long.MIN_VALUE
     }
 }
