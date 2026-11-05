@@ -27,6 +27,7 @@ import androidx.media3.common.Player
 import com.nexus.music.catalog.YoutubeCatalogRepository
 import com.nexus.music.MainActivity
 import com.nexus.music.playback.PlaybackConnection
+import com.nexus.music.playback.RoomPlayerAdapter
 import com.nexus.music.playback.PlaybackSnapshot
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -56,6 +57,7 @@ class ListeningRoomActivity : Activity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val api by lazy { RoomsApi(this) }
     private val catalog by lazy { YoutubeCatalogRepository() }
+    private val mediaResolver by lazy { YoutubeRoomMediaResolver(catalog) }
     private val handler = Handler(Looper.getMainLooper())
 
     private lateinit var status: TextView
@@ -72,7 +74,7 @@ class ListeningRoomActivity : Activity() {
     private lateinit var playButton: Button
     private lateinit var seekBar: SeekBar
 
-    private var playback: PlaybackConnection? = null
+    private var playback: RoomPlayerAdapter? = null
     private var roomId: String? = null
     private var userId: String? = null
     private var inviteCode: String? = null
@@ -709,7 +711,7 @@ class ListeningRoomActivity : Activity() {
 
             if (current.sourceId != remote.sourceUrl) {
                 status.text = "Loading the other device's track…"
-                val audio = catalog.resolveAudio(remote.sourceUrl)
+                val audio = mediaResolver.resolve(remote.sourceId, remote.sourceUrl)
                 // Prepare silently. The receiving phone does not start early while resolving.
                 if (!activePlayer.play(audio, shouldPlay = false)) {
                     throw java.io.IOException("The player rejected the shared track.")
