@@ -21,7 +21,7 @@ A room's `last_activity_at` is refreshed by:
 
 After one hour of inactivity, the join RPC, heartbeat, chat, and playback RLS policies reject further room use. A scheduled `pg_cron` job runs every five minutes and physically deletes rooms whose last activity is more than one hour old. Foreign-key cascades delete that room's members, messages, and playback snapshot together. Physical deletion can therefore occur up to about five minutes after the one-hour threshold.
 
-The Android room screen must call `touch_room` periodically while a room is open (currently every 25 seconds), and stop heartbeats after Exit Room. A backgrounded/disconnected room will naturally expire after an hour without activity.
+The Android room screen calls `touch_room` every 25 seconds while a room is open. Explicit Exit Room calls `leave_room` to release the current seat immediately. If an app is killed, uninstalled, loses its device-local anonymous identity, or cannot heartbeat, a later join prunes that member after a three-minute stale-seat grace period. A room with no activity still expires after one hour.
 
 ## Realtime
 
