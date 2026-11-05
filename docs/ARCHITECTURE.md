@@ -44,7 +44,7 @@ app/src/main/
 
 `YoutubeCatalogRepository` is currently the only provider adapter. It runs synchronous NewPipe extraction on `Dispatchers.IO`, maps extractor results into Nexus-owned models, and resolves a fresh playable URL just before playback. `ExtractorRuntime` configures NewPipe's process-wide downloader once.
 
-The current catalogue supports first-page YouTube search for all results, music songs, and videos. Pagination, playlist/channel browsing, caching, and a provider-neutral interface are not implemented yet.
+The current catalogue supports first-page YouTube search for all results, music songs, and videos. Room track resolution is behind `RoomMediaResolver`, so another provider can be added for listening rooms without changing the room state protocol. General catalogue search, pagination, playlist/channel browsing and shared caching remain separate work.
 
 ## Playback
 
