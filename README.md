@@ -20,7 +20,7 @@ It combines YouTube catalogue search, Media3 background playback, an in-app upda
 ### Still needs verification or hardening
 - [x] Run Android lint, unit tests, and debug APK assembly against the room-reliability branch.
 - [ ] Test chat, room expiry, and playback synchronisation on two physical Android devices.
-- [ ] Enable Supabase Anonymous Sign-Ins in the Nexus project before using the room prototype.
+- [ ] Verify Supabase Anonymous Sign-Ins are enabled in the Nexus project before the two-phone room test.
 - [ ] Replace anonymous device-only identity with a durable sign-in and restrict access to the two intended accounts.
 - [ ] Add client-side end-to-end encryption if chat confidentiality from the database operator is required.
 - [ ] Validate Realtime reconnect, token expiry, and missed-event recovery on two physical devices.
@@ -70,7 +70,7 @@ The checked-in Gradle Wrapper pins Gradle 9.6.0 and verifies the downloaded dist
 
 - Supabase Realtime WebSockets carry immediate playback and chat change signals. Authenticated REST reads remain the source-of-truth and recovery path, with slower polling while Realtime is healthy and faster polling while disconnected.
 - Playback is synchronized through independent device-local player and source-resolver adapters. It is not sample-accurate and still needs two-phone testing across Wi-Fi/mobile networks.
-- A room seat is reclaimed when another device joins after the previous member has missed heartbeats for three minutes; explicit Exit Room removes the current membership immediately once the backend migration is applied.
+- A room seat is reclaimed when another device joins after the previous member has missed heartbeats for three minutes; explicit Exit Room removes the current membership immediately; the corresponding migration is already recorded in the live Nexus database.
 - Room chat is protected by authenticated membership and RLS, but messages are not end-to-end encrypted.
 - Anonymous room identity is stored on one device. Clearing app data or reinstalling can lose that identity and strand its existing room membership.
 - The backend currently limits each room to two members; it does not yet enforce a project-wide allowlist for exactly two approved accounts.
