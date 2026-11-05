@@ -667,6 +667,17 @@ class ListeningRoomActivity : Activity() {
                 }
             }
 
+            // A pause/skip may arrive while this phone is resolving a slow stream.
+            // Never apply an older command after a newer one has already reached the server.
+            val activeRoomId = roomId ?: return
+            val newestRoomState = api.loadPlayback(activeRoomId)
+            if (newestRoomState != null && newestRoomState.revision > remote.revision) {
+                lastRemotePlayback = newestRoomState
+                throw java.io.IOException(
+                    "A newer playback action arrived while loading. Applying the latest room state…"
+                )
+            }
+
             // Use the server timestamp after the track is ready, so extraction/buffering time
             // is included and the receiver catches up instead of starting from an old position.
             val elapsed = parseTimestamp(remote.updatedAt)
