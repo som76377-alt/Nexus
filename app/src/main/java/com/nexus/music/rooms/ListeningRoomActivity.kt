@@ -577,7 +577,6 @@ class ListeningRoomActivity : Activity() {
                 originDeviceId = sender
             )
 
-        var result = send(lastRemoteRevision)
         val result = send(lastRemoteRevision)
         if (result.applied) {
             lastRemoteRevision = result.revision
