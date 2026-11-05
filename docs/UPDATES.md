@@ -23,7 +23,9 @@ The release workflow checks that all four secrets are non-empty, decodes the key
 
 Debug APKs and CI test artifacts are not distribution builds and may use a different signing key. Android will reject an update if the APK signer differs from the installed app. Install the official `nexus-release.apk` from GitHub Releases on every device. If a phone currently has a debug-signed build, the one-time move to the official signed build may require uninstalling the old copy, which can erase its local data; back up anything important first. After that transition, install only official release APKs signed with the permanent key. The first install may request Android's per-device 'install unknown apps' permission.
 
-Release assembly now fails closed unless the permanent signing keystore and explicit tag-derived version properties are supplied. The Gradle build also checks that the numeric version code matches the semantic version name. This prevents accidental unsigned or development-version release artifacts.\n\n## Publishing a release
+Release assembly now fails closed unless the permanent signing keystore and explicit tag-derived version properties are supplied. The Gradle build also checks that the numeric version code matches the semantic version name. This prevents accidental unsigned or development-version release artifacts.
+
+## Publishing a release
 
 Create and push a semantic version tag such as `v0.1.8` only after the source is ready. The **Nexus Signed Release** workflow builds the version from that tag, verifies the permanent signing certificate, calculates its SHA-256 checksum, and attaches. A push to `main` only runs signed validation and never creates or overwrites a public release. This removes the old hard-coded `v0.1.7` publishing condition.
 
