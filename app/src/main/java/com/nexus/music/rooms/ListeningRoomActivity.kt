@@ -776,18 +776,9 @@ class ListeningRoomActivity : Activity() {
             } else if (isOurCurrentState) {
                 remoteApplyRetryPolicy.recordSuccess(remote.revision)
                 if (hasUnpublishedLocalIntent(local)) {
-                    try {
-                        applyRemotePlayback(remote)
-                    } catch (error: CancellationException) {
-                        throw error
-                    } catch (error: Exception) {
-                        val retryIn = remoteApplyRetryPolicy.recordFailure(
-                            remote.revision,
-                            SystemClock.elapsedRealtime()
-                        )
-                        status.text = "Restoring the room command · retrying in " +
-                            (retryIn / 1000L) + "s"
-                    }
+                    // The server still has our previous snapshot. Never replay it over a
+                    // newer local tap while that command is waiting to be published.
+                    scheduleLocalPlaybackPublish()
                 } else {
                     rememberPublishedPlayback(local, remote.isPlaying)
                 }
