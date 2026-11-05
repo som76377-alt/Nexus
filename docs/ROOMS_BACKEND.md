@@ -33,7 +33,7 @@ The main Nexus screen now opens a Listening Room prototype. It includes device-l
 
 The current client subscribes to authenticated Supabase Realtime Postgres Changes for its room's playback row and chat inserts. A Realtime event is only a signal to re-read the authoritative row over REST; it is not trusted as a command by itself. REST polling remains as a fallback (faster while the socket is disconnected, slower while it is healthy), and the subscription reconnects with bounded exponential backoff. The database write uses a compare-and-swap revision check so a delayed request cannot silently overwrite a newer room command. On a CAS conflict the client now adopts the latest server state instead of retrying its older command. A failed remote stream load is retried with bounded backoff, while a newer revision bypasses the old retry timer. The chat UI displays the latest 100 messages in chronological order; older messages remain stored until room expiry but are not yet paginated in the UI.
 
-Anonymous sign-ins must be enabled in the Nexus Supabase project's Authentication settings. If disabled, the app displays that setup requirement. Anonymous identity survives normal app restarts but cannot be recovered after app data is cleared or the app is reinstalled. The app does not silently create a replacement identity if the saved session cannot be refreshed or decrypted, because doing so could strand the old room memberships.
+Anonymous sign-ins are enabled in the current Nexus Supabase project (existing anonymous Auth users were verified). If the setting is disabled in a future project, the app displays that setup requirement. Anonymous identity survives normal app restarts but cannot be recovered after app data is cleared or the app is reinstalled. The app does not silently create a replacement identity if the saved session cannot be refreshed or decrypted, because doing so could strand the old room memberships.
 
 The backend currently limits each room to two members; it does not yet enforce a project-wide allowlist of the two intended people. A durable sign-in and global two-account allowlist remain follow-up hardening work. Room messages are protected by membership RLS but are stored as plaintext; they are not end-to-end encrypted. Two-device end-to-end validation is still required.
 
@@ -41,13 +41,13 @@ A Supabase anonymous user is device-local and cannot recover its identity after 
 
 ## Reliability migration
 
-`20261105110000_nexus_room_presence_and_playback_atomicity.sql` updates the room RPCs to:
+`20261105062434_nexus_room_presence_and_playback_atomicity.sql` updates the room RPCs to:
 - reclaim a seat only after its previous device has missed heartbeats for three minutes;
 - release a member immediately through the authenticated `leave_room` RPC;
 - serialize join, leave, heartbeat and playback writes with a per-room transaction lock, preventing two phones from racing to create the first playback snapshot;
 - retain the two-member limit, existing short and legacy invite-code formats, rate limiting, row-level security, and revision-based compare-and-swap.
 
-The migration is checked into the Nexus branch. It must be applied to the connected Supabase project before the new `leave_room` call and stale-seat reclaim behavior are live.
+This migration is already recorded as applied in the live Nexus Supabase project under version `20261105062434`. Do not apply it again under a second timestamp; the checked-in filename matches the database migration history.
 
 
 ## Playback synchronization and recovery
