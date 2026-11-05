@@ -948,9 +948,16 @@ class ListeningRoomActivity : Activity() {
                 return
             }
             val newestRoomState = api.loadPlayback(activeRoomId)
+            // A realtime signal can arrive while the final REST read is in flight. Do not
+            // apply the snapshot from before that signal; let the coalescer read again.
+            if (playbackSignalSequence.get() != startingPlaybackSignalSequence) {
+                if (newestRoomState != null) lastRemotePlayback = newestRoomState
+                scheduleRemotePlaybackRefresh(activeRoomId)
+                return
+            }
             if (newestRoomState != null && newestRoomState.revision > remote.revision) {
                 lastRemotePlayback = newestRoomState
-                scope.launch { refreshRemotePlayback(activeRoomId) }
+                scheduleRemotePlaybackRefresh(activeRoomId)
                 return
             }
             if (localActionGeneration != startingActionGeneration) return

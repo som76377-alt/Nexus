@@ -187,12 +187,14 @@ class RoomPlaybackMathTest {
     }
 
     @Test
-    fun returningToDeadZoneResetsTemporarySpeed() {
+    fun returningToDeadZoneResetsTemporarySpeedAfterFilteredDriftSettles() {
         val controller = DriftCorrectionController()
         controller.evaluate(300L, false, 0L)
         assertEquals(DriftCorrectionType.SET_SPEED, controller.evaluate(300L, false, 500L).type)
-        assertEquals(DriftCorrectionType.RESET_SPEED, controller.evaluate(50L, false, 1_000L).type)
-        assertEquals(DriftCorrectionType.NONE, controller.evaluate(50L, false, 1_500L).type)
+        // EMA filtering avoids instantly reacting to one low/noisy sample.
+        assertEquals(DriftCorrectionType.SET_SPEED, controller.evaluate(50L, false, 1_000L).type)
+        assertEquals(DriftCorrectionType.RESET_SPEED, controller.evaluate(50L, false, 1_500L).type)
+        assertEquals(DriftCorrectionType.NONE, controller.evaluate(50L, false, 2_000L).type)
     }
 
     @Test
