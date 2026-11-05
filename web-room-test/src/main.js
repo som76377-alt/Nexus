@@ -120,6 +120,8 @@ async function joinRoom(code) {
 async function enterRoom(roomId, roomCode) {
   state.roomId = roomId;
   state.roomCode = roomCode;
+  state.peerDetected = false;
+  state.ownMembership = [];
   $("room-code-label").textContent = roomCode;
   $("room-status").textContent = "Connected · loading room state…";
   showRoom();
@@ -461,6 +463,8 @@ async function leaveRoom() {
   state.roomCode = null;
   state.playback = null;
   state.messages = [];
+  state.ownMembership = [];
+  state.peerDetected = false;
   $("event-log").replaceChildren();
   $("room-code-label").textContent = "—";
   $("room-status").textContent = "Disconnected";
