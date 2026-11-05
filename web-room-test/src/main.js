@@ -11,7 +11,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
 
 const $ = (id) => document.getElementById(id);
 const state = {
-  user: null, roomId: null, roomCode: null, playback: null, messages: [],
+  user: null, roomId: null, roomCode: null, playback: null, messages: [], ownMembership: [], peerDetected: false,
   channel: null, realtimeConnected: false, pollTimer: null, heartbeatTimer: null,
   lastRefresh: null, lastEvent: "—", busy: false
 };
@@ -193,7 +193,9 @@ async function refreshPlayback() {
     .eq("room_id", state.roomId).maybeSingle();
   if (error) throw error;
   state.playback = data;
+  if (data?.updated_by && data.updated_by !== state.user?.id) state.peerDetected = true;
   renderPlayback();
+  renderMembers(state.ownMembership);
 }
 async function refreshMessages() {
   if (!state.roomId) return;
@@ -202,7 +204,9 @@ async function refreshMessages() {
     .order("created_at", { ascending: false }).order("id", { ascending: false }).limit(100);
   if (error) throw error;
   state.messages = (data || []).reverse();
+  if (state.messages.some((message) => message.sender_id !== state.user?.id)) state.peerDetected = true;
   renderMessages();
+  renderMembers(state.ownMembership);
 }
 async function refreshMembers() {
   if (!state.roomId) return;
@@ -210,7 +214,8 @@ async function refreshMembers() {
     .select("user_id,joined_at,last_seen_at").eq("room_id", state.roomId)
     .order("joined_at", { ascending: true });
   if (error) throw error;
-  renderMembers(data || []);
+  state.ownMembership = data || [];
+  renderMembers(state.ownMembership);
 }
 function formatTime(ms) {
   const total = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
@@ -275,34 +280,54 @@ function renderMessages() {
 function renderMembers(members) {
   const list = $("members-list");
   list.replaceChildren();
-  $("member-count").textContent = members.length + " / 2";
-  if (!members.length) {
-    const empty = document.createElement("div");
-    empty.className = "empty";
-    empty.textContent = "Waiting for participants…";
-    list.append(empty);
-    return;
-  }
-  for (const member of members) {
+  $("member-count").textContent = "2 MAX";
+
+  const own = (members || []).find((member) => member.user_id === state.user?.id);
+  if (own) {
     const row = document.createElement("div");
     row.className = "member";
     const avatar = document.createElement("div");
     avatar.className = "avatar";
-    avatar.textContent = member.user_id === state.user?.id ? "W" : "N";
+    avatar.textContent = "W";
     const info = document.createElement("div");
     info.className = "member-info";
     const name = document.createElement("strong");
-    name.textContent = member.user_id === state.user?.id ? "Browser participant (you)" : "Android / other participant";
+    name.textContent = "Browser participant (you)";
     const id = document.createElement("span");
-    id.textContent = member.user_id.slice(0, 8) + "…";
+    id.textContent = own.user_id.slice(0, 8) + "…";
     info.append(name, id);
     const status = document.createElement("span");
     status.className = "member-state";
-    const age = Date.now() - new Date(member.last_seen_at).getTime();
+    const age = Date.now() - new Date(own.last_seen_at).getTime();
     status.textContent = age < 90000 ? "ACTIVE" : "STALE";
     row.append(avatar, info, status);
     list.append(row);
+  } else {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "Browser membership is not visible yet.";
+    list.append(empty);
   }
+
+  const peer = document.createElement("div");
+  peer.className = "member";
+  const avatar = document.createElement("div");
+  avatar.className = "avatar";
+  avatar.textContent = "P";
+  const info = document.createElement("div");
+  info.className = "member-info";
+  const name = document.createElement("strong");
+  name.textContent = state.peerDetected ? "Other participant · activity received" : "Other participant · awaiting activity";
+  const detail = document.createElement("span");
+  detail.textContent = state.peerDetected
+    ? "Detected from a room chat or playback event"
+    : "Their membership row is hidden by the room's RLS policy";
+  info.append(name, detail);
+  const status = document.createElement("span");
+  status.className = "member-state";
+  status.textContent = state.peerDetected ? "SEEN" : "WAITING";
+  peer.append(avatar, info, status);
+  list.append(peer);
 }
 async function sendMessage(event) {
   event?.preventDefault();
