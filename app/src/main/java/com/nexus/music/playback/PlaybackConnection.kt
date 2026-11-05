@@ -9,7 +9,6 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
-import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
@@ -209,13 +208,16 @@ class PlaybackConnection(
 
     fun setPlaybackSpeed(speed: Float) {
         val activeController = controller ?: return
+        if (!activeController.isCommandAvailable(Player.COMMAND_SET_SPEED_AND_PITCH)) return
         val safeSpeed = speed.coerceIn(0.97f, 1.03f)
-        activeController.playbackParameters = PlaybackParameters(safeSpeed)
+        activeController.setPlaybackSpeed(safeSpeed)
     }
 
     fun resetPlaybackSpeed() {
         val activeController = controller ?: return
-        activeController.playbackParameters = PlaybackParameters(1f)
+        if (activeController.isCommandAvailable(Player.COMMAND_SET_SPEED_AND_PITCH)) {
+            activeController.setPlaybackSpeed(1f)
+        }
     }
 
     fun snapshot(): PlaybackSnapshot {
