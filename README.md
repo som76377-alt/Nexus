@@ -20,7 +20,7 @@ It combines YouTube catalogue search, Media3 background playback, an in-app upda
 ### Still needs verification or hardening
 - [x] Run Android lint, unit tests, and debug APK assembly against the room-reliability branch.
 - [ ] Test chat, room expiry, and playback synchronisation on two physical Android devices.
-- [ ] Verify Supabase Anonymous Sign-Ins are enabled in the Nexus project before the two-phone room test.
+- [x] Confirm Supabase Anonymous Sign-Ins are enabled in the Nexus project.
 - [ ] Replace anonymous device-only identity with a durable sign-in and restrict access to the two intended accounts.
 - [ ] Add client-side end-to-end encryption if chat confidentiality from the database operator is required.
 - [ ] Validate Realtime reconnect, token expiry, and missed-event recovery on two physical devices.
