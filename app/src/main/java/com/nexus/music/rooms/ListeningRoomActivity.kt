@@ -77,6 +77,8 @@ class ListeningRoomActivity : Activity() {
     private var userId: String? = null
     private var inviteCode: String? = null
     private var syncJob: Job? = null
+    private var driftJob: Job? = null
+    private var lastRemotePlayback: RoomPlayback? = null
     private var realtime: RoomRealtimeClient? = null
     private var realtimeConnected = false
     private val remoteApplyMutex = Mutex()
@@ -330,6 +332,14 @@ class ListeningRoomActivity : Activity() {
         inviteText.text = inviteCode?.let { "Invite code: $it" } ?: "Room connected"
         status.text = "Connected · starting live sync…"
 
+        driftJob?.cancel()
+        driftJob = scope.launch {
+            while (isActive && roomId == id) {
+                lastRemotePlayback?.let(::correctLocalDrift)
+                delay(500L)
+            }
+        }
+
         realtime?.close()
         realtime = RoomRealtimeClient(
             api = api,
@@ -574,6 +584,7 @@ class ListeningRoomActivity : Activity() {
         remoteApplyMutex.withLock {
             if (roomId != id) return
             val remote = api.loadPlayback(id) ?: return
+            lastRemotePlayback = remote
             if (remote.revision > lastRemoteRevision) {
                 val localSource = playback?.snapshot()?.sourceId.orEmpty()
                 if (remote.updatedBy != userId || localSource != remote.sourceUrl) {
@@ -708,6 +719,9 @@ class ListeningRoomActivity : Activity() {
     private fun exitRoom() {
         syncJob?.cancel()
         syncJob = null
+        driftJob?.cancel()
+        driftJob = null
+        lastRemotePlayback = null
         messageInput.text.clear()
         codeInput.text.clear()
         isSeeking = false
@@ -850,6 +864,7 @@ class ListeningRoomActivity : Activity() {
             backInvokedCallback = null
         }
         syncJob?.cancel()
+        driftJob?.cancel()
         realtime?.close()
         realtime = null
         handler.removeCallbacks(playerTicker)
