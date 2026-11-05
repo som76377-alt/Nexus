@@ -124,7 +124,12 @@ async function enterRoom(roomId, roomCode) {
   $("room-status").textContent = "Connected · loading room state…";
   showRoom();
   logEvent("Entered room " + roomCode);
-  await refreshAll();
+  try {
+    await refreshAll();
+  } catch (error) {
+    $("room-status").textContent = "Room joined · initial refresh will retry";
+    logEvent("Initial room refresh failed: " + errorMessage(error));
+  }
   startRealtime();
   stopTimers();
   state.heartbeatTimer = setInterval(async () => {
