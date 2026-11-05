@@ -79,6 +79,7 @@ class ListeningRoomActivity : Activity() {
     private var roomId: String? = null
     // Distinguishes a new join session even when the same room ID is re-entered.
     private var roomSessionGeneration = 0L
+    private var messageRefreshGeneration = 0L
     private var userId: String? = null
     private var inviteCode: String? = null
     private var syncJob: Job? = null
@@ -551,9 +552,13 @@ class ListeningRoomActivity : Activity() {
     private suspend fun refreshMessages() {
         val id = roomId ?: return
         val sessionGeneration = roomSessionGeneration
+        val requestGeneration = ++messageRefreshGeneration
         val messages = api.loadMessages(id)
-        // A late response from an exited/re-entered room must not repaint the active room.
-        if (roomId != id || roomSessionGeneration != sessionGeneration) return
+        // Ignore both cross-room responses and older concurrent reads from this same room.
+        if (roomId != id ||
+            roomSessionGeneration != sessionGeneration ||
+            requestGeneration != messageRefreshGeneration
+        ) return
         if (messages.isEmpty()) {
             if (messagesBox.childCount == 1 && messagesBox.getChildAt(0).tag == "empty") return
             messagesBox.removeAllViews()
@@ -802,17 +807,21 @@ class ListeningRoomActivity : Activity() {
                     } == true
                     if (!localStillWins && (!isSameLocalState || hasUnpublishedIntent)) {
                         try {
-                            applyRemotePlayback(authoritative)
-                            remoteApplyRetryPolicy.recordSuccess(authoritative.revision)
+                            applyRemotePlayback(authoritative, sessionGeneration)
+                            if (roomId == id && roomSessionGeneration == sessionGeneration) {
+                                remoteApplyRetryPolicy.recordSuccess(authoritative.revision)
+                            }
                         } catch (error: CancellationException) {
                             throw error
                         } catch (error: Exception) {
-                            val retryIn = remoteApplyRetryPolicy.recordFailure(
-                                authoritative.revision,
-                                SystemClock.elapsedRealtime()
-                            )
-                            status.text = "Applying the latest room action · retrying in " +
-                                (retryIn / 1000L) + "s"
+                            if (roomId == id && roomSessionGeneration == sessionGeneration) {
+                                val retryIn = remoteApplyRetryPolicy.recordFailure(
+                                    authoritative.revision,
+                                    SystemClock.elapsedRealtime()
+                                )
+                                status.text = "Applying the latest room action · retrying in " +
+                                    (retryIn / 1000L) + "s"
+                            }
                         }
                     } else if (isSameLocalState && !hasUnpublishedIntent) {
                         rememberPublishedPlayback(currentSnapshot, authoritative.isPlaying)
@@ -1140,6 +1149,7 @@ class ListeningRoomActivity : Activity() {
     private fun exitRoom() {
         // Invalidate every callback/request captured by the previous join session.
         roomSessionGeneration += 1L
+        messageRefreshGeneration += 1L
         syncJob?.cancel()
         syncJob = null
         driftJob?.cancel()
