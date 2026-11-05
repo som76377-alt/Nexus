@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to build for signing validation (for example 0.1.4)"
+        description: "Version to build for signing validation (for example 0.1.7)"
         required: true
         default: "0.1.7"
         type: string
@@ -168,21 +168,11 @@ jobs:
       # Publish only the verified APK. gh release upload --clobber also
       # handles rebuilding an already-published tag without an action-side lookup.
       - name: Publish GitHub Release with verified APK
-        if: "${{ github.ref_type == 'tag' || (github.event_name == 'push' && github.event.head_commit.message == 'release: v0.1.6') || (github.event_name == 'push' && github.event.head_commit.message == 'release: v0.1.5') || (github.event_name == 'push' && github.event.head_commit.message == 'release: v0.1.4') }}"
+        if: github.ref_type == 'tag'
         env:
           GH_TOKEN: "${{ github.token }}"
-          RELEASE_COMMIT_MESSAGE: "${{ github.event.head_commit.message }}"
         run: |
           TAG="${GITHUB_REF_NAME}"
-          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
-            case "$RELEASE_COMMIT_MESSAGE" in
-              "release: v0.1.6") TAG="v0.1.6" ;;
-              "release: v0.1.5") TAG="v0.1.5" ;;
-              "release: v0.1.4") TAG="v0.1.4" ;;
-              *) echo "::error::Unexpected non-tag release trigger."; exit 1 ;;
-            esac
-          fi
-
           APK="app/build/outputs/apk/release/nexus-release.apk"
           CHECKSUM="app/build/outputs/apk/release/nexus-release.apk.sha256"
 
