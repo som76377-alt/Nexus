@@ -50,17 +50,45 @@ internal class DriftCorrectionController(
     private val deadZoneMs: Long = 160L,
     private val seekThresholdMs: Long = 1_800L,
     private val seekCooldownMs: Long = 12_000L,
-    private val minimumSamples: Int = 3
+    private val minimumSamples: Int = 3,
+    private val emaAlpha: Double = 0.35,
+    private val speedGain: Double = 0.03
 ) {
     private var consecutiveDriftSamples = 0
     private var lastSeekAtMs = Long.MIN_VALUE
     private var currentSpeed = 1f
+    private var filteredDriftMs = 0.0
+    private var hasDriftSample = false
 
-    fun evaluate(driftMs: Long, isBuffering: Boolean, nowMs: Long): DriftCorrection {
+    fun evaluate(
+        driftMs: Long,
+        isBuffering: Boolean,
+        nowMs: Long,
+        roundTripMs: Long = 0L
+    ): DriftCorrection {
+        // Never interpret a buffering position as real playback drift.
         if (isBuffering) return DriftCorrection(DriftCorrectionType.NONE)
 
-        val magnitude = kotlin.math.abs(driftMs)
-        if (magnitude <= deadZoneMs) {
+        filteredDriftMs = if (hasDriftSample) {
+            emaAlpha * driftMs.toDouble() + (1.0 - emaAlpha) * filteredDriftMs
+        } else {
+            hasDriftSample = true
+            driftMs.toDouble()
+        }
+
+        val safeRttMs = roundTripMs.coerceIn(0L, 5_000L)
+        // Avoid chasing network jitter. Higher latency widens the ignore zone slightly.
+        val adaptiveDeadZoneMs = maxOf(
+            deadZoneMs,
+            (safeRttMs / 2L + 40L).coerceAtMost(350L)
+        )
+        val adaptiveSeekThresholdMs = maxOf(
+            seekThresholdMs,
+            safeRttMs * 2L + 500L
+        )
+        val magnitude = kotlin.math.abs(filteredDriftMs)
+
+        if (magnitude <= adaptiveDeadZoneMs) {
             consecutiveDriftSamples = 0
             if (currentSpeed != 1f) {
                 currentSpeed = 1f
@@ -70,7 +98,10 @@ internal class DriftCorrectionController(
         }
 
         consecutiveDriftSamples += 1
-        if (magnitude >= seekThresholdMs &&
+
+        // A seek requires sustained large drift and a cooldown. One noisy sample cannot
+        // interrupt playback or create a seek/buffer/seek loop.
+        if (magnitude >= adaptiveSeekThresholdMs &&
             consecutiveDriftSamples >= minimumSamples &&
             (lastSeekAtMs == Long.MIN_VALUE || nowMs - lastSeekAtMs >= seekCooldownMs)
         ) {
@@ -80,10 +111,13 @@ internal class DriftCorrectionController(
             return DriftCorrection(DriftCorrectionType.SEEK)
         }
 
-        if (consecutiveDriftSamples >= 2 && magnitude < seekThresholdMs) {
-            // Positive drift means this player is ahead and must slow down.
-            val speed = if (driftMs > 0L) 0.99f else 1.01f
-            if (currentSpeed != speed) {
+        // Moderate drift is corrected gradually, with pitch-preserving Media3 speed changes.
+        if (magnitude < adaptiveSeekThresholdMs && consecutiveDriftSamples >= 2) {
+            // Positive drift means this device is ahead, so it must slow down.
+            val adjustment = (filteredDriftMs / 1_000.0 * speedGain)
+                .coerceIn(-0.01, 0.01)
+            val speed = (1.0 - adjustment).toFloat().coerceIn(0.99f, 1.01f)
+            if (kotlin.math.abs(speed - currentSpeed) >= 0.001f) {
                 currentSpeed = speed
                 return DriftCorrection(DriftCorrectionType.SET_SPEED, speed)
             }
@@ -94,6 +128,8 @@ internal class DriftCorrectionController(
     fun reset() {
         consecutiveDriftSamples = 0
         currentSpeed = 1f
+        filteredDriftMs = 0.0
+        hasDriftSample = false
         lastSeekAtMs = Long.MIN_VALUE
     }
 }
@@ -209,19 +245,31 @@ internal data class ClockOffsetSample(
     val roundTripMs: Long
 )
 
+internal data class ClockOffsetEstimate(
+    val offsetMs: Long,
+    val medianRoundTripMs: Long
+)
+
 /**
- * Robust offset estimate: discard the slowest probes, then use the median of the
- * three fastest. Monotonic elapsed time is used by the caller after calibration.
+ * Selects the three lowest-latency valid probes, then uses their median offset and RTT.
+ * This makes one delayed mobile-network response much less influential on room timing.
  */
 internal object ServerClockEstimator {
-    fun estimateOffset(samples: List<ClockOffsetSample>): Long? {
-        val offsets = samples
-            .filter { it.roundTripMs >= 0L }
+    fun estimate(samples: List<ClockOffsetSample>): ClockOffsetEstimate? {
+        val best = samples
+            .filter { it.roundTripMs in 0L..10_000L }
             .sortedBy { it.roundTripMs }
             .take(3)
-            .map { it.offsetMs }
-            .sorted()
-        if (offsets.size < 3) return null
-        return offsets[offsets.size / 2]
+        if (best.size < 3) return null
+
+        val offsets = best.map { it.offsetMs }.sorted()
+        val roundTrips = best.map { it.roundTripMs }.sorted()
+        return ClockOffsetEstimate(
+            offsetMs = offsets[offsets.size / 2],
+            medianRoundTripMs = roundTrips[roundTrips.size / 2]
+        )
     }
+
+    fun estimateOffset(samples: List<ClockOffsetSample>): Long? =
+        estimate(samples)?.offsetMs
 }

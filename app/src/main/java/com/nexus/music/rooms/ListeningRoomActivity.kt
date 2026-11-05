@@ -41,6 +41,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -90,6 +91,9 @@ class ListeningRoomActivity : Activity() {
     private val remoteApplyRetryPolicy = RemoteApplyRetryPolicy()
     private var localPublishJob: Job? = null
     private var localPublishRequested = false
+    private var remoteRefreshJob: Job? = null
+    private var remoteRefreshRequested = false
+    private val playbackSignalSequence = AtomicLong(0L)
     private var observedUserActionSequence = 0L
     private var localActionGeneration = 0L
     private var lastObservedIsPlaying = false
@@ -342,6 +346,8 @@ class ListeningRoomActivity : Activity() {
         inviteText.text = inviteCode?.let { "Invite code: $it" } ?: "Room connected"
         status.text = "Connected · calibrating room clock…"
         runCatching { api.calibrateServerClock() }
+        playbackSignalSequence.set(0L)
+        remoteRefreshRequested = false
         status.text = "Connected · starting live sync…"
         val initialPlayback = playback?.snapshot()
         observedUserActionSequence = initialPlayback?.userActionSequence ?: 0L
@@ -361,13 +367,9 @@ class ListeningRoomActivity : Activity() {
             roomId = id,
             scope = scope,
             onPlaybackSignal = {
+                playbackSignalSequence.incrementAndGet()
                 scope.launch {
-                    runCatching { refreshRemotePlayback(id) }
-                        .onFailure { error ->
-                            if (error !is CancellationException) {
-                                status.text = "Playback reconnecting · ${error.message ?: "retrying"}"
-                            }
-                        }
+                    if (roomId == id) scheduleRemotePlaybackRefresh(id)
                 }
             },
             onChatSignal = {
@@ -384,12 +386,19 @@ class ListeningRoomActivity : Activity() {
             },
             onConnectionChanged = { connected ->
                 scope.launch {
+                    val wasConnected = realtimeConnected
                     realtimeConnected = connected
                     if (roomId == id) {
                         status.text = if (connected) {
                             "Connected · live sync"
                         } else {
                             "Connected · restoring live sync"
+                        }
+                        // Reconcile immediately after a socket reconnect so commands missed
+                        // during the network gap do not wait for the REST safety poll.
+                        if (connected && !wasConnected) {
+                            scheduleRemotePlaybackRefresh(id)
+                            runCatching { refreshMessages() }
                         }
                     }
                 }
@@ -400,6 +409,7 @@ class ListeningRoomActivity : Activity() {
         syncJob = scope.launch {
             var lastHeartbeat = SystemClock.elapsedRealtime() - 25_000L
             var lastClockCalibration = SystemClock.elapsedRealtime()
+            var lastMessageRefresh = SystemClock.elapsedRealtime() - 30_000L
             var consecutiveFailures = 0
             while (isActive && roomId == id) {
                 var iterationFailed = false
@@ -424,13 +434,17 @@ class ListeningRoomActivity : Activity() {
                     }
                 }
 
-                try {
-                    refreshMessages()
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (error: Exception) {
-                    iterationFailed = true
-                    status.text = "Chat reconnecting · ${error.message ?: "connection interrupted"}"
+                val messageRefreshInterval = if (realtimeConnected) 30_000L else 10_000L
+                if (now - lastMessageRefresh >= messageRefreshInterval) {
+                    try {
+                        refreshMessages()
+                        lastMessageRefresh = SystemClock.elapsedRealtime()
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        iterationFailed = true
+                        status.text = "Chat reconnecting · ${error.message ?: "connection interrupted"}"
+                    }
                 }
 
                 try {
@@ -466,6 +480,33 @@ class ListeningRoomActivity : Activity() {
                 }
                 delay(nextDelay)
             }
+        }
+    }
+
+    /**
+     * Collapse bursts of realtime signals into one authoritative REST read. If another
+     * command arrives during that read or during remote track loading, run one more read
+     * after the current operation instead of queuing an unbounded chain of stale reads.
+     */
+    private fun scheduleRemotePlaybackRefresh(id: String) {
+        if (roomId != id) return
+        remoteRefreshRequested = true
+        if (remoteRefreshJob?.isActive == true) return
+
+        remoteRefreshJob = scope.launch {
+            do {
+                remoteRefreshRequested = false
+                if (roomId != id) return@launch
+                try {
+                    refreshRemotePlayback(id)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    if (roomId == id) {
+                        status.text = "Playback reconnecting · ${error.message ?: "retrying"}"
+                    }
+                }
+            } while (remoteRefreshRequested && roomId == id && isActive)
         }
     }
 
@@ -841,7 +882,8 @@ class ListeningRoomActivity : Activity() {
         val correction = driftController.evaluate(
             driftMs = drift,
             isBuffering = local.isBuffering,
-            nowMs = nowElapsed
+            nowMs = nowElapsed,
+            roundTripMs = api.serverClockRoundTripMillis()
         )
         when (correction.type) {
             DriftCorrectionType.NONE -> Unit
@@ -862,20 +904,30 @@ class ListeningRoomActivity : Activity() {
         if (!initial.connected) {
             throw java.io.IOException("The playback service is still connecting. Retrying sync…")
         }
+        val activeRoomId = roomId ?: return
         val startingActionGeneration = localActionGeneration
+        val startingPlaybackSignalSequence = playbackSignalSequence.get()
         applyingRemote = true
         try {
             if (initial.sourceId != remote.sourceUrl) {
                 status.text = "Loading the other device's track…"
                 val audio = mediaResolver.resolve(remote.sourceId, remote.sourceUrl)
-                // A user skip made while extraction was running supersedes this incoming command.
+                // A user skip or a newer room command supersedes this extraction result.
                 if (localActionGeneration != startingActionGeneration) return
+                if (playbackSignalSequence.get() != startingPlaybackSignalSequence) {
+                    scheduleRemotePlaybackRefresh(activeRoomId)
+                    return
+                }
                 if (!activePlayer.play(audio, shouldPlay = false, userInitiated = false)) {
                     throw java.io.IOException("The player rejected the shared track.")
                 }
                 val readyDeadline = SystemClock.elapsedRealtime() + 20_000L
                 while (SystemClock.elapsedRealtime() < readyDeadline) {
                     if (localActionGeneration != startingActionGeneration) return
+                    if (playbackSignalSequence.get() != startingPlaybackSignalSequence) {
+                        scheduleRemotePlaybackRefresh(activeRoomId)
+                        return
+                    }
                     val state = activePlayer.snapshot().playbackState
                     if (state == Player.STATE_READY) break
                     if (state == Player.STATE_IDLE || state == Player.STATE_BUFFERING) {
@@ -891,7 +943,10 @@ class ListeningRoomActivity : Activity() {
             }
 
             if (localActionGeneration != startingActionGeneration) return
-            val activeRoomId = roomId ?: return
+            if (playbackSignalSequence.get() != startingPlaybackSignalSequence) {
+                scheduleRemotePlaybackRefresh(activeRoomId)
+                return
+            }
             val newestRoomState = api.loadPlayback(activeRoomId)
             if (newestRoomState != null && newestRoomState.revision > remote.revision) {
                 lastRemotePlayback = newestRoomState
@@ -925,6 +980,9 @@ class ListeningRoomActivity : Activity() {
             status.text = "Synced with the other device."
         } finally {
             applyingRemote = false
+            if (playbackSignalSequence.get() != startingPlaybackSignalSequence) {
+                scheduleRemotePlaybackRefresh(activeRoomId)
+            }
             val current = activePlayer.snapshot()
             if (current.userActionSequence > lastPublishedActionSequence ||
                 (current.sourceId.isNotBlank() && current.sourceId != lastPublishedSource)
@@ -981,6 +1039,10 @@ class ListeningRoomActivity : Activity() {
         localPublishJob?.cancel()
         localPublishJob = null
         localPublishRequested = false
+        remoteRefreshJob?.cancel()
+        remoteRefreshJob = null
+        remoteRefreshRequested = false
+        playbackSignalSequence.incrementAndGet()
         playbackStartPending = false
         observedUserActionSequence = 0L
         localActionGeneration = 0L

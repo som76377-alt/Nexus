@@ -32,6 +32,34 @@ class RoomPlaybackMathTest {
             )
         )
     }
+
+    @Test
+    fun serverClockEstimatorReportsMedianRttOfThreeFastestSamples() {
+        val estimate = ServerClockEstimator.estimate(
+            listOf(
+                ClockOffsetSample(offsetMs = 900L, roundTripMs = 12L),
+                ClockOffsetSample(offsetMs = 1_000L, roundTripMs = 20L),
+                ClockOffsetSample(offsetMs = 1_040L, roundTripMs = 30L),
+                ClockOffsetSample(offsetMs = -8_000L, roundTripMs = 12_000L)
+            )
+        )
+        assertEquals(1_000L, estimate?.offsetMs)
+        assertEquals(20L, estimate?.medianRoundTripMs)
+    }
+
+    @Test
+    fun serverClockEstimatorRejectsOnlyHighLatencySamples() {
+        assertEquals(
+            null,
+            ServerClockEstimator.estimate(
+                listOf(
+                    ClockOffsetSample(offsetMs = 1_000L, roundTripMs = 10_001L),
+                    ClockOffsetSample(offsetMs = 1_020L, roundTripMs = 12_000L),
+                    ClockOffsetSample(offsetMs = 1_040L, roundTripMs = 15_000L)
+                )
+            )
+        )
+    }
     @Test
     fun remotePlayingPositionAdvancesByElapsedTime() {
         assertEquals(
@@ -84,8 +112,18 @@ class RoomPlaybackMathTest {
         assertEquals(0.99f, ahead.speed)
         assertEquals(DriftCorrectionType.NONE, controller.evaluate(400L, false, 1_000L).type)
         val reversed = controller.evaluate(-400L, false, 1_500L)
-        assertEquals(DriftCorrectionType.SET_SPEED, reversed.type)
-        assertEquals(1.01f, reversed.speed)
+        assertEquals(DriftCorrectionType.RESET_SPEED, reversed.type)
+        assertEquals(
+            DriftCorrectionType.NONE,
+            controller.evaluate(-400L, false, 2_000L).type
+        )
+        assertEquals(
+            DriftCorrectionType.NONE,
+            controller.evaluate(-400L, false, 2_500L).type
+        )
+        val settledBehind = controller.evaluate(-400L, false, 3_000L)
+        assertEquals(DriftCorrectionType.SET_SPEED, settledBehind.type)
+        assertTrue(settledBehind.speed > 1f && settledBehind.speed <= 1.01f)
     }
 
     @Test
@@ -116,6 +154,36 @@ class RoomPlaybackMathTest {
         assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_500L, true, 0L).type)
         assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_500L, true, 500L).type)
         assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_500L, true, 1_000L).type)
+    }
+
+    @Test
+    fun highRoundTripTimeWidensDeadZoneToAvoidChasingNetworkJitter() {
+        val controller = DriftCorrectionController()
+        repeat(4) { index ->
+            assertEquals(
+                DriftCorrectionType.NONE,
+                controller.evaluate(
+                    driftMs = 200L,
+                    isBuffering = false,
+                    nowMs = index * 1_000L,
+                    roundTripMs = 400L
+                ).type
+            )
+        }
+    }
+
+    @Test
+    fun highRoundTripTimeRaisesHardSeekThreshold() {
+        val controller = DriftCorrectionController()
+        repeat(5) { index ->
+            val correction = controller.evaluate(
+                driftMs = 2_200L,
+                isBuffering = false,
+                nowMs = index * 1_000L,
+                roundTripMs = 1_000L
+            )
+            assertTrue(correction.type != DriftCorrectionType.SEEK)
+        }
     }
 
     @Test
