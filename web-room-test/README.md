@@ -38,7 +38,7 @@ The browser is a room participant and command/diagnostics console, not a full po
 5. Vite prints a local URL, normally `http://localhost:5173/`. The server binds to your own laptop only, not the local network. Open it in your laptop browser.
 6. Keep the terminal window open while testing. Press `Ctrl+C` to stop the website.
 
-The existing Nexus public Supabase URL and publishable key are used as safe defaults. They are client-side credentials protected by the existing authenticated room RPCs and RLS policies. Never replace the publishable key with a service-role or secret key. If you want to configure them manually, copy `.env.example` to `.env.local` and edit the `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` values.
+The existing Nexus public Supabase URL and publishable key are used as safe defaults. The publishable key is intended for client-side use; the database still enforces authenticated room membership through RLS and RPC permissions. They are client-side credentials protected by the existing authenticated room RPCs and RLS policies. Never replace the publishable key with a service-role or secret key. If you want to configure them manually, copy `.env.example` to `.env.local` and edit the `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` values.
 
 ## First phone + laptop test
 
