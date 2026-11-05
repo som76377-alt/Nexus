@@ -20,10 +20,12 @@ app/src/main/
       YoutubeCatalogRepository.kt   # YouTube search and stream resolution
     playback/
       PlaybackService.kt            # ExoPlayer + MediaSession lifetime
-      PlaybackConnection.kt         # Activity-side MediaController bridge
+      PlaybackConnection.kt         # Media3 MediaController implementation
+      RoomPlayerAdapter.kt          # Replaceable player port for room synchronization
       PlaybackRequest.kt            # Short-lived metadata/stream handoff
     rooms/
       RoomsApi.kt                   # Supabase Auth/REST client and encrypted session
+      RoomMediaResolver.kt          # Replaceable provider-specific stream resolver
       ListeningRoomActivity.kt      # Create/join, chat, heartbeat, playback sync
     update/
       GitHubReleaseUpdater.kt       # Release metadata, APK integrity/signature checks
