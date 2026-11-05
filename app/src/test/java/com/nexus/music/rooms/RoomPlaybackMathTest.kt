@@ -56,6 +56,10 @@ class RoomPlaybackMathTest {
         val ahead = controller.evaluate(400L, false, 500L)
         assertEquals(DriftCorrectionType.SET_SPEED, ahead.type)
         assertEquals(0.98f, ahead.speed)
+        assertEquals(DriftCorrectionType.NONE, controller.evaluate(400L, false, 1_000L).type)
+        val reversed = controller.evaluate(-400L, false, 1_500L)
+        assertEquals(DriftCorrectionType.SET_SPEED, reversed.type)
+        assertEquals(1.02f, reversed.speed)
     }
 
     @Test
