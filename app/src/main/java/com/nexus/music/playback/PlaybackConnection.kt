@@ -190,14 +190,15 @@ class PlaybackConnection(
         return true
     }
 
-    fun setPlaying(shouldPlay: Boolean) {
+    fun setPlaying(shouldPlay: Boolean, positionMs: Long? = null) {
         val activeController = controller ?: return
         if (shouldPlay) {
             if (activeController.playbackState == Player.STATE_IDLE ||
                 activeController.playbackState == Player.STATE_ENDED
             ) {
-                if (activeController.playbackState == Player.STATE_ENDED) {
-                    activeController.seekTo(0L)
+                val restartPosition = positionMs ?: 0L
+                if (activeController.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)) {
+                    activeController.seekTo(restartPosition.coerceAtLeast(0L))
                 }
                 activeController.prepare()
             }
