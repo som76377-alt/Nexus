@@ -52,10 +52,17 @@ class PlaybackConnection(
     private var lastUserAction = ""
     @Volatile private var programmaticSeekTargetMs: Long? = null
     @Volatile private var programmaticSeekAtElapsedMs: Long = 0L
+    @Volatile private var suppressUserActionsUntilElapsedMs: Long = 0L
 
     private fun recordUserAction(action: String) {
+        if (android.os.SystemClock.elapsedRealtime() < suppressUserActionsUntilElapsedMs) return
         userActionSequence += 1L
         lastUserAction = action
+    }
+
+    private fun suppressUserActionsFor(durationMs: Long = 2_000L) {
+        suppressUserActionsUntilElapsedMs =
+            android.os.SystemClock.elapsedRealtime() + durationMs
     }
 
     private val controllerFuture = MediaController.Builder(
@@ -136,7 +143,12 @@ class PlaybackConnection(
         }, mainExecutor)
     }
 
-    override fun play(audio: ResolvedAudio, shouldPlay: Boolean): Boolean {
+    override fun play(
+        audio: ResolvedAudio,
+        shouldPlay: Boolean,
+        userInitiated: Boolean
+    ): Boolean {
+        if (!userInitiated) suppressUserActionsFor()
         val request = PlaybackRequest.from(audio)
         val activeController = controller
         if (activeController == null) {
@@ -208,6 +220,7 @@ class PlaybackConnection(
     }
 
     override fun setPlaying(shouldPlay: Boolean, positionMs: Long?) {
+        suppressUserActionsFor()
         val activeController = controller ?: return
         if (shouldPlay) {
             if (activeController.playbackState == Player.STATE_IDLE ||
