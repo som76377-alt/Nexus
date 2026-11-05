@@ -586,6 +586,7 @@ class ListeningRoomActivity : Activity() {
             // A compare-and-swap conflict means the other phone already published a newer
             // command. Never replay this old action with the new revision: that would let a
             // delayed PLAY or SEEK overwrite a newer PAUSE or track change.
+            var latestStateNeedsRetry = false
             remoteApplyMutex.withLock {
                 val latest = api.loadPlayback(id)
                 if (latest != null) {
@@ -604,14 +605,17 @@ class ListeningRoomActivity : Activity() {
                                 latest.revision,
                                 SystemClock.elapsedRealtime()
                             )
+                            latestStateNeedsRetry = true
                             status.text = "Applying the latest room action · retrying in ${retryIn / 1000}s"
                         }
                     } else {
-                        rememberPublishedPlayback(snapshot)
+                        rememberPublishedPlayback(playback?.snapshot())
                     }
                 }
             }
-            status.text = "Another device changed playback first. The latest room action takes priority."
+            if (!latestStateNeedsRetry) {
+                status.text = "Another device changed playback first. The latest room action takes priority."
+            }
         }
     }
 
