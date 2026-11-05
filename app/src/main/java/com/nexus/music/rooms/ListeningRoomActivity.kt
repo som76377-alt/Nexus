@@ -49,7 +49,8 @@ import java.util.Locale
  *
  * Chat and playback are room-scoped. This Activity stays in the task back stack while the user
  * switches to Home, so its room sync loop continues to observe the shared MediaSession player.
- * The client polls the authenticated REST API; the loop is deliberately not stopped in onStop().
+ * Supabase Realtime delivers low-latency playback updates; authenticated REST polling remains
+ * as a recovery path for missed events and temporary WebSocket outages.
  */
 class ListeningRoomActivity : Activity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -606,19 +607,18 @@ class ListeningRoomActivity : Activity() {
             durationMs = remote.durationMs
         )
         val drift = local.positionMs - expected
-        when (val correction = driftController.evaluate(
+        val correction = driftController.evaluate(
             driftMs = drift,
             isBuffering = local.isBuffering,
             nowMs = SystemClock.elapsedRealtime()
-        )) {
-            is DriftCorrection -> when (correction.type) {
-                DriftCorrectionType.NONE -> Unit
-                DriftCorrectionType.SET_SPEED -> activePlayer.setPlaybackSpeed(correction.speed)
-                DriftCorrectionType.RESET_SPEED -> activePlayer.resetPlaybackSpeed()
-                DriftCorrectionType.SEEK -> {
-                    activePlayer.resetPlaybackSpeed()
-                    activePlayer.seekTo(expected)
-                }
+        )
+        when (correction.type) {
+            DriftCorrectionType.NONE -> Unit
+            DriftCorrectionType.SET_SPEED -> activePlayer.setPlaybackSpeed(correction.speed)
+            DriftCorrectionType.RESET_SPEED -> activePlayer.resetPlaybackSpeed()
+            DriftCorrectionType.SEEK -> {
+                activePlayer.resetPlaybackSpeed()
+                activePlayer.seekTo(expected)
             }
         }
     }
