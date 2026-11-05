@@ -713,7 +713,7 @@ class ListeningRoomActivity : Activity() {
                 status.text = "Loading the other device's track…"
                 val audio = mediaResolver.resolve(remote.sourceId, remote.sourceUrl)
                 // Prepare silently. The receiving phone does not start early while resolving.
-                if (!activePlayer.play(audio, shouldPlay = false)) {
+                if (!activePlayer.play(audio, shouldPlay = false, userInitiated = false)) {
                     throw java.io.IOException("The player rejected the shared track.")
                 }
                 val readyDeadline = SystemClock.elapsedRealtime() + 20_000L
