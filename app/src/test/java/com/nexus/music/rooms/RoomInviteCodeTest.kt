@@ -20,9 +20,16 @@ class RoomInviteCodeTest {
     }
 
     @Test
+    fun acceptsLegacySixteenCharacterHexCodes() {
+        assertTrue(RoomInviteCode.isValid("0123456789ABCDEF"))
+        assertTrue(RoomInviteCode.isValid("0123456789abcdef"))
+    }
+
+    @Test
     fun rejectsWrongLengthsAndPunctuation() {
         assertFalse(RoomInviteCode.isValid("AB7K"))
         assertFalse(RoomInviteCode.isValid("AB7KQR"))
         assertFalse(RoomInviteCode.isValid("AB-7K"))
+        assertFalse(RoomInviteCode.isValid("0123456789ABCDEG"))
     }
 }
