@@ -16,8 +16,8 @@ import org.json.JSONObject
 import java.io.IOException
 import java.security.KeyStore
 import java.util.concurrent.TimeUnit
-import java.time.ZonedDateTime
-import java.time.format.DateTimeFormatter
+import java.text.SimpleDateFormat
+import java.util.Locale
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -277,9 +277,16 @@ class RoomsApi(context: Context) {
             val text = response.body?.string().orEmpty()
             response.header("Date")?.let { date ->
                 runCatching {
-                    val serverMillis = ZonedDateTime.parse(date, DateTimeFormatter.RFC_1123_DATE_TIME)
-                        .toInstant().toEpochMilli()
-                    serverClockOffsetMs = serverMillis - response.receivedResponseAtMillis
+                    val serverMillis = SimpleDateFormat(
+                        "EEE, dd MMM yyyy HH:mm:ss z",
+                        Locale.US
+                    ).apply {
+                        isLenient = false
+                        timeZone = java.util.TimeZone.getTimeZone("GMT")
+                    }.parse(date)?.time
+                    if (serverMillis != null) {
+                        serverClockOffsetMs = serverMillis - response.receivedResponseAtMillis
+                    }
                 }
             }
             if (!response.isSuccessful) throwIfNotUnauthorized(response.code, text)
