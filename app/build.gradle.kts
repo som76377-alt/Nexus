@@ -7,8 +7,8 @@ if (file("google-services.json").exists()) {
     apply(plugin = "com.google.gms.google-services")
 }
 
-val nexusVersionName = providers.gradleProperty("nexusVersionName").orElse("0.1.7").get()
-val nexusVersionCode = providers.gradleProperty("nexusVersionCode").orNull?.toIntOrNull() ?: 1007
+val nexusVersionName = providers.gradleProperty("nexusVersionName").orElse("0.1.8").get()
+val nexusVersionCode = providers.gradleProperty("nexusVersionCode").orNull?.toIntOrNull() ?: 1008
 val updateRepositoryOwner = providers.gradleProperty("nexusUpdateOwner").orElse("som76377-alt").get()
 val updateRepositoryName = providers.gradleProperty("nexusUpdateRepository").orElse("Nexus").get()
 
