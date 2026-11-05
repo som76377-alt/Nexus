@@ -42,7 +42,7 @@ internal fun parseLatestReleasePayload(
         // published. Do not falsely label it "up to date" and do not offer a downgrade.
         return UpdateCheckResult.InstalledBuildAhead(installedVersion, versionName)
     }
-    if (versionCode == installedVersionCode) {
+    if (versionCode.toLong() == installedVersionCode) {
         return UpdateCheckResult.UpToDate(installedVersion)
     }
 

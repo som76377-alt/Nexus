@@ -26,10 +26,11 @@ val hasExplicitReleaseVersion =
     providers.gradleProperty("nexusVersionName").isPresent &&
         providers.gradleProperty("nexusVersionCode").isPresent
 val releaseBuildRequested = gradle.startParameter.taskNames.any { task ->
-    task.contains("Release", ignoreCase = true) &&
-        (task.contains("assemble", ignoreCase = true) ||
-            task.contains("bundle", ignoreCase = true) ||
-            task.contains("package", ignoreCase = true))
+    val taskName = task.substringAfterLast(':').lowercase()
+    taskName in setOf("build", "assemble", "bundle", "package") ||
+        ((taskName.startsWith("assemble") ||
+            taskName.startsWith("bundle") ||
+            taskName.startsWith("package")) && taskName.contains("release"))
 }
 if (releaseBuildRequested && !hasNexusSigningKey) {
     throw GradleException("Release APKs must be signed with the permanent Nexus keystore. Configure all four NEXUS_KEYSTORE/NEXUS_KEY_* environment variables.")
