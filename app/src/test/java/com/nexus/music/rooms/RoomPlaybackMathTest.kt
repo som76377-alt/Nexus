@@ -7,96 +7,98 @@ import org.junit.Test
 
 class RoomPlaybackMathTest {
     @Test
-    fun remotePlayingPositionAdvancesByServerElapsedTime() {
+    fun remotePlayingPositionAdvancesByElapsedTime() {
         assertEquals(
             6_500L,
-            RoomPlaybackMath.expectedRemotePositionMs(
-                positionMs = 4_000L,
-                isPlaying = true,
-                elapsedSinceUpdateMs = 2_500L,
-                durationMs = 20_000L
-            )
+            RoomPlaybackMath.expectedRemotePositionMs(4_000L, true, 2_500L, 20_000L)
         )
     }
 
     @Test
-    fun pausedRemotePositionDoesNotAdvance() {
+    fun pausedPositionDoesNotAdvance() {
         assertEquals(
             4_000L,
-            RoomPlaybackMath.expectedRemotePositionMs(
-                positionMs = 4_000L,
-                isPlaying = false,
-                elapsedSinceUpdateMs = 90_000L,
-                durationMs = 20_000L
-            )
+            RoomPlaybackMath.expectedRemotePositionMs(4_000L, false, 90_000L, 20_000L)
         )
     }
 
     @Test
-    fun futureServerTimestampDoesNotMovePositionBackwards() {
+    fun futureTimestampDoesNotMovePositionBackwards() {
         assertEquals(
             4_000L,
-            RoomPlaybackMath.expectedRemotePositionMs(
-                positionMs = 4_000L,
-                isPlaying = true,
-                elapsedSinceUpdateMs = -500L,
-                durationMs = 20_000L
-            )
+            RoomPlaybackMath.expectedRemotePositionMs(4_000L, true, -500L, 20_000L)
         )
     }
 
     @Test
-    fun remotePositionIsCappedAtKnownDuration() {
+    fun projectedPositionIsCappedAtDuration() {
         assertEquals(
             9_000L,
-            RoomPlaybackMath.expectedRemotePositionMs(
-                positionMs = 8_000L,
-                isPlaying = true,
-                elapsedSinceUpdateMs = 5_000L,
-                durationMs = 9_000L
+            RoomPlaybackMath.expectedRemotePositionMs(8_000L, true, 5_000L, 9_000L)
+        )
+    }
+
+    @Test
+    fun deadZoneIgnoresSmallDrift() {
+        val controller = DriftCorrectionController()
+        repeat(5) {
+            assertEquals(
+                DriftCorrectionType.NONE,
+                controller.evaluate(75L, false, it * 500L).type
             )
-        )
+        }
     }
 
     @Test
-    fun localNaturalProgressionDoesNotLookLikeASeek() {
-        val expected = RoomPlaybackMath.expectedLocalPositionMs(
-            positionMs = 10_000L,
-            isPlaying = true,
-            lastPublishedElapsedMs = 5_000L,
-            nowElapsedMs = 6_800L
-        )
-        assertEquals(11_800L, expected)
-        assertFalse(RoomPlaybackMath.shouldPublishPosition(11_850L, expected))
+    fun moderateDriftNeedsRepeatedSamplesAndUsesGentleSpeedCorrection() {
+        val controller = DriftCorrectionController()
+        assertEquals(DriftCorrectionType.NONE, controller.evaluate(400L, false, 0L).type)
+        val ahead = controller.evaluate(400L, false, 500L)
+        assertEquals(DriftCorrectionType.SET_SPEED, ahead.type)
+        assertEquals(0.98f, ahead.speed)
     }
 
     @Test
-    fun userSeekTriggersPositionPublish() {
-        val expected = RoomPlaybackMath.expectedLocalPositionMs(
-            positionMs = 10_000L,
-            isPlaying = true,
-            lastPublishedElapsedMs = 5_000L,
-            nowElapsedMs = 6_800L
-        )
-        assertTrue(RoomPlaybackMath.shouldPublishPosition(15_000L, expected))
+    fun laggingPlayerIsGentlySpedUp() {
+        val controller = DriftCorrectionController()
+        controller.evaluate(-350L, false, 0L)
+        val behind = controller.evaluate(-350L, false, 500L)
+        assertEquals(DriftCorrectionType.SET_SPEED, behind.type)
+        assertEquals(1.02f, behind.speed)
     }
 
     @Test
-    fun remoteSeekUsesDriftThreshold() {
-        assertFalse(RoomPlaybackMath.needsSeek(10_000L, 11_000L))
-        assertTrue(RoomPlaybackMath.needsSeek(10_000L, 12_000L))
+    fun largeDriftSeeksOnlyAfterThreeSamplesAndRespectsCooldown() {
+        val controller = DriftCorrectionController()
+        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_500L, false, 0L).type)
+        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_500L, false, 500L).type)
+        assertEquals(DriftCorrectionType.SEEK, controller.evaluate(1_500L, false, 1_000L).type)
+        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_500L, false, 2_000L).type)
+        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_500L, false, 3_000L).type)
+        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_500L, false, 4_000L).type)
+        assertEquals(DriftCorrectionType.SEEK, controller.evaluate(1_500L, false, 6_100L).type)
     }
 
     @Test
-    fun arithmeticSaturatesInsteadOfOverflowing() {
-        assertEquals(
-            Long.MAX_VALUE,
-            RoomPlaybackMath.expectedRemotePositionMs(
-                positionMs = Long.MAX_VALUE - 10L,
-                isPlaying = true,
-                elapsedSinceUpdateMs = 100L,
-                durationMs = 0L
-            )
-        )
+    fun bufferingNeverTriggersCorrection() {
+        val controller = DriftCorrectionController()
+        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_500L, true, 0L).type)
+        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_500L, true, 500L).type)
+        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_500L, true, 1_000L).type)
+    }
+
+    @Test
+    fun returningToDeadZoneResetsTemporarySpeed() {
+        val controller = DriftCorrectionController()
+        controller.evaluate(300L, false, 0L)
+        assertEquals(DriftCorrectionType.SET_SPEED, controller.evaluate(300L, false, 500L).type)
+        assertEquals(DriftCorrectionType.RESET_SPEED, controller.evaluate(50L, false, 1_000L).type)
+        assertEquals(DriftCorrectionType.NONE, controller.evaluate(50L, false, 1_500L).type)
+    }
+
+    @Test
+    fun seekThresholdIsNotTriggeredByMinorDifference() {
+        assertFalse(RoomPlaybackMath.needsSeek(10_000L, 10_500L))
+        assertTrue(RoomPlaybackMath.needsSeek(10_000L, 11_000L))
     }
 }
