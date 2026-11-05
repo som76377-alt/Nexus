@@ -49,6 +49,21 @@ class GitHubReleaseParserTest {
     }
 
     @Test
+    fun labelsAnUnpublishedInstalledBuildAsAheadInsteadOfUpToDate() {
+        val result = parseLatestReleasePayload(
+            payload = releasePayload(tag = "v0.1.7", assets = JSONArray()),
+            installedVersion = "0.1.8",
+            installedVersionCode = 1_008L,
+            repositoryOwner = owner,
+            repositoryName = repository
+        )
+        assertEquals(
+            UpdateCheckResult.InstalledBuildAhead("0.1.8", "0.1.7"),
+            result
+        )
+    }
+
+    @Test
     fun refusesDraftAndPrereleaseManifests() {
         assertThrows(IOException::class.java) {
             parseLatestReleasePayload(releasePayload(draft = true), "0.1.7", 1_007L, owner, repository)

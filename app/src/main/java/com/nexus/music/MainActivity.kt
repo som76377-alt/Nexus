@@ -384,6 +384,14 @@ class MainActivity : Activity() {
                         updateButton.isEnabled = true
                         updateButton.visibility = View.VISIBLE
                     }
+
+                    is UpdateCheckResult.InstalledBuildAhead -> {
+                        pendingUpdate = null
+                        updateStatusText.text =
+                            "Preview build · ${result.installedVersion} · latest public release ${result.latestReleaseVersion}"
+                        updateStatusText.setTextColor(secondaryText)
+                        updateButton.visibility = View.GONE
+                    }
                 }
             } catch (error: CancellationException) {
                 throw error

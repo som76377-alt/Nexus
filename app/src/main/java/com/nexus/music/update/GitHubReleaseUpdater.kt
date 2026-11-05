@@ -30,6 +30,10 @@ data class NexusUpdate(
 sealed interface UpdateCheckResult {
     data class UpToDate(val installedVersion: String) : UpdateCheckResult
     data class Available(val update: NexusUpdate) : UpdateCheckResult
+    data class InstalledBuildAhead(
+        val installedVersion: String,
+        val latestReleaseVersion: String
+    ) : UpdateCheckResult
 }
 
 /**

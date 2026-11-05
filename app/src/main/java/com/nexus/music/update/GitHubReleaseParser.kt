@@ -37,7 +37,12 @@ internal fun parseLatestReleasePayload(
     val versionCode = AppVersioning.versionCodeFromTag(tag)
         ?: throw IOException("Release tag '$tag' has an invalid version number.")
 
-    if (!AppVersioning.isNewer(versionCode, installedVersionCode)) {
+    if (versionCode < installedVersionCode) {
+        // A signed validation or preview build can have a version that is not yet
+        // published. Do not falsely label it "up to date" and do not offer a downgrade.
+        return UpdateCheckResult.InstalledBuildAhead(installedVersion, versionName)
+    }
+    if (versionCode == installedVersionCode) {
         return UpdateCheckResult.UpToDate(installedVersion)
     }
 
