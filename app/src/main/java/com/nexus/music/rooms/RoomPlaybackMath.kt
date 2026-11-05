@@ -201,3 +201,27 @@ internal class RemoteApplyRetryPolicy(
         retryAtElapsedMs = 0L
     }
 }
+
+
+/** One server-time probe measured against the device's monotonic clock. */
+internal data class ClockOffsetSample(
+    val offsetMs: Long,
+    val roundTripMs: Long
+)
+
+/**
+ * Robust offset estimate: discard the slowest probes, then use the median of the
+ * three fastest. Monotonic elapsed time is used by the caller after calibration.
+ */
+internal object ServerClockEstimator {
+    fun estimateOffset(samples: List<ClockOffsetSample>): Long? {
+        val offsets = samples
+            .filter { it.roundTripMs >= 0L }
+            .sortedBy { it.roundTripMs }
+            .take(3)
+            .map { it.offsetMs }
+            .sorted()
+        if (offsets.size < 3) return null
+        return offsets[offsets.size / 2]
+    }
+}
