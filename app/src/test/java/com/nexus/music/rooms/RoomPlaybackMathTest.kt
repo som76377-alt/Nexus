@@ -105,4 +105,34 @@ class RoomPlaybackMathTest {
         assertFalse(RoomPlaybackMath.needsSeek(10_000L, 10_500L))
         assertTrue(RoomPlaybackMath.needsSeek(10_000L, 11_000L))
     }
+
+    @Test
+    fun failedRemoteApplyUsesBoundedBackoff() {
+        val policy = RemoteApplyRetryPolicy()
+        assertFalse(policy.shouldRetry(4L, 0L))
+        assertEquals(1_000L, policy.recordFailure(4L, 0L))
+        assertFalse(policy.shouldRetry(4L, 999L))
+        assertTrue(policy.shouldRetry(4L, 1_000L))
+        assertEquals(2_000L, policy.recordFailure(4L, 1_000L))
+        assertFalse(policy.shouldRetry(4L, 2_999L))
+        assertTrue(policy.shouldRetry(4L, 3_000L))
+    }
+
+    @Test
+    fun newerRevisionIsNeverBlockedByOlderRetry() {
+        val policy = RemoteApplyRetryPolicy()
+        policy.recordFailure(4L, 0L)
+        assertFalse(policy.shouldRetry(5L, 100L))
+        assertEquals(1_000L, policy.recordFailure(5L, 100L))
+        assertTrue(policy.shouldRetry(5L, 1_100L))
+    }
+
+    @Test
+    fun successfulRemoteApplyClearsBackoff() {
+        val policy = RemoteApplyRetryPolicy()
+        policy.recordFailure(4L, 0L)
+        policy.recordSuccess(4L)
+        assertFalse(policy.shouldRetry(4L, 10_000L))
+        assertEquals(1_000L, policy.recordFailure(4L, 10_000L))
+    }
 }

@@ -37,7 +37,7 @@ class PlaybackConnection(
     private val onReady: () -> Unit,
     private val onStateChanged: (PlaybackSnapshot) -> Unit,
     private val onError: (String) -> Unit
-) {
+) : RoomPlayerAdapter {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val mainExecutor = Executor { command ->
         if (Looper.myLooper() == Looper.getMainLooper()) command.run()
@@ -50,10 +50,19 @@ class PlaybackConnection(
     private var pendingPlayWhenReady = true
     private var userActionSequence = 0L
     private var lastUserAction = ""
+    @Volatile private var programmaticSeekTargetMs: Long? = null
+    @Volatile private var programmaticSeekAtElapsedMs: Long = 0L
+    @Volatile private var suppressUserActionsUntilElapsedMs: Long = 0L
 
     private fun recordUserAction(action: String) {
+        if (android.os.SystemClock.elapsedRealtime() < suppressUserActionsUntilElapsedMs) return
         userActionSequence += 1L
         lastUserAction = action
+    }
+
+    private fun suppressUserActionsFor(durationMs: Long = 2_000L) {
+        suppressUserActionsUntilElapsedMs =
+            android.os.SystemClock.elapsedRealtime() + durationMs
     }
 
     private val controllerFuture = MediaController.Builder(
@@ -80,7 +89,17 @@ class PlaybackConnection(
             newPosition: Player.PositionInfo,
             reason: Int
         ) {
-            if (reason == Player.DISCONTINUITY_REASON_SEEK) recordUserAction("SEEK")
+            if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+                val expected = programmaticSeekTargetMs
+                val recent = android.os.SystemClock.elapsedRealtime() - programmaticSeekAtElapsedMs <= 3_000L
+                val isProgrammaticCorrection = recent && expected != null &&
+                    kotlin.math.abs(newPosition.positionMs - expected) <= 500L
+                if (isProgrammaticCorrection) {
+                    programmaticSeekTargetMs = null
+                } else {
+                    recordUserAction("SEEK")
+                }
+            }
             publishState()
         }
 
@@ -124,7 +143,12 @@ class PlaybackConnection(
         }, mainExecutor)
     }
 
-    fun play(audio: ResolvedAudio, shouldPlay: Boolean = true): Boolean {
+    override fun play(
+        audio: ResolvedAudio,
+        shouldPlay: Boolean,
+        userInitiated: Boolean
+    ): Boolean {
+        if (!userInitiated) suppressUserActionsFor()
         val request = PlaybackRequest.from(audio)
         val activeController = controller
         if (activeController == null) {
@@ -163,7 +187,7 @@ class PlaybackConnection(
         }
     }
 
-    fun togglePlayback() {
+    override fun togglePlayback() {
         val activeController = controller ?: return
         if (activeController.playWhenReady) {
             activeController.pause()
@@ -181,16 +205,22 @@ class PlaybackConnection(
         publishState()
     }
 
-    fun seekTo(positionMs: Long): Boolean {
+    override fun seekTo(positionMs: Long, userInitiated: Boolean): Boolean {
         val activeController = controller ?: return false
         if (!activeController.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)) {
             return false
         }
-        activeController.seekTo(positionMs.coerceAtLeast(0L))
+        val target = positionMs.coerceAtLeast(0L)
+        if (!userInitiated) {
+            programmaticSeekTargetMs = target
+            programmaticSeekAtElapsedMs = android.os.SystemClock.elapsedRealtime()
+        }
+        activeController.seekTo(target)
         return true
     }
 
-    fun setPlaying(shouldPlay: Boolean, positionMs: Long? = null) {
+    override fun setPlaying(shouldPlay: Boolean, positionMs: Long?) {
+        suppressUserActionsFor()
         val activeController = controller ?: return
         if (shouldPlay) {
             if (activeController.playbackState == Player.STATE_IDLE ||
@@ -198,7 +228,7 @@ class PlaybackConnection(
             ) {
                 val restartPosition = positionMs ?: 0L
                 if (activeController.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)) {
-                    activeController.seekTo(restartPosition.coerceAtLeast(0L))
+                    seekTo(restartPosition, userInitiated = false)
                 }
                 activeController.prepare()
             }
@@ -209,21 +239,21 @@ class PlaybackConnection(
         publishState()
     }
 
-    fun setPlaybackSpeed(speed: Float) {
+    override fun setPlaybackSpeed(speed: Float) {
         val activeController = controller ?: return
         if (!activeController.isCommandAvailable(Player.COMMAND_SET_SPEED_AND_PITCH)) return
         val safeSpeed = speed.coerceIn(0.97f, 1.03f)
         activeController.setPlaybackSpeed(safeSpeed)
     }
 
-    fun resetPlaybackSpeed() {
+    override fun resetPlaybackSpeed() {
         val activeController = controller ?: return
         if (activeController.isCommandAvailable(Player.COMMAND_SET_SPEED_AND_PITCH)) {
             activeController.setPlaybackSpeed(1f)
         }
     }
 
-    fun snapshot(): PlaybackSnapshot {
+    override fun snapshot(): PlaybackSnapshot {
         val activeController = controller ?: return PlaybackSnapshot(connected = false)
         val item = activeController.currentMediaItem
         val duration = activeController.duration.let {
@@ -249,7 +279,7 @@ class PlaybackConnection(
         if (!closed) onStateChanged(snapshot())
     }
 
-    fun close() {
+    override fun close() {
         if (closed) return
         closed = true
         controller?.removeListener(playerListener)

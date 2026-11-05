@@ -20,10 +20,12 @@ app/src/main/
       YoutubeCatalogRepository.kt   # YouTube search and stream resolution
     playback/
       PlaybackService.kt            # ExoPlayer + MediaSession lifetime
-      PlaybackConnection.kt         # Activity-side MediaController bridge
+      PlaybackConnection.kt         # Media3 MediaController implementation
+      RoomPlayerAdapter.kt          # Replaceable player port for room synchronization
       PlaybackRequest.kt            # Short-lived metadata/stream handoff
     rooms/
       RoomsApi.kt                   # Supabase Auth/REST client and encrypted session
+      RoomMediaResolver.kt          # Replaceable provider-specific stream resolver
       ListeningRoomActivity.kt      # Create/join, chat, heartbeat, playback sync
     update/
       GitHubReleaseUpdater.kt       # Release metadata, APK integrity/signature checks
@@ -44,7 +46,7 @@ app/src/main/
 
 `YoutubeCatalogRepository` is currently the only provider adapter. It runs synchronous NewPipe extraction on `Dispatchers.IO`, maps extractor results into Nexus-owned models, and resolves a fresh playable URL just before playback. `ExtractorRuntime` configures NewPipe's process-wide downloader once.
 
-The current catalogue supports first-page YouTube search for all results, music songs, and videos. Pagination, playlist/channel browsing, caching, and a provider-neutral interface are not implemented yet.
+The current catalogue supports first-page YouTube search for all results, music songs, and videos. Room track resolution is behind `RoomMediaResolver`, so another provider can be added for listening rooms without changing the room state protocol. General catalogue search, pagination, playlist/channel browsing and shared caching remain separate work.
 
 ## Playback
 
@@ -67,7 +69,11 @@ All public room tables have RLS. Access policies require room membership, sender
 
 The Android client uses Supabase anonymous Auth through REST and encrypts the access/refresh session with an Android Keystore AES-GCM key. This identity is device-local: app data loss or reinstall can lose the identity. Anonymous sign-ins must be enabled in the Supabase project. The backend does not yet enforce a project-wide allowlist of the two intended people.
 
-Chat and playback are scoped by room ID. The UI loads the latest 100 messages in chronological order. A heartbeat runs every 25 seconds while the room Activity is active. The client polls chat/playback about every 1.8 seconds and backs off during network failures; it does not yet use a persistent Realtime/WebSocket connection. Playback commands resolve the canonical source URL independently on each phone and update the existing Media3 service. Position correction uses the server timestamp and local playback position, but network/polling latency means perfect zero-lag sync is not possible.
+Chat and playback are scoped by room ID. The UI loads the latest 100 messages in chronological order. A heartbeat runs every 25 seconds while the room Activity is active. An authenticated Supabase Realtime WebSocket subscribes to room playback updates and chat inserts. REST remains authoritative: every event triggers a room-scoped read, and periodic polling repairs missed events while reconnect uses bounded exponential backoff. A temporary network error does not itself eject a member; only an explicit false membership heartbeat or room expiry exits the room.
+
+Room synchronization is deliberately provider- and player-adapter based. `RoomMediaResolver` resolves a canonical room track reference into a fresh stream on each phone, and `RoomPlayerAdapter` exposes local player controls to the room coordinator. The current adapters use NewPipe and the Media3/ExoPlayer service, but another Android player or catalogue adapter can be connected without rewriting room membership, chat, revisions, or drift policy. Each phone still has to be able to resolve the same canonical track.
+
+Playback is server-authoritative with monotonically increasing revisions and compare-and-swap writes. A stale command that loses a revision race is never replayed over the newer room state. Both phones estimate the server clock and project the expected position; sustained drift is corrected locally with hysteresis, gentle speed changes, and rate-limited seeks. A local drift-correction seek is not reclassified as a user seek. Failed remote source resolution is retried with bounded backoff, while a newer room revision is applied immediately. This reduces feedback loops but does not promise sample-accurate or zero-latency synchronization.
 
 Room access is blocked after one hour of inactivity. The scheduled cleanup runs every five minutes and deletes the room, its chat, membership, and playback state by cascade. Physical deletion can therefore occur up to about five minutes after the one-hour threshold.
 

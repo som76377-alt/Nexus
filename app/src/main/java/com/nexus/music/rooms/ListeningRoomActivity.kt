@@ -27,6 +27,7 @@ import androidx.media3.common.Player
 import com.nexus.music.catalog.YoutubeCatalogRepository
 import com.nexus.music.MainActivity
 import com.nexus.music.playback.PlaybackConnection
+import com.nexus.music.playback.RoomPlayerAdapter
 import com.nexus.music.playback.PlaybackSnapshot
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -56,6 +57,7 @@ class ListeningRoomActivity : Activity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val api by lazy { RoomsApi(this) }
     private val catalog by lazy { YoutubeCatalogRepository() }
+    private val mediaResolver by lazy { YoutubeRoomMediaResolver(catalog) }
     private val handler = Handler(Looper.getMainLooper())
 
     private lateinit var status: TextView
@@ -72,7 +74,7 @@ class ListeningRoomActivity : Activity() {
     private lateinit var playButton: Button
     private lateinit var seekBar: SeekBar
 
-    private var playback: PlaybackConnection? = null
+    private var playback: RoomPlayerAdapter? = null
     private var roomId: String? = null
     private var userId: String? = null
     private var inviteCode: String? = null
@@ -83,6 +85,7 @@ class ListeningRoomActivity : Activity() {
     private var realtimeConnected = false
     private val remoteApplyMutex = Mutex()
     private val driftController = DriftCorrectionController()
+    private val remoteApplyRetryPolicy = RemoteApplyRetryPolicy()
     private var isSeeking = false
     private var applyingRemoteUntil = 0L
     private var applyingRemote = false
@@ -183,7 +186,7 @@ class ListeningRoomActivity : Activity() {
         inviteText = label("Room active", 12f, accent, true)
         roomHeader.addView(inviteText, LinearLayout.LayoutParams(0, -2, 1f))
         roomHeader.addView(actionButton("Exit room", false).apply {
-            setOnClickListener { exitRoom() }
+            setOnClickListener { leaveRoom() }
         })
         roomPanel.addView(roomHeader, params(0))
 
@@ -355,6 +358,18 @@ class ListeningRoomActivity : Activity() {
                                 status.text = "Playback reconnecting · ${error.message ?: "retrying"}"
                             }
                         }
+                }
+            },
+            onChatSignal = {
+                scope.launch {
+                    if (roomId == id) {
+                        runCatching { refreshMessages() }
+                            .onFailure { error ->
+                                if (error !is CancellationException) {
+                                    status.text = "Chat reconnecting · ${error.message ?: "retrying"}"
+                                }
+                            }
+                    }
                 }
             },
             onConnectionChanged = { connected ->
@@ -562,19 +577,45 @@ class ListeningRoomActivity : Activity() {
                 originDeviceId = sender
             )
 
-        var result = send(lastRemoteRevision)
-        if (!result.applied) {
-            // Compare-and-swap rejected a stale write. Read the current revision and retry
-            // this deliberate user action once; never loop or retry a stale background sample.
-            val latest = api.loadPlayback(id)
-            lastRemoteRevision = latest?.revision ?: 0L
-            result = send(lastRemoteRevision)
-        }
+        val result = send(lastRemoteRevision)
         if (result.applied) {
             lastRemoteRevision = result.revision
+            remoteApplyRetryPolicy.recordSuccess(result.revision)
             rememberPublishedPlayback(snapshot)
         } else {
-            status.text = "Another playback action arrived at the same time. Rechecking room state…"
+            // A compare-and-swap conflict means the other phone already published a newer
+            // command. Never replay this old action with the new revision: that would let a
+            // delayed PLAY or SEEK overwrite a newer PAUSE or track change.
+            var latestStateNeedsRetry = false
+            remoteApplyMutex.withLock {
+                val latest = api.loadPlayback(id)
+                if (latest != null) {
+                    lastRemotePlayback = latest
+                    lastRemoteRevision = maxOf(lastRemoteRevision, latest.revision)
+                    val localSource = playback?.snapshot()?.sourceId.orEmpty()
+                    if (latest.updatedBy != sender || localSource != latest.sourceUrl) {
+                        try {
+                            applyRemotePlayback(latest)
+                            remoteApplyRetryPolicy.recordSuccess(latest.revision)
+                            rememberPublishedPlayback(playback?.snapshot())
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (error: Exception) {
+                            val retryIn = remoteApplyRetryPolicy.recordFailure(
+                                latest.revision,
+                                SystemClock.elapsedRealtime()
+                            )
+                            latestStateNeedsRetry = true
+                            status.text = "Applying the latest room action · retrying in ${retryIn / 1000}s"
+                        }
+                    } else {
+                        rememberPublishedPlayback(playback?.snapshot())
+                    }
+                }
+            }
+            if (!latestStateNeedsRetry) {
+                status.text = "Another device changed playback first. The latest room action takes priority."
+            }
         }
     }
 
@@ -592,14 +633,33 @@ class ListeningRoomActivity : Activity() {
             if (roomId != id) return
             val remote = api.loadPlayback(id) ?: return
             lastRemotePlayback = remote
-            if (remote.revision > lastRemoteRevision) {
-                val localSource = playback?.snapshot()?.sourceId.orEmpty()
-                if (remote.updatedBy != userId || localSource != remote.sourceUrl) {
+            val isNewRevision = remote.revision > lastRemoteRevision
+            if (isNewRevision) lastRemoteRevision = remote.revision
+
+            val localSource = playback?.snapshot()?.sourceId.orEmpty()
+            val isOurCurrentState = remote.updatedBy == userId && localSource == remote.sourceUrl
+            val shouldApplyNewState = isNewRevision && !isOurCurrentState
+            val shouldRetryFailedState = remoteApplyRetryPolicy.shouldRetry(
+                remote.revision,
+                SystemClock.elapsedRealtime()
+            )
+
+            if (isOurCurrentState) {
+                remoteApplyRetryPolicy.recordSuccess(remote.revision)
+                rememberPublishedPlayback(playback?.snapshot())
+            } else if (shouldApplyNewState || shouldRetryFailedState) {
+                try {
                     applyRemotePlayback(remote)
-                } else {
-                    rememberPublishedPlayback(playback?.snapshot())
+                    remoteApplyRetryPolicy.recordSuccess(remote.revision)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    val retryIn = remoteApplyRetryPolicy.recordFailure(
+                        remote.revision,
+                        SystemClock.elapsedRealtime()
+                    )
+                    status.text = "Shared track isn't ready yet · retrying in ${retryIn / 1000}s"
                 }
-                lastRemoteRevision = remote.revision
             }
             correctLocalDrift(remote)
         }
@@ -637,7 +697,7 @@ class ListeningRoomActivity : Activity() {
             DriftCorrectionType.RESET_SPEED -> activePlayer.resetPlaybackSpeed()
             DriftCorrectionType.SEEK -> {
                 activePlayer.resetPlaybackSpeed()
-                activePlayer.seekTo(expected)
+                activePlayer.seekTo(expected, userInitiated = false)
             }
         }
     }
@@ -654,9 +714,9 @@ class ListeningRoomActivity : Activity() {
 
             if (current.sourceId != remote.sourceUrl) {
                 status.text = "Loading the other device's track…"
-                val audio = catalog.resolveAudio(remote.sourceUrl)
+                val audio = mediaResolver.resolve(remote.sourceId, remote.sourceUrl)
                 // Prepare silently. The receiving phone does not start early while resolving.
-                if (!activePlayer.play(audio, shouldPlay = false)) {
+                if (!activePlayer.play(audio, shouldPlay = false, userInitiated = false)) {
                     throw java.io.IOException("The player rejected the shared track.")
                 }
                 val readyDeadline = SystemClock.elapsedRealtime() + 20_000L
@@ -697,7 +757,7 @@ class ListeningRoomActivity : Activity() {
             )
             val latest = activePlayer.snapshot()
             if (RoomPlaybackMath.needsSeek(latest.positionMs, expectedPosition) &&
-                !activePlayer.seekTo(expectedPosition)
+                !activePlayer.seekTo(expectedPosition, userInitiated = false)
             ) {
                 throw java.io.IOException("The player is not ready to seek yet. Retrying sync…")
             }
@@ -734,6 +794,17 @@ class ListeningRoomActivity : Activity() {
         return null
     }
 
+    private fun leaveRoom() {
+        val id = roomId ?: return
+        scope.launch {
+            val leaveFailed = runCatching { api.leaveRoom(id) }.isFailure
+            exitRoom()
+            if (leaveFailed) {
+                status.text = "Exited on this phone. The server will release this seat automatically if the connection was interrupted."
+            }
+        }
+    }
+
     private fun exitRoom() {
         syncJob?.cancel()
         syncJob = null
@@ -749,6 +820,7 @@ class ListeningRoomActivity : Activity() {
         realtime = null
         realtimeConnected = false
         driftController.reset()
+        remoteApplyRetryPolicy.reset()
         roomId = null
         inviteCode = null
         userId = null

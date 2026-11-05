@@ -35,6 +35,7 @@ internal class RoomRealtimeClient(
     private val roomId: String,
     private val scope: CoroutineScope,
     private val onPlaybackSignal: () -> Unit,
+    private val onChatSignal: () -> Unit,
     private val onConnectionChanged: (Boolean) -> Unit
 ) {
     private val client = OkHttpClient.Builder()
@@ -45,6 +46,7 @@ internal class RoomRealtimeClient(
 
     private var job: Job? = null
     @Volatile private var activeSocket: WebSocket? = null
+    @Volatile private var lastSuccessfulJoinElapsedMs: Long = 0L
 
     fun start() {
         if (job?.isActive == true) return
@@ -61,6 +63,12 @@ internal class RoomRealtimeClient(
                     onConnectionChanged(false)
                 }
                 if (currentCoroutineContext().isActive) {
+                    val wasStable = lastSuccessfulJoinElapsedMs > 0L &&
+                        android.os.SystemClock.elapsedRealtime() - lastSuccessfulJoinElapsedMs >= 30_000L
+                    if (wasStable) {
+                        retryDelayMs = 1_000L
+                        lastSuccessfulJoinElapsedMs = 0L
+                    }
                     delay(retryDelayMs)
                     retryDelayMs = (retryDelayMs * 2L).coerceAtMost(20_000L)
                 }
@@ -87,10 +95,15 @@ internal class RoomRealtimeClient(
                     .put("schema", "public")
                     .put("table", "room_playback")
                     .put("filter", "room_id=eq.$roomId")
+                val chatFilter = JSONObject()
+                    .put("event", "INSERT")
+                    .put("schema", "public")
+                    .put("table", "room_messages")
+                    .put("filter", "room_id=eq.$roomId")
                 val config = JSONObject()
                     .put("broadcast", JSONObject().put("ack", false).put("self", false))
                     .put("presence", JSONObject().put("enabled", false))
-                    .put("postgres_changes", JSONArray().put(filter))
+                    .put("postgres_changes", JSONArray().put(filter).put(chatFilter))
                     .put("private", false)
                 val payload = JSONObject()
                     .put("config", config)
@@ -110,22 +123,44 @@ internal class RoomRealtimeClient(
                 runCatching { JSONObject(text) }.getOrNull()?.let { message ->
                     when (message.optString("event")) {
                         "phx_reply" -> {
-                            val payload = message.optJSONObject("payload")
-                            if (payload?.optString("status") == "ok") {
-                                joined.complete(true)
-                            } else {
-                                val detail = payload?.optJSONObject("response")
-                                    ?.optString("reason").orEmpty()
-                                joined.complete(false)
-                                ended.complete(IOException(detail.ifBlank {
-                                    "Realtime subscription was rejected."
-                                }))
+                            val isJoinReply = message.optString("ref") == joinRef &&
+                                (message.optString("join_ref").isBlank() ||
+                                    message.optString("join_ref") == joinRef)
+                            if (isJoinReply) {
+                                val payload = message.optJSONObject("payload")
+                                if (payload?.optString("status") == "ok") {
+                                    joined.complete(true)
+                                } else {
+                                    val detail = payload?.optJSONObject("response")
+                                        ?.optString("reason").orEmpty()
+                                    joined.complete(false)
+                                    ended.complete(IOException(detail.ifBlank {
+                                        "Realtime subscription was rejected."
+                                    }))
+                                }
                             }
                         }
-                        "postgres_changes" -> onPlaybackSignal()
-                        "phx_error", "phx_close" -> ended.complete(
-                            IOException("Realtime channel closed.")
-                        )
+                        "postgres_changes" -> {
+                            val data = message.optJSONObject("payload")
+                                ?.optJSONObject("data")
+                            when (data?.optString("table")) {
+                                "room_playback" -> onPlaybackSignal()
+                                "room_messages" -> onChatSignal()
+                            }
+                        }
+                        "system" -> {
+                            val payload = message.optJSONObject("payload")
+                            if (payload?.optString("status") == "error") {
+                                val detail = payload.optString("message")
+                                    .ifBlank { "Realtime could not deliver a database change." }
+                                joined.complete(false)
+                                ended.complete(IOException(detail))
+                            }
+                        }
+                        "phx_error", "phx_close" -> {
+                            joined.complete(false)
+                            ended.complete(IOException("Realtime channel closed."))
+                        }
                     }
                 }
             }
@@ -145,7 +180,11 @@ internal class RoomRealtimeClient(
         activeSocket = socket
         try {
             val accepted = withTimeoutOrNull(12_000L) { joined.await() } == true
-            if (!accepted) throw IOException("Realtime subscription did not become ready.")
+            if (!accepted) {
+                val rejection = withTimeoutOrNull(250L) { ended.await() }
+                throw rejection ?: IOException("Realtime subscription did not become ready.")
+            }
+            lastSuccessfulJoinElapsedMs = android.os.SystemClock.elapsedRealtime()
             onConnectionChanged(true)
 
             var heartbeatRef = 2

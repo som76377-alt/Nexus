@@ -97,3 +97,51 @@ internal class DriftCorrectionController(
         lastSeekAtMs = Long.MIN_VALUE
     }
 }
+
+
+/**
+ * Back off a failed remote-track application without delaying a newer room revision.
+ * A new revision is never blocked by an older revision's retry timer.
+ */
+internal class RemoteApplyRetryPolicy(
+    private val initialDelayMs: Long = 1_000L,
+    private val maximumDelayMs: Long = 15_000L
+) {
+    private var failedRevision: Long? = null
+    private var failureCount = 0
+    private var retryAtElapsedMs = 0L
+
+    fun shouldRetry(revision: Long, nowElapsedMs: Long): Boolean =
+        failedRevision == revision && nowElapsedMs >= retryAtElapsedMs
+
+    fun recordFailure(revision: Long, nowElapsedMs: Long): Long {
+        if (failedRevision != revision) {
+            failedRevision = revision
+            failureCount = 0
+        }
+        failureCount = (failureCount + 1).coerceAtMost(10)
+        val exponent = (failureCount - 1).coerceAtMost(10)
+        val multiplier = 1L shl exponent
+        val delayMs = if (initialDelayMs > maximumDelayMs / multiplier) {
+            maximumDelayMs
+        } else {
+            (initialDelayMs * multiplier).coerceAtMost(maximumDelayMs)
+        }
+        retryAtElapsedMs = if (Long.MAX_VALUE - nowElapsedMs < delayMs) {
+            Long.MAX_VALUE
+        } else {
+            nowElapsedMs + delayMs
+        }
+        return delayMs
+    }
+
+    fun recordSuccess(revision: Long) {
+        if (failedRevision == revision) reset()
+    }
+
+    fun reset() {
+        failedRevision = null
+        failureCount = 0
+        retryAtElapsedMs = 0L
+    }
+}

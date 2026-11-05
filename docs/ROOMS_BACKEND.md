@@ -21,7 +21,7 @@ A room's `last_activity_at` is refreshed by:
 
 After one hour of inactivity, the join RPC, heartbeat, chat, and playback RLS policies reject further room use. A scheduled `pg_cron` job runs every five minutes and physically deletes rooms whose last activity is more than one hour old. Foreign-key cascades delete that room's members, messages, and playback snapshot together. Physical deletion can therefore occur up to about five minutes after the one-hour threshold.
 
-The Android room screen must call `touch_room` periodically while a room is open (currently every 25 seconds), and stop heartbeats after Exit Room. A backgrounded/disconnected room will naturally expire after an hour without activity.
+The Android room screen calls `touch_room` every 25 seconds while a room is open. Explicit Exit Room calls `leave_room` to release the current seat immediately. If an app is killed, uninstalled, loses its device-local anonymous identity, or cannot heartbeat, a later join prunes that member after a three-minute stale-seat grace period. A room with no activity still expires after one hour.
 
 ## Realtime
 
@@ -31,13 +31,23 @@ The messages, playback snapshot, and membership tables are included in the `supa
 
 The main Nexus screen now opens a Listening Room prototype. It includes device-local anonymous sign-in with an Android Keystore-encrypted session, Create Room and Join by Code, room-scoped chat, a 25-second heartbeat, shared YouTube URL playback through the existing Media3 service, and play/pause/seek synchronisation.
 
-The current client subscribes to authenticated Supabase Realtime Postgres Changes for its room's playback row. A Realtime event is only a signal to re-read the authoritative row over REST; it is not trusted as a command by itself. REST polling remains as a fallback (faster while the socket is disconnected, slower while it is healthy), and the subscription reconnects with bounded exponential backoff. The database write uses a compare-and-swap revision check so a delayed request cannot silently overwrite a newer room command. The chat UI displays the latest 100 messages in chronological order; older messages remain stored until room expiry but are not yet paginated in the UI.
+The current client subscribes to authenticated Supabase Realtime Postgres Changes for its room's playback row and chat inserts. A Realtime event is only a signal to re-read the authoritative row over REST; it is not trusted as a command by itself. REST polling remains as a fallback (faster while the socket is disconnected, slower while it is healthy), and the subscription reconnects with bounded exponential backoff. The database write uses a compare-and-swap revision check so a delayed request cannot silently overwrite a newer room command. On a CAS conflict the client now adopts the latest server state instead of retrying its older command. A failed remote stream load is retried with bounded backoff, while a newer revision bypasses the old retry timer. The chat UI displays the latest 100 messages in chronological order; older messages remain stored until room expiry but are not yet paginated in the UI.
 
 Anonymous sign-ins must be enabled in the Nexus Supabase project's Authentication settings. If disabled, the app displays that setup requirement. Anonymous identity survives normal app restarts but cannot be recovered after app data is cleared or the app is reinstalled. The app does not silently create a replacement identity if the saved session cannot be refreshed or decrypted, because doing so could strand the old room memberships.
 
 The backend currently limits each room to two members; it does not yet enforce a project-wide allowlist of the two intended people. A durable sign-in and global two-account allowlist remain follow-up hardening work. Room messages are protected by membership RLS but are stored as plaintext; they are not end-to-end encrypted. Two-device end-to-end validation is still required.
 
 A Supabase anonymous user is device-local and cannot recover its identity after app data is cleared or the app is reinstalled. For a durable two-person private app, a permanent sign-in method may be preferable.
+
+## Reliability migration
+
+`20261105110000_nexus_room_presence_and_playback_atomicity.sql` updates the room RPCs to:
+- reclaim a seat only after its previous device has missed heartbeats for three minutes;
+- release a member immediately through the authenticated `leave_room` RPC;
+- serialize join, leave, heartbeat and playback writes with a per-room transaction lock, preventing two phones from racing to create the first playback snapshot;
+- retain the two-member limit, existing short and legacy invite-code formats, rate limiting, row-level security, and revision-based compare-and-swap.
+
+The migration is checked into the Nexus branch. It must be applied to the connected Supabase project before the new `leave_room` call and stale-seat reclaim behavior are live.
 
 
 ## Playback synchronization and recovery
