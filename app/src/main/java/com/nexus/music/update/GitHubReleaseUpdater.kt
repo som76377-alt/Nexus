@@ -44,6 +44,7 @@ class GitHubReleaseUpdater(
 ) {
     suspend fun checkForUpdate(context: Context): UpdateCheckResult = withContext(Dispatchers.IO) {
         val installedVersion = installedVersionName(context)
+        val installedVersionCode = installedVersionCode(context)
         val apiUrl = "https://api.github.com/repos/" +
             "${BuildConfig.UPDATE_REPOSITORY_OWNER}/${BuildConfig.UPDATE_REPOSITORY_NAME}/releases/latest"
         val request = Request.Builder()
@@ -81,7 +82,7 @@ class GitHubReleaseUpdater(
             val versionCode = AppVersioning.versionCodeFromTag(tag)
                 ?: throw IOException("Release tag '$tag' has an invalid version number.")
 
-            if (!AppVersioning.isNewer(versionName, installedVersion)) {
+            if (!AppVersioning.isNewer(versionCode, installedVersionCode)) {
                 return@withContext UpdateCheckResult.UpToDate(installedVersion)
             }
 
@@ -351,6 +352,22 @@ class GitHubReleaseUpdater(
                 .digest(signature.toByteArray())
                 .toHexString()
         }.toSet()
+
+    private fun installedVersionCode(context: Context): Long {
+        @Suppress("DEPRECATION")
+        val packageInfo = if (Build.VERSION.SDK_INT >= 33) {
+            context.packageManager.getPackageInfo(
+                context.packageName,
+                PackageManager.PackageInfoFlags.of(0)
+            )
+        } else {
+            context.packageManager.getPackageInfo(context.packageName, 0)
+        }
+        return if (Build.VERSION.SDK_INT >= 28) packageInfo.longVersionCode else {
+            @Suppress("DEPRECATION")
+            packageInfo.versionCode.toLong()
+        }
+    }
 
     private fun installedVersionName(context: Context): String {
         @Suppress("DEPRECATION")
