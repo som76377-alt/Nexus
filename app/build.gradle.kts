@@ -111,5 +111,6 @@ dependencies {
     implementation("androidx.core:core-ktx:1.16.0")
     implementation("com.google.firebase:firebase-messaging:24.1.1")
     testImplementation(libs.junit)
-    testImplementation(libs.mockwebserver)\n    testImplementation("org.json:json:20240303")
+    testImplementation(libs.mockwebserver)
+    testImplementation("org.json:json:20240303")
 }
