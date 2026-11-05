@@ -37,7 +37,7 @@ class PlaybackConnection(
     private val onReady: () -> Unit,
     private val onStateChanged: (PlaybackSnapshot) -> Unit,
     private val onError: (String) -> Unit
-) {
+) : RoomPlayerAdapter {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val mainExecutor = Executor { command ->
         if (Looper.myLooper() == Looper.getMainLooper()) command.run()
@@ -136,7 +136,7 @@ class PlaybackConnection(
         }, mainExecutor)
     }
 
-    fun play(audio: ResolvedAudio, shouldPlay: Boolean = true): Boolean {
+    override fun play(audio: ResolvedAudio, shouldPlay: Boolean): Boolean {
         val request = PlaybackRequest.from(audio)
         val activeController = controller
         if (activeController == null) {
@@ -175,7 +175,7 @@ class PlaybackConnection(
         }
     }
 
-    fun togglePlayback() {
+    override fun togglePlayback() {
         val activeController = controller ?: return
         if (activeController.playWhenReady) {
             activeController.pause()
@@ -193,7 +193,7 @@ class PlaybackConnection(
         publishState()
     }
 
-    fun seekTo(positionMs: Long, userInitiated: Boolean = true): Boolean {
+    override fun seekTo(positionMs: Long, userInitiated: Boolean): Boolean {
         val activeController = controller ?: return false
         if (!activeController.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)) {
             return false
@@ -207,7 +207,7 @@ class PlaybackConnection(
         return true
     }
 
-    fun setPlaying(shouldPlay: Boolean, positionMs: Long? = null) {
+    override fun setPlaying(shouldPlay: Boolean, positionMs: Long?) {
         val activeController = controller ?: return
         if (shouldPlay) {
             if (activeController.playbackState == Player.STATE_IDLE ||
@@ -226,21 +226,21 @@ class PlaybackConnection(
         publishState()
     }
 
-    fun setPlaybackSpeed(speed: Float) {
+    override fun setPlaybackSpeed(speed: Float) {
         val activeController = controller ?: return
         if (!activeController.isCommandAvailable(Player.COMMAND_SET_SPEED_AND_PITCH)) return
         val safeSpeed = speed.coerceIn(0.97f, 1.03f)
         activeController.setPlaybackSpeed(safeSpeed)
     }
 
-    fun resetPlaybackSpeed() {
+    override fun resetPlaybackSpeed() {
         val activeController = controller ?: return
         if (activeController.isCommandAvailable(Player.COMMAND_SET_SPEED_AND_PITCH)) {
             activeController.setPlaybackSpeed(1f)
         }
     }
 
-    fun snapshot(): PlaybackSnapshot {
+    override fun snapshot(): PlaybackSnapshot {
         val activeController = controller ?: return PlaybackSnapshot(connected = false)
         val item = activeController.currentMediaItem
         val duration = activeController.duration.let {
@@ -266,7 +266,7 @@ class PlaybackConnection(
         if (!closed) onStateChanged(snapshot())
     }
 
-    fun close() {
+    override fun close() {
         if (closed) return
         closed = true
         controller?.removeListener(playerListener)
