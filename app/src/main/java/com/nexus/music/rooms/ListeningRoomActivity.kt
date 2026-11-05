@@ -510,7 +510,7 @@ class ListeningRoomActivity : Activity() {
         } else {
             "${snapshot.title}${snapshot.artist.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()}"
         }
-        playButton.text = if (snapshot.isPlaying) "Pause" else "Play"
+        playButton.text = if (snapshot.playWhenReady) "Pause" else "Play"
         seekBar.isEnabled = snapshot.durationMs > 0L
         if (!isSeeking && snapshot.durationMs > 0L) {
             seekBar.progress = ((snapshot.positionMs.toDouble() / snapshot.durationMs) * seekBar.max)
