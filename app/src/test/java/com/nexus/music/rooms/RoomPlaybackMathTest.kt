@@ -55,11 +55,11 @@ class RoomPlaybackMathTest {
         assertEquals(DriftCorrectionType.NONE, controller.evaluate(400L, false, 0L).type)
         val ahead = controller.evaluate(400L, false, 500L)
         assertEquals(DriftCorrectionType.SET_SPEED, ahead.type)
-        assertEquals(0.98f, ahead.speed)
+        assertEquals(0.99f, ahead.speed)
         assertEquals(DriftCorrectionType.NONE, controller.evaluate(400L, false, 1_000L).type)
         val reversed = controller.evaluate(-400L, false, 1_500L)
         assertEquals(DriftCorrectionType.SET_SPEED, reversed.type)
-        assertEquals(1.02f, reversed.speed)
+        assertEquals(1.01f, reversed.speed)
     }
 
     @Test
@@ -68,19 +68,20 @@ class RoomPlaybackMathTest {
         controller.evaluate(-350L, false, 0L)
         val behind = controller.evaluate(-350L, false, 500L)
         assertEquals(DriftCorrectionType.SET_SPEED, behind.type)
-        assertEquals(1.02f, behind.speed)
+        assertEquals(1.01f, behind.speed)
     }
 
     @Test
     fun largeDriftSeeksOnlyAfterThreeSamplesAndRespectsCooldown() {
         val controller = DriftCorrectionController()
-        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_500L, false, 0L).type)
-        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_500L, false, 500L).type)
-        assertEquals(DriftCorrectionType.SEEK, controller.evaluate(1_500L, false, 1_000L).type)
-        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_500L, false, 2_000L).type)
-        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_500L, false, 3_000L).type)
-        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_500L, false, 4_000L).type)
-        assertEquals(DriftCorrectionType.SEEK, controller.evaluate(1_500L, false, 6_100L).type)
+        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_900L, false, 0L).type)
+        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_900L, false, 500L).type)
+        assertEquals(DriftCorrectionType.SEEK, controller.evaluate(1_900L, false, 1_000L).type)
+        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_900L, false, 2_000L).type)
+        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_900L, false, 4_000L).type)
+        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_900L, false, 8_000L).type)
+        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_900L, false, 12_000L).type)
+        assertEquals(DriftCorrectionType.SEEK, controller.evaluate(1_900L, false, 13_000L).type)
     }
 
     @Test
@@ -104,6 +105,25 @@ class RoomPlaybackMathTest {
     fun seekThresholdIsNotTriggeredByMinorDifference() {
         assertFalse(RoomPlaybackMath.needsSeek(10_000L, 10_500L))
         assertTrue(RoomPlaybackMath.needsSeek(10_000L, 11_000L))
+    }
+
+    @Test
+    fun driftSeekGateWaitsForTheFirstSeekInsteadOfAllowingAnother() {
+        val gate = DriftSeekGate()
+        gate.begin(10_000L, 1_000L)
+        assertTrue(gate.shouldWait(8_000L, true, false, true, 2_000L))
+        assertTrue(gate.shouldWait(8_000L, false, true, true, 3_000L))
+        assertFalse(gate.shouldWait(12_000L, false, true, true, 3_000L))
+        assertFalse(gate.shouldWait(12_000L, false, true, true, 4_000L))
+    }
+
+    @Test
+    fun driftSeekGateReleasesAfterTimeoutWhenTheSeekNeverConverges() {
+        val gate = DriftSeekGate()
+        gate.begin(10_000L, 1_000L)
+        assertTrue(gate.shouldWait(8_000L, false, true, true, 8_999L))
+        assertFalse(gate.shouldWait(8_000L, false, true, true, 9_000L))
+        assertFalse(gate.shouldWait(8_000L, false, true, true, 9_001L))
     }
 
     @Test

@@ -28,7 +28,8 @@ data class PlaybackSnapshot(
     val playWhenReady: Boolean = false,
     val isBuffering: Boolean = false,
     val userActionSequence: Long = 0L,
-    val lastUserAction: String = ""
+    val lastUserAction: String = "",
+    val lastUserActionElapsedMs: Long = 0L
 )
 
 /** Activity-side bridge to the player owned by PlaybackService. */
@@ -48,21 +49,32 @@ class PlaybackConnection(
     private var controller: MediaController? = null
     private var pendingRequest: PlaybackRequest? = null
     private var pendingPlayWhenReady = true
+    private var pendingUserInitiated = true
     private var userActionSequence = 0L
     private var lastUserAction = ""
+    private var lastUserActionElapsedMs = 0L
     @Volatile private var programmaticSeekTargetMs: Long? = null
     @Volatile private var programmaticSeekAtElapsedMs: Long = 0L
-    @Volatile private var suppressUserActionsUntilElapsedMs: Long = 0L
+    @Volatile private var programmaticPlayTarget: Boolean? = null
+    @Volatile private var programmaticPlayAtElapsedMs: Long = 0L
+    @Volatile private var programmaticTrackTarget: String? = null
+    @Volatile private var programmaticTrackAtElapsedMs: Long = 0L
+    private var lastObservedMediaId: String? = null
 
     private fun recordUserAction(action: String) {
-        if (android.os.SystemClock.elapsedRealtime() < suppressUserActionsUntilElapsedMs) return
         userActionSequence += 1L
         lastUserAction = action
+        lastUserActionElapsedMs = android.os.SystemClock.elapsedRealtime()
     }
 
-    private fun suppressUserActionsFor(durationMs: Long = 2_000L) {
-        suppressUserActionsUntilElapsedMs =
-            android.os.SystemClock.elapsedRealtime() + durationMs
+    private fun markProgrammaticPlayChange(target: Boolean) {
+        programmaticPlayTarget = target
+        programmaticPlayAtElapsedMs = android.os.SystemClock.elapsedRealtime()
+    }
+
+    private fun markProgrammaticTrackChange(sourceId: String) {
+        programmaticTrackTarget = sourceId
+        programmaticTrackAtElapsedMs = android.os.SystemClock.elapsedRealtime()
     }
 
     private val controllerFuture = MediaController.Builder(
@@ -76,7 +88,13 @@ class PlaybackConnection(
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-            if (reason == Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST ||
+            val expectedProgrammaticValue = programmaticPlayTarget
+            val isExpectedProgrammaticChange =
+                expectedProgrammaticValue == playWhenReady &&
+                    android.os.SystemClock.elapsedRealtime() - programmaticPlayAtElapsedMs <= 3_000L
+            if (isExpectedProgrammaticChange) {
+                programmaticPlayTarget = null
+            } else if (reason == Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST ||
                 reason == Player.PLAY_WHEN_READY_CHANGE_REASON_REMOTE
             ) {
                 recordUserAction(if (playWhenReady) "PLAY" else "PAUSE")
@@ -104,9 +122,17 @@ class PlaybackConnection(
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED ||
-                reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK
-            ) {
+            val newMediaId = mediaItem?.mediaId
+            val changed = newMediaId != lastObservedMediaId
+            lastObservedMediaId = newMediaId
+            val expectedProgrammaticTrack = programmaticTrackTarget
+            val isExpectedProgrammaticChange =
+                !newMediaId.isNullOrBlank() &&
+                    newMediaId == expectedProgrammaticTrack &&
+                    android.os.SystemClock.elapsedRealtime() - programmaticTrackAtElapsedMs <= 5_000L
+            if (isExpectedProgrammaticChange) {
+                programmaticTrackTarget = null
+            } else if (changed && !newMediaId.isNullOrBlank()) {
                 recordUserAction("TRACK")
             }
             publishState()
@@ -131,9 +157,12 @@ class PlaybackConnection(
                 val connectedController = controllerFuture.get()
                 controller = connectedController
                 connectedController.addListener(playerListener)
-                pendingRequest?.let { startPlayback(it, pendingPlayWhenReady) }
+                pendingRequest?.let {
+                    startPlayback(it, pendingPlayWhenReady, pendingUserInitiated)
+                }
                 pendingRequest = null
                 pendingPlayWhenReady = true
+                pendingUserInitiated = true
                 onReady()
                 publishState()
             } catch (error: Exception) {
@@ -148,21 +177,31 @@ class PlaybackConnection(
         shouldPlay: Boolean,
         userInitiated: Boolean
     ): Boolean {
-        if (!userInitiated) suppressUserActionsFor()
         val request = PlaybackRequest.from(audio)
         val activeController = controller
         if (activeController == null) {
             pendingRequest = request
             pendingPlayWhenReady = shouldPlay
+            pendingUserInitiated = userInitiated
             return true
         }
         pendingRequest = null
         pendingPlayWhenReady = true
-        return startPlayback(request, shouldPlay)
+        return startPlayback(request, shouldPlay, userInitiated)
     }
 
-    private fun startPlayback(request: PlaybackRequest, shouldPlay: Boolean): Boolean {
+    private fun startPlayback(
+        request: PlaybackRequest,
+        shouldPlay: Boolean,
+        userInitiated: Boolean
+    ): Boolean {
         val activeController = controller ?: return false
+        if (!userInitiated) {
+            markProgrammaticTrackChange(request.sourceId)
+            if (activeController.playWhenReady != shouldPlay) {
+                markProgrammaticPlayChange(shouldPlay)
+            }
+        }
         return try {
             val metadata = MediaMetadata.Builder()
                 .setTitle(request.title)
@@ -220,8 +259,10 @@ class PlaybackConnection(
     }
 
     override fun setPlaying(shouldPlay: Boolean, positionMs: Long?) {
-        suppressUserActionsFor()
         val activeController = controller ?: return
+        if (activeController.playWhenReady != shouldPlay) {
+            markProgrammaticPlayChange(shouldPlay)
+        }
         if (shouldPlay) {
             if (activeController.playbackState == Player.STATE_IDLE ||
                 activeController.playbackState == Player.STATE_ENDED
@@ -271,7 +312,8 @@ class PlaybackConnection(
             playWhenReady = activeController.playWhenReady,
             isBuffering = activeController.playbackState == Player.STATE_BUFFERING,
             userActionSequence = userActionSequence,
-            lastUserAction = lastUserAction
+            lastUserAction = lastUserAction,
+            lastUserActionElapsedMs = lastUserActionElapsedMs
         )
     }
 

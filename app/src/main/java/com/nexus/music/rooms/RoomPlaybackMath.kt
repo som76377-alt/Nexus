@@ -47,9 +47,9 @@ internal data class DriftCorrection(
  * A seek is rate-limited, and buffering samples never trigger recovery loops.
  */
 internal class DriftCorrectionController(
-    private val deadZoneMs: Long = 100L,
-    private val seekThresholdMs: Long = 900L,
-    private val seekCooldownMs: Long = 5_000L,
+    private val deadZoneMs: Long = 160L,
+    private val seekThresholdMs: Long = 1_800L,
+    private val seekCooldownMs: Long = 12_000L,
     private val minimumSamples: Int = 3
 ) {
     private var consecutiveDriftSamples = 0
@@ -82,7 +82,7 @@ internal class DriftCorrectionController(
 
         if (consecutiveDriftSamples >= 2 && magnitude < seekThresholdMs) {
             // Positive drift means this player is ahead and must slow down.
-            val speed = if (driftMs > 0L) 0.98f else 1.02f
+            val speed = if (driftMs > 0L) 0.99f else 1.01f
             if (currentSpeed != speed) {
                 currentSpeed = speed
                 return DriftCorrection(DriftCorrectionType.SET_SPEED, speed)
@@ -98,6 +98,62 @@ internal class DriftCorrectionController(
     }
 }
 
+
+/**
+ * Prevents a second hard seek while the first one is still being applied by Media3.
+ *
+ * A successful seek can briefly put ExoPlayer into BUFFERING. Treating that temporary
+ * state as fresh drift caused the old controller to issue another seek as soon as the
+ * player became ready, creating a seek/buffer/seek loop.
+ */
+internal class DriftSeekGate(
+    private val completionToleranceMs: Long = 500L,
+    private val timeoutMs: Long = 8_000L
+) {
+    private var targetPositionMs: Long? = null
+    private var issuedAtElapsedMs: Long = 0L
+
+    fun begin(targetPositionMs: Long, nowElapsedMs: Long) {
+        this.targetPositionMs = targetPositionMs.coerceAtLeast(0L)
+        issuedAtElapsedMs = nowElapsedMs
+    }
+
+    fun shouldWait(
+        localPositionMs: Long,
+        isBuffering: Boolean,
+        isPlaying: Boolean,
+        remoteIsPlaying: Boolean,
+        nowElapsedMs: Long
+    ): Boolean {
+        val target = targetPositionMs ?: return false
+        if (isBuffering || !isPlaying) return true
+
+        val elapsed = (nowElapsedMs - issuedAtElapsedMs).coerceAtLeast(0L)
+        val projectedTarget = if (remoteIsPlaying) {
+            RoomPlaybackMath.expectedRemotePositionMs(
+                positionMs = target,
+                isPlaying = true,
+                elapsedSinceUpdateMs = elapsed,
+                durationMs = 0L
+            )
+        } else {
+            target
+        }
+        if (RoomPlaybackMath.distanceMs(localPositionMs, projectedTarget) <= completionToleranceMs) {
+            reset()
+            return false
+        }
+        if (elapsed < timeoutMs) return true
+
+        reset()
+        return false
+    }
+
+    fun reset() {
+        targetPositionMs = null
+        issuedAtElapsedMs = 0L
+    }
+}
 
 /**
  * Back off a failed remote-track application without delaying a newer room revision.
