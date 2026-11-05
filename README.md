@@ -18,7 +18,7 @@ It combines YouTube catalogue search, Media3 background playback, an in-app upda
 - [x] CI lint, unit tests, and debug APK assembly on pull requests.
 
 ### Still needs verification or hardening
-- [ ] Run the latest CI checks against the final audit commit.
+- [x] Run Android lint, unit tests, and debug APK assembly against the room-reliability branch.
 - [ ] Test chat, room expiry, and playback synchronisation on two physical Android devices.
 - [ ] Enable Supabase Anonymous Sign-Ins in the Nexus project before using the room prototype.
 - [ ] Replace anonymous device-only identity with a durable sign-in and restrict access to the two intended accounts.
@@ -28,6 +28,8 @@ It combines YouTube catalogue search, Media3 background playback, an in-app upda
 - [ ] Verify YouTube extraction and playback on the target phone/network.
 - [ ] Add full chat-history pagination; the current room UI displays the latest 100 messages.
 - [ ] Add playlists, queue persistence, and local library support.
+
+The open-source room/sync candidates were inspected and the integration choice is documented in [docs/OPEN_SOURCE_ROOM_SYNC_REVIEW.md](docs/OPEN_SOURCE_ROOM_SYNC_REVIEW.md). Nexus keeps its existing Supabase backend and native Media3 player rather than adding a second room service or an untested audio relay.
 
 ## Technology
 
