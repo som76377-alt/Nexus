@@ -99,7 +99,7 @@ jobs:
       - name: Derive Android version
         id: version
         env:
-          RELEASE_TAG: "${{ (github.ref_type == 'tag' && github.ref_name) || (github.event_name == 'push' && github.event.head_commit.message == 'release: v0.1.5' && 'v0.1.5') || (github.event_name == 'push' && github.event.head_commit.message == 'release: v0.1.4' && 'v0.1.4') || inputs.version || '0.1.4' }}"
+          RELEASE_TAG: "${{ (github.ref_type == 'tag' && github.ref_name) || (github.event_name == 'push' && github.event.head_commit.message == 'release: v0.1.6' && 'v0.1.6') || (github.event_name == 'push' && github.event.head_commit.message == 'release: v0.1.5' && 'v0.1.5') || (github.event_name == 'push' && github.event.head_commit.message == 'release: v0.1.4' && 'v0.1.4') || inputs.version || '0.1.4' }}"
         run: |
           VERSION="${RELEASE_TAG#v}"
           if [[ ! "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
@@ -168,7 +168,7 @@ jobs:
       # Publish only the verified APK. gh release upload --clobber also
       # handles rebuilding an already-published tag without an action-side lookup.
       - name: Publish GitHub Release with verified APK
-        if: "${{ github.ref_type == 'tag' || (github.event_name == 'push' && github.event.head_commit.message == 'release: v0.1.5') || (github.event_name == 'push' && github.event.head_commit.message == 'release: v0.1.4') }}"
+        if: "${{ github.ref_type == 'tag' || (github.event_name == 'push' && github.event.head_commit.message == 'release: v0.1.6') || (github.event_name == 'push' && github.event.head_commit.message == 'release: v0.1.5') || (github.event_name == 'push' && github.event.head_commit.message == 'release: v0.1.4') }}"
         env:
           GH_TOKEN: "${{ github.token }}"
           RELEASE_COMMIT_MESSAGE: "${{ github.event.head_commit.message }}"
@@ -176,6 +176,7 @@ jobs:
           TAG="${GITHUB_REF_NAME}"
           if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
             case "$RELEASE_COMMIT_MESSAGE" in
+              "release: v0.1.6") TAG="v0.1.6" ;;
               "release: v0.1.5") TAG="v0.1.5" ;;
               "release: v0.1.4") TAG="v0.1.4" ;;
               *) echo "::error::Unexpected non-tag release trigger."; exit 1 ;;
