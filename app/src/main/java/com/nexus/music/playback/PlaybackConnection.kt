@@ -9,6 +9,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
@@ -24,7 +25,11 @@ data class PlaybackSnapshot(
     val isPlaying: Boolean = false,
     val playbackState: Int = Player.STATE_IDLE,
     val positionMs: Long = 0L,
-    val durationMs: Long = 0L
+    val durationMs: Long = 0L,
+    val playWhenReady: Boolean = false,
+    val isBuffering: Boolean = false,
+    val userActionSequence: Long = 0L,
+    val lastUserAction: String = ""
 )
 
 /** Activity-side bridge to the player owned by PlaybackService. */
@@ -44,6 +49,13 @@ class PlaybackConnection(
     private var controller: MediaController? = null
     private var pendingRequest: PlaybackRequest? = null
     private var pendingPlayWhenReady = true
+    private var userActionSequence = 0L
+    private var lastUserAction = ""
+
+    private fun recordUserAction(action: String) {
+        userActionSequence += 1L
+        lastUserAction = action
+    }
 
     private val controllerFuture = MediaController.Builder(
         context,
@@ -52,6 +64,31 @@ class PlaybackConnection(
 
     private val playerListener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
+            publishState()
+        }
+
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            if (reason == Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST ||
+                reason == Player.PLAY_WHEN_READY_CHANGE_REASON_REMOTE
+            ) {
+                recordUserAction(if (playWhenReady) "PLAY" else "PAUSE")
+            }
+            publishState()
+        }
+
+        override fun onPositionDiscontinuity(
+            oldPosition: Player.PositionInfo,
+            newPosition: Player.PositionInfo,
+            reason: Int
+        ) {
+            if (reason == Player.DISCONTINUITY_REASON_SEEK) recordUserAction("SEEK")
+            publishState()
+        }
+
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
+                recordUserAction("TRACK")
+            }
             publishState()
         }
 
@@ -170,6 +207,17 @@ class PlaybackConnection(
         publishState()
     }
 
+    fun setPlaybackSpeed(speed: Float) {
+        val activeController = controller ?: return
+        val safeSpeed = speed.coerceIn(0.97f, 1.03f)
+        activeController.playbackParameters = PlaybackParameters(safeSpeed)
+    }
+
+    fun resetPlaybackSpeed() {
+        val activeController = controller ?: return
+        activeController.playbackParameters = PlaybackParameters(1f)
+    }
+
     fun snapshot(): PlaybackSnapshot {
         val activeController = controller ?: return PlaybackSnapshot(connected = false)
         val item = activeController.currentMediaItem
@@ -184,7 +232,11 @@ class PlaybackConnection(
             isPlaying = activeController.isPlaying,
             playbackState = activeController.playbackState,
             positionMs = activeController.currentPosition.coerceAtLeast(0L),
-            durationMs = duration
+            durationMs = duration,
+            playWhenReady = activeController.playWhenReady,
+            isBuffering = activeController.playbackState == Player.STATE_BUFFERING,
+            userActionSequence = userActionSequence,
+            lastUserAction = lastUserAction
         )
     }
 
