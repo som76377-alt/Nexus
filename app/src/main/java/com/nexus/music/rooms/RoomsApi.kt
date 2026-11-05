@@ -1,6 +1,7 @@
 package com.nexus.music.rooms
 
 import android.content.Context
+import android.os.SystemClock
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -18,6 +19,7 @@ import java.security.KeyStore
 import java.util.concurrent.TimeUnit
 import java.text.SimpleDateFormat
 import java.util.Locale
+import java.util.TimeZone
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -69,9 +71,50 @@ class RoomsApi(context: Context) {
     private val jsonType = "application/json; charset=utf-8".toMediaType()
     private val baseUrl = BuildConfig.SUPABASE_URL.trimEnd('/')
     private val apiKey = BuildConfig.SUPABASE_PUBLISHABLE_KEY
-    @Volatile private var serverClockOffsetMs: Long = 0L
+    @Volatile private var serverClockOffsetFromElapsedMs: Long? = null
 
-    fun serverNowMillis(): Long = System.currentTimeMillis() + serverClockOffsetMs
+    fun serverNowMillis(): Long = serverClockOffsetFromElapsedMs
+        ?.let { SystemClock.elapsedRealtime() + it }
+        ?: System.currentTimeMillis()
+
+    suspend fun calibrateServerClock() = withContext(Dispatchers.IO) {
+        val requestStarted = SystemClock.elapsedRealtime()
+        val response = apiRequest("POST", "/rest/v1/rpc/room_server_time", "{}")
+            .trim()
+            .removeSurrounding("\\\"")
+        val requestFinished = SystemClock.elapsedRealtime()
+        val serverTime = parseServerTimestampMillis(response)
+            ?: throw IOException("The server returned an invalid clock timestamp.")
+        val midpoint = requestStarted + (requestFinished - requestStarted) / 2L
+        serverClockOffsetFromElapsedMs = serverTime - midpoint
+    }
+
+    private fun parseServerTimestampMillis(value: String): Long? {
+        val match = Regex(
+            "^(\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2})(?:\\\\.(\\\\d+))?(Z|[+-]\\\\d{2}:\\\\d{2})$"
+        ).matchEntire(value) ?: return null
+        val baseMillis = runCatching {
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).apply {
+                isLenient = false
+                timeZone = TimeZone.getTimeZone("GMT")
+            }.parse(match.groupValues[1])?.time
+        }.getOrNull() ?: return null
+        val fractionMillis = match.groupValues[2]
+            .takeIf(String::isNotEmpty)
+            ?.padEnd(3, '0')
+            ?.take(3)
+            ?.toLongOrNull() ?: 0L
+        val zone = match.groupValues[3]
+        val offsetMinutes = if (zone == "Z") {
+            0
+        } else {
+            val sign = if (zone[0] == '-') -1 else 1
+            val hours = zone.substring(1, 3).toIntOrNull() ?: return null
+            val minutes = zone.substring(4, 6).toIntOrNull() ?: return null
+            sign * (hours * 60 + minutes)
+        }
+        return baseMillis + fractionMillis - offsetMinutes * 60_000L
+    }
 
     suspend fun realtimeAccessToken(): String = withContext(Dispatchers.IO) {
         ensureSession().accessToken
@@ -275,20 +318,6 @@ class RoomsApi(context: Context) {
         }
         client.newCall(builder.build()).execute().use { response ->
             val text = response.body?.string().orEmpty()
-            response.header("Date")?.let { date ->
-                runCatching {
-                    val serverMillis = SimpleDateFormat(
-                        "EEE, dd MMM yyyy HH:mm:ss z",
-                        Locale.US
-                    ).apply {
-                        isLenient = false
-                        timeZone = java.util.TimeZone.getTimeZone("GMT")
-                    }.parse(date)?.time
-                    if (serverMillis != null) {
-                        serverClockOffsetMs = serverMillis - response.receivedResponseAtMillis
-                    }
-                }
-            }
             if (!response.isSuccessful) throwIfNotUnauthorized(response.code, text)
             return response.code to text
         }
