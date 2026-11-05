@@ -91,7 +91,7 @@ class RoomsApi(context: Context) {
 
     private fun parseServerTimestampMillis(value: String): Long? {
         val match = Regex(
-            "^(\\\\d{4}-\\\\d{2}-\\\\d{2}T\\\\d{2}:\\\\d{2}:\\\\d{2})(?:\\\\.(\\\\d+))?(Z|[+-]\\\\d{2}:\\\\d{2})$"
+            """^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?(Z|[+-]\d{2}:\d{2})$"""
         ).matchEntire(value) ?: return null
         val baseMillis = runCatching {
             SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).apply {
