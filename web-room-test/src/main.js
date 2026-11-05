@@ -160,9 +160,6 @@ function startRealtime() {
       logEvent("New room message");
       refreshMessages().catch((error) => logEvent("Chat refresh failed: " + errorMessage(error)));
     })
-    .on("postgres_changes", { event: "*", schema: "public", table: "room_members", filter: "room_id=eq." + roomId }, () => {
-      logEvent("Room membership changed");
-    })
     .subscribe((status, error) => {
       const connected = status === "SUBSCRIBED";
       state.realtimeConnected = connected;
