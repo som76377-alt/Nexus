@@ -65,7 +65,10 @@ internal class RoomRealtimeClient(
                 if (currentCoroutineContext().isActive) {
                     val wasStable = lastSuccessfulJoinElapsedMs > 0L &&
                         android.os.SystemClock.elapsedRealtime() - lastSuccessfulJoinElapsedMs >= 30_000L
-                    if (wasStable) retryDelayMs = 1_000L
+                    if (wasStable) {
+                        retryDelayMs = 1_000L
+                        lastSuccessfulJoinElapsedMs = 0L
+                    }
                     delay(retryDelayMs)
                     retryDelayMs = (retryDelayMs * 2L).coerceAtMost(20_000L)
                 }
