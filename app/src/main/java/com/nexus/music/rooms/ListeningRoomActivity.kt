@@ -37,6 +37,9 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import java.util.UUID
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -73,8 +76,14 @@ class ListeningRoomActivity : Activity() {
     private var userId: String? = null
     private var inviteCode: String? = null
     private var syncJob: Job? = null
+    private var realtime: RoomRealtimeClient? = null
+    private var realtimeConnected = false
+    private val remoteApplyMutex = Mutex()
+    private val driftController = DriftCorrectionController()
     private var isSeeking = false
     private var applyingRemoteUntil = 0L
+    private var applyingRemote = false
+    private var lastPublishedActionSequence = -1L
     private var lastRemoteRevision = 0L
     private var lastPublishedSource = ""
     private var lastPublishedPlaying = false
@@ -318,7 +327,36 @@ class ListeningRoomActivity : Activity() {
         codeInput.visibility = View.GONE
         joinButton.visibility = View.GONE
         inviteText.text = inviteCode?.let { "Invite code: $it" } ?: "Room connected"
-        status.text = "Connected · syncing room…"
+        status.text = "Connected · starting live sync…"
+
+        realtime?.close()
+        realtime = RoomRealtimeClient(
+            api = api,
+            roomId = id,
+            scope = scope,
+            onPlaybackSignal = {
+                scope.launch {
+                    runCatching { refreshRemotePlayback(id) }
+                        .onFailure { error ->
+                            if (error !is CancellationException) {
+                                status.text = "Playback reconnecting · ${error.message ?: "retrying"}"
+                            }
+                        }
+                }
+            },
+            onConnectionChanged = { connected ->
+                scope.launch {
+                    realtimeConnected = connected
+                    if (roomId == id) {
+                        status.text = if (connected) {
+                            "Connected · live sync"
+                        } else {
+                            "Connected · restoring live sync"
+                        }
+                    }
+                }
+            }
+        ).also { it.start() }
 
         syncJob?.cancel()
         syncJob = scope.launch {
@@ -353,19 +391,7 @@ class ListeningRoomActivity : Activity() {
                 }
 
                 try {
-                    api.loadPlayback(id)?.let { remote ->
-                        if (remote.revision > lastRemoteRevision) {
-                            val localSource = playback?.snapshot()?.sourceId.orEmpty()
-                            if (remote.updatedBy != userId || localSource != remote.sourceUrl) {
-                                applyRemotePlayback(remote)
-                            } else {
-                                rememberPublishedPlayback(playback?.snapshot())
-                            }
-                            // Only mark the revision after applying it successfully. A failed
-                            // stream resolution must be retried on the next polling cycle.
-                            lastRemoteRevision = remote.revision
-                        }
-                    }
+                    refreshRemotePlayback(id)
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Exception) {
@@ -387,10 +413,13 @@ class ListeningRoomActivity : Activity() {
                 } else {
                     0
                 }
+                // Realtime carries immediate playback changes. REST remains a safety net:
+                // faster while disconnected, slower while the socket is healthy.
+                val baseDelay = if (realtimeConnected) 8_000L else 2_000L
                 val nextDelay = if (consecutiveFailures == 0) {
-                    1800L
+                    baseDelay
                 } else {
-                    (1800L * (1L shl consecutiveFailures)).coerceAtMost(15_000L)
+                    (baseDelay * (1L shl consecutiveFailures)).coerceAtMost(20_000L)
                 }
                 delay(nextDelay)
             }
@@ -481,84 +510,175 @@ class ListeningRoomActivity : Activity() {
     private suspend fun publishLocalPlaybackIfChanged() {
         val id = roomId ?: return
         val sender = userId ?: return
-        if (SystemClock.elapsedRealtime() < applyingRemoteUntil) return
+        if (applyingRemote || SystemClock.elapsedRealtime() < applyingRemoteUntil) return
         val snapshot = playback?.snapshot() ?: return
-        val source = snapshot.sourceId
-        if (source.isBlank() || snapshot.title.isBlank()) return
+        if (!snapshot.connected || snapshot.sourceId.isBlank() || snapshot.title.isBlank()) return
 
-        val now = SystemClock.elapsedRealtime()
-        val expectedPosition = RoomPlaybackMath.expectedLocalPositionMs(
-            positionMs = lastPublishedPositionMs,
-            isPlaying = lastPublishedPlaying,
-            lastPublishedElapsedMs = lastPublishedAtElapsed,
-            nowElapsedMs = now
-        )
-        val stateChanged = source != lastPublishedSource || snapshot.isPlaying != lastPublishedPlaying
-        // Compare against expected natural playback progression so a user seek is still published.
-        if (!stateChanged && !RoomPlaybackMath.shouldPublishPosition(snapshot.positionMs, expectedPosition)) return
+        val trackChanged = snapshot.sourceId != lastPublishedSource
+        val userActionChanged = snapshot.userActionSequence > lastPublishedActionSequence
+        if (!trackChanged && !userActionChanged) return
 
-        api.publishPlayback(
-            roomId = id,
-            userId = sender,
-            sourceId = source,
-            sourceUrl = source,
-            title = snapshot.title,
-            artist = snapshot.artist,
-            isPlaying = snapshot.isPlaying,
-            positionMs = snapshot.positionMs,
-            durationMs = snapshot.durationMs
-        )
-        rememberPublishedPlayback(snapshot)
+        val actionType = if (trackChanged) {
+            "TRACK"
+        } else {
+            when (snapshot.lastUserAction) {
+                "PLAY", "PAUSE", "SEEK" -> snapshot.lastUserAction
+                else -> return
+            }
+        }
+
+        suspend fun send(expectedRevision: Long): PlaybackPublishResult =
+            api.publishPlayback(
+                roomId = id,
+                expectedRevision = expectedRevision,
+                sourceId = snapshot.sourceId,
+                sourceUrl = snapshot.sourceId,
+                title = snapshot.title,
+                artist = snapshot.artist,
+                isPlaying = snapshot.playWhenReady,
+                positionMs = snapshot.positionMs,
+                durationMs = snapshot.durationMs,
+                actionId = UUID.randomUUID().toString(),
+                actionType = actionType,
+                originDeviceId = sender
+            )
+
+        var result = send(lastRemoteRevision)
+        if (!result.applied) {
+            // Compare-and-swap rejected a stale write. Read the current revision and retry
+            // this deliberate user action once; never loop or retry a stale background sample.
+            val latest = api.loadPlayback(id)
+            lastRemoteRevision = latest?.revision ?: 0L
+            result = send(lastRemoteRevision)
+        }
+        if (result.applied) {
+            lastRemoteRevision = result.revision
+            rememberPublishedPlayback(snapshot)
+        } else {
+            status.text = "Another playback action arrived at the same time. Rechecking room state…"
+        }
     }
 
     private fun rememberPublishedPlayback(snapshot: PlaybackSnapshot?) {
         if (snapshot == null || snapshot.sourceId.isBlank()) return
         lastPublishedSource = snapshot.sourceId
-        lastPublishedPlaying = snapshot.isPlaying
+        lastPublishedPlaying = snapshot.playWhenReady
         lastPublishedPositionMs = snapshot.positionMs
         lastPublishedAtElapsed = SystemClock.elapsedRealtime()
+        lastPublishedActionSequence = snapshot.userActionSequence
     }
 
-    private suspend fun applyRemotePlayback(remote: RoomPlayback) {
-        val activePlayer = playback ?: return
-        applyingRemoteUntil = SystemClock.elapsedRealtime() + 4500L
-        val current = activePlayer.snapshot()
-        if (!current.connected) {
-            throw java.io.IOException("The playback service is still connecting. Retrying sync…")
-        }
-        if (current.sourceId != remote.sourceUrl) {
-            status.text = "Loading the other device's track…"
-            val audio = catalog.resolveAudio(remote.sourceUrl)
-            // Prepare directly into the remote play/pause state so a paused room never
-            // briefly starts audio while the client catches up.
-            if (!activePlayer.play(audio, remote.isPlaying)) {
-                throw java.io.IOException("The player rejected the shared track. Retrying sync…")
+    private suspend fun refreshRemotePlayback(id: String) {
+        remoteApplyMutex.withLock {
+            if (roomId != id) return
+            val remote = api.loadPlayback(id) ?: return
+            if (remote.revision > lastRemoteRevision) {
+                val localSource = playback?.snapshot()?.sourceId.orEmpty()
+                if (remote.updatedBy != userId || localSource != remote.sourceUrl) {
+                    applyRemotePlayback(remote)
+                } else {
+                    rememberPublishedPlayback(playback?.snapshot())
+                }
+                lastRemoteRevision = remote.revision
             }
-            delay(350L)
+            correctLocalDrift(remote)
         }
+    }
+
+    private fun correctLocalDrift(remote: RoomPlayback) {
+        val activePlayer = playback ?: return
+        val local = activePlayer.snapshot()
+        if (!local.connected || local.sourceId != remote.sourceUrl) return
+        if (!remote.isPlaying) {
+            activePlayer.resetPlaybackSpeed()
+            driftController.reset()
+            return
+        }
+        // Buffering is not drift. Never seek or change speed while Media3 is waiting for data.
+        if (local.isBuffering || !local.playWhenReady) return
+
         val elapsed = parseTimestamp(remote.updatedAt)
-            ?.let { (System.currentTimeMillis() - it).coerceAtLeast(0L) } ?: 0L
-        val expectedPosition = RoomPlaybackMath.expectedRemotePositionMs(
+            ?.let { (api.serverNowMillis() - it).coerceAtLeast(0L) } ?: 0L
+        val expected = RoomPlaybackMath.expectedRemotePositionMs(
             positionMs = remote.positionMs,
             isPlaying = remote.isPlaying,
             elapsedSinceUpdateMs = elapsed,
             durationMs = remote.durationMs
         )
-        val latest = activePlayer.snapshot()
-        if (RoomPlaybackMath.needsSeek(latest.positionMs, expectedPosition) &&
-            !activePlayer.seekTo(expectedPosition)
-        ) {
-            throw java.io.IOException("The player is not ready to seek yet. Retrying sync…")
+        val drift = local.positionMs - expected
+        when (val correction = driftController.evaluate(
+            driftMs = drift,
+            isBuffering = local.isBuffering,
+            nowMs = SystemClock.elapsedRealtime()
+        )) {
+            is DriftCorrection -> when (correction.type) {
+                DriftCorrectionType.NONE -> Unit
+                DriftCorrectionType.SET_SPEED -> activePlayer.setPlaybackSpeed(correction.speed)
+                DriftCorrectionType.RESET_SPEED -> activePlayer.resetPlaybackSpeed()
+                DriftCorrectionType.SEEK -> {
+                    activePlayer.resetPlaybackSpeed()
+                    activePlayer.seekTo(expected)
+                }
+            }
         }
-        activePlayer.setPlaying(remote.isPlaying)
-        rememberPublishedPlayback(
-            latest.copy(
-                sourceId = remote.sourceUrl,
+    }
+
+    private suspend fun applyRemotePlayback(remote: RoomPlayback) {
+        val activePlayer = playback ?: return
+        applyingRemote = true
+        applyingRemoteUntil = SystemClock.elapsedRealtime() + 1_500L
+        try {
+            val current = activePlayer.snapshot()
+            if (!current.connected) {
+                throw java.io.IOException("The playback service is still connecting. Retrying sync…")
+            }
+
+            if (current.sourceId != remote.sourceUrl) {
+                status.text = "Loading the other device's track…"
+                val audio = catalog.resolveAudio(remote.sourceUrl)
+                // Prepare silently. The receiving phone does not start early while resolving.
+                if (!activePlayer.play(audio, shouldPlay = false)) {
+                    throw java.io.IOException("The player rejected the shared track.")
+                }
+                val readyDeadline = SystemClock.elapsedRealtime() + 20_000L
+                while (SystemClock.elapsedRealtime() < readyDeadline) {
+                    val state = activePlayer.snapshot().playbackState
+                    if (state == Player.STATE_READY) break
+                    if (state == Player.STATE_IDLE || state == Player.STATE_BUFFERING) {
+                        delay(100L)
+                    } else {
+                        delay(50L)
+                    }
+                }
+                if (activePlayer.snapshot().playbackState != Player.STATE_READY) {
+                    throw java.io.IOException("The shared track is still buffering. Nexus will retry without restarting the other phone.")
+                }
+            }
+
+            // Use the server timestamp after the track is ready, so extraction/buffering time
+            // is included and the receiver catches up instead of starting from an old position.
+            val elapsed = parseTimestamp(remote.updatedAt)
+                ?.let { (api.serverNowMillis() - it).coerceAtLeast(0L) } ?: 0L
+            val expectedPosition = RoomPlaybackMath.expectedRemotePositionMs(
+                positionMs = remote.positionMs,
                 isPlaying = remote.isPlaying,
-                positionMs = expectedPosition
+                elapsedSinceUpdateMs = elapsed,
+                durationMs = remote.durationMs
             )
-        )
-        status.text = "Synced with the other device."
+            val latest = activePlayer.snapshot()
+            if (RoomPlaybackMath.needsSeek(latest.positionMs, expectedPosition) &&
+                !activePlayer.seekTo(expectedPosition)
+            ) {
+                throw java.io.IOException("The player is not ready to seek yet. Retrying sync…")
+            }
+            activePlayer.resetPlaybackSpeed()
+            activePlayer.setPlaying(remote.isPlaying)
+            rememberPublishedPlayback(activePlayer.snapshot())
+            status.text = "Synced with the other device."
+        } finally {
+            applyingRemote = false
+            applyingRemoteUntil = SystemClock.elapsedRealtime() + 1_500L
+        }
     }
 
     private fun parseTimestamp(value: String): Long? {
@@ -591,6 +711,11 @@ class ListeningRoomActivity : Activity() {
         codeInput.text.clear()
         isSeeking = false
         applyingRemoteUntil = 0L
+        applyingRemote = false
+        realtime?.close()
+        realtime = null
+        realtimeConnected = false
+        driftController.reset()
         roomId = null
         inviteCode = null
         userId = null
@@ -599,6 +724,7 @@ class ListeningRoomActivity : Activity() {
         lastPublishedPlaying = false
         lastPublishedPositionMs = 0L
         lastPublishedAtElapsed = 0L
+        lastPublishedActionSequence = -1L
         roomPanel.visibility = View.GONE
         roomActions.visibility = View.VISIBLE
         createButton.visibility = View.VISIBLE
@@ -723,6 +849,8 @@ class ListeningRoomActivity : Activity() {
             backInvokedCallback = null
         }
         syncJob?.cancel()
+        realtime?.close()
+        realtime = null
         handler.removeCallbacks(playerTicker)
         playback?.close()
         playback = null
