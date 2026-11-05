@@ -1,4 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.118.0";
+import { createClient } from "@supabase/supabase-js";
 import "./style.css";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "https://fdptukvfcpkpbutgoolj.supabase.co";
@@ -11,7 +11,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
 
 const $ = (id) => document.getElementById(id);
 const state = {
-  user: null, roomId: null, roomCode: null, playback: null, messages: [], ownMembership: [], peerDetected: false,
+  user: null, roomId: null, roomCode: null, playback: null, messages: [], peerDetected: false,
   channel: null, realtimeConnected: false, pollTimer: null, heartbeatTimer: null,
   lastRefresh: null, lastEvent: "—", busy: false
 };
@@ -121,7 +121,6 @@ async function enterRoom(roomId, roomCode) {
   state.roomId = roomId;
   state.roomCode = roomCode;
   state.peerDetected = false;
-  state.ownMembership = [];
   $("room-code-label").textContent = roomCode;
   $("room-status").textContent = "Connected · loading room state…";
   showRoom();
@@ -163,7 +162,6 @@ function startRealtime() {
     })
     .on("postgres_changes", { event: "*", schema: "public", table: "room_members", filter: "room_id=eq." + roomId }, () => {
       logEvent("Room membership changed");
-      refreshMembers().catch((error) => logEvent("Member refresh failed: " + errorMessage(error)));
     })
     .subscribe((status, error) => {
       const connected = status === "SUBSCRIBED";
@@ -184,7 +182,7 @@ function stopTimers() {
 }
 async function refreshAll() {
   if (!state.roomId) return;
-  await Promise.all([refreshPlayback(), refreshMessages(), refreshMembers()]);
+  await Promise.all([refreshPlayback(), refreshMessages()]);
   state.lastRefresh = new Date().toLocaleTimeString();
   $("last-refresh-value").textContent = state.lastRefresh;
 }
@@ -197,7 +195,7 @@ async function refreshPlayback() {
   state.playback = data;
   if (data?.updated_by && data.updated_by !== state.user?.id) state.peerDetected = true;
   renderPlayback();
-  renderMembers(state.ownMembership);
+  renderMembers();
 }
 async function refreshMessages() {
   if (!state.roomId) return;
@@ -208,16 +206,7 @@ async function refreshMessages() {
   state.messages = (data || []).reverse();
   if (state.messages.some((message) => message.sender_id !== state.user?.id)) state.peerDetected = true;
   renderMessages();
-  renderMembers(state.ownMembership);
-}
-async function refreshMembers() {
-  if (!state.roomId) return;
-  const { data, error } = await supabase.from("room_members")
-    .select("user_id,joined_at,last_seen_at").eq("room_id", state.roomId)
-    .order("joined_at", { ascending: true });
-  if (error) throw error;
-  state.ownMembership = data || [];
-  renderMembers(state.ownMembership);
+  renderMembers();
 }
 function formatTime(ms) {
   const total = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
@@ -279,56 +268,47 @@ function renderMessages() {
   }
   list.scrollTop = list.scrollHeight;
 }
-function renderMembers(members) {
+function renderMembers() {
   const list = $("members-list");
   list.replaceChildren();
-  $("member-count").textContent = "2 MAX";
+  $("member-count").textContent = state.peerDetected ? "2 PARTICIPANTS SEEN" : "1 PARTICIPANT SEEN";
 
-  const own = (members || []).find((member) => member.user_id === state.user?.id);
-  if (own) {
-    const row = document.createElement("div");
-    row.className = "member";
-    const avatar = document.createElement("div");
-    avatar.className = "avatar";
-    avatar.textContent = "W";
-    const info = document.createElement("div");
-    info.className = "member-info";
-    const name = document.createElement("strong");
-    name.textContent = "Browser participant (you)";
-    const id = document.createElement("span");
-    id.textContent = own.user_id.slice(0, 8) + "…";
-    info.append(name, id);
-    const status = document.createElement("span");
-    status.className = "member-state";
-    const age = Date.now() - new Date(own.last_seen_at).getTime();
-    status.textContent = age < 90000 ? "ACTIVE" : "STALE";
-    row.append(avatar, info, status);
-    list.append(row);
-  } else {
-    const empty = document.createElement("div");
-    empty.className = "empty";
-    empty.textContent = "Browser membership is not visible yet.";
-    list.append(empty);
-  }
+  const own = document.createElement("div");
+  own.className = "member";
+  const ownAvatar = document.createElement("div");
+  ownAvatar.className = "avatar";
+  ownAvatar.textContent = "W";
+  const ownInfo = document.createElement("div");
+  ownInfo.className = "member-info";
+  const ownName = document.createElement("strong");
+  ownName.textContent = "Browser participant (you)";
+  const ownId = document.createElement("span");
+  ownId.textContent = (state.user?.id || "").slice(0, 8) + "…";
+  ownInfo.append(ownName, ownId);
+  const ownStatus = document.createElement("span");
+  ownStatus.className = "member-state";
+  ownStatus.textContent = "ACTIVE";
+  own.append(ownAvatar, ownInfo, ownStatus);
+  list.append(own);
 
   const peer = document.createElement("div");
   peer.className = "member";
-  const avatar = document.createElement("div");
-  avatar.className = "avatar";
-  avatar.textContent = "P";
-  const info = document.createElement("div");
-  info.className = "member-info";
-  const name = document.createElement("strong");
-  name.textContent = state.peerDetected ? "Other participant · activity received" : "Other participant · awaiting activity";
-  const detail = document.createElement("span");
-  detail.textContent = state.peerDetected
+  const peerAvatar = document.createElement("div");
+  peerAvatar.className = "avatar";
+  peerAvatar.textContent = "P";
+  const peerInfo = document.createElement("div");
+  peerInfo.className = "member-info";
+  const peerName = document.createElement("strong");
+  peerName.textContent = state.peerDetected ? "Other participant · activity received" : "Other participant · awaiting activity";
+  const peerDetail = document.createElement("span");
+  peerDetail.textContent = state.peerDetected
     ? "Detected from a room chat or playback event"
-    : "Their membership row is hidden by the room's RLS policy";
-  info.append(name, detail);
-  const status = document.createElement("span");
-  status.className = "member-state";
-  status.textContent = state.peerDetected ? "SEEN" : "WAITING";
-  peer.append(avatar, info, status);
+    : "Waiting for a message or playback update";
+  peerInfo.append(peerName, peerDetail);
+  const peerStatus = document.createElement("span");
+  peerStatus.className = "member-state";
+  peerStatus.textContent = state.peerDetected ? "SEEN" : "WAITING";
+  peer.append(peerAvatar, peerInfo, peerStatus);
   list.append(peer);
 }
 async function sendMessage(event) {
@@ -415,7 +395,7 @@ async function sendTrack() {
   $("send-track").disabled = true;
   try {
     await publishPlayback({
-      source_id: videoId, source_url: videoId, title: "YouTube track · " + videoId,
+      source_id: "https://www.youtube.com/watch?v=" + videoId, source_url: "https://www.youtube.com/watch?v=" + videoId, title: "YouTube track · " + videoId,
       artist: "", is_playing: false, position_ms: 0, duration_ms: 0
     }, "TRACK");
     input.value = "";
@@ -463,8 +443,7 @@ async function leaveRoom() {
   state.roomCode = null;
   state.playback = null;
   state.messages = [];
-  state.ownMembership = [];
-  state.peerDetected = false;
+    state.peerDetected = false;
   $("event-log").replaceChildren();
   $("room-code-label").textContent = "—";
   $("room-status").textContent = "Disconnected";
