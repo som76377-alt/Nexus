@@ -34,6 +34,7 @@ sealed interface UpdateCheckResult {
         val installedVersion: String,
         val latestReleaseVersion: String
     ) : UpdateCheckResult
+    data class IncompatibleInstallation(val installedVersion: String) : UpdateCheckResult
 }
 
 /**
@@ -46,6 +47,9 @@ class GitHubReleaseUpdater(
 ) {
     suspend fun checkForUpdate(context: Context): UpdateCheckResult = withContext(Dispatchers.IO) {
         val installedVersion = installedVersionName(context)
+        if (!hasOfficialInstalledSigner(context)) {
+            return@withContext UpdateCheckResult.IncompatibleInstallation(installedVersion)
+        }
         val installedVersionCode = installedVersionCode(context)
         val apiUrl = "https://api.github.com/repos/" +
             "${BuildConfig.UPDATE_REPOSITORY_OWNER}/${BuildConfig.UPDATE_REPOSITORY_NAME}/releases/latest"
@@ -306,6 +310,29 @@ class GitHubReleaseUpdater(
                 .toHexString()
         }.toSet()
 
+    /**
+     * Check the installed package signer before comparing version numbers. Older test APKs
+     * shared a versionCode with public releases, so version comparison alone could label an
+     * incompatible debug-signed installation as current.
+     */
+    private fun hasOfficialInstalledSigner(context: Context): Boolean {
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            PackageManager.GET_SIGNING_CERTIFICATES
+        } else {
+            @Suppress("DEPRECATION")
+            PackageManager.GET_SIGNATURES
+        }
+        val packageInfo = getInstalledPackageInfo(context, flags)
+        val fingerprints = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val signingInfo = packageInfo.signingInfo ?: return false
+            signerFingerprints(signingInfo.apkContentsSigners)
+        } else {
+            @Suppress("DEPRECATION")
+            signerFingerprints(packageInfo.signatures)
+        }
+        return isOfficialNexusSigner(fingerprints)
+    }
+
     private fun installedVersionCode(context: Context): Long {
         @Suppress("DEPRECATION")
         val packageInfo = if (Build.VERSION.SDK_INT >= 33) {
@@ -362,6 +389,12 @@ class GitHubReleaseUpdater(
             .build()
     }
 }
+
+internal fun isOfficialNexusSigner(fingerprints: Set<String>): Boolean =
+    fingerprints == setOf(OFFICIAL_NEXUS_SIGNER_SHA256)
+
+private const val OFFICIAL_NEXUS_SIGNER_SHA256 =
+    "c8b263a4b2aecac65df71e6ee9f6e8ab47a33688a46a4cf0f4248506975d6e2b"
 
 private fun ByteArray.toHexString(): String = joinToString("") { byte ->
     (byte.toInt() and 0xff).toString(16).padStart(2, '0')
