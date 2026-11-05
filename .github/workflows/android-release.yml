@@ -171,8 +171,6 @@ jobs:
         if: github.ref_type == 'tag' || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release: v0.1.7'))
         env:
           GH_TOKEN: "${{ github.token }}"
-        env:
-          RELEASE_COMMIT_MESSAGE: "${{ github.event.head_commit.message }}"
         run: |
           TAG="${GITHUB_REF_NAME}"
           if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
