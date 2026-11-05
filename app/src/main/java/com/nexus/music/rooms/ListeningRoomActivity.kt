@@ -528,6 +528,7 @@ class ListeningRoomActivity : Activity() {
             }
         }
 
+        val actionId = UUID.randomUUID().toString()
         suspend fun send(expectedRevision: Long): PlaybackPublishResult =
             api.publishPlayback(
                 roomId = id,
@@ -539,7 +540,7 @@ class ListeningRoomActivity : Activity() {
                 isPlaying = snapshot.playWhenReady,
                 positionMs = snapshot.positionMs,
                 durationMs = snapshot.durationMs,
-                actionId = UUID.randomUUID().toString(),
+                actionId = actionId,
                 actionType = actionType,
                 originDeviceId = sender
             )
