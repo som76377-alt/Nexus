@@ -130,7 +130,7 @@ class GitHubReleaseParserTest {
         urls.forEach { url ->
             assertThrows(IOException::class.java) {
                 parseLatestReleasePayload(
-                    releasePayload(url = url),
+                    releasePayload(assets = JSONArray().put(asset(url = url))),
                     "0.0.0-dev", 1L, owner, repository
                 )
             }
