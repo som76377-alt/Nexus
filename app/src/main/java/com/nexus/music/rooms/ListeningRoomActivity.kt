@@ -77,6 +77,8 @@ class ListeningRoomActivity : Activity() {
 
     private var playback: RoomPlayerAdapter? = null
     private var roomId: String? = null
+    // Distinguishes a new join session even when the same room ID is re-entered.
+    private var roomSessionGeneration = 0L
     private var userId: String? = null
     private var inviteCode: String? = null
     private var syncJob: Job? = null
@@ -337,6 +339,8 @@ class ListeningRoomActivity : Activity() {
     }
 
     private suspend fun enterRoom(id: String) {
+        roomSessionGeneration += 1L
+        val sessionGeneration = roomSessionGeneration
         roomId = id
         roomPanel.visibility = View.VISIBLE
         roomActions.visibility = View.GONE
@@ -361,7 +365,7 @@ class ListeningRoomActivity : Activity() {
 
         driftJob?.cancel()
         driftJob = scope.launch {
-            while (isActive && roomId == id) {
+            while (isActive && roomId == id && roomSessionGeneration == sessionGeneration) {
                 lastRemotePlayback?.let(::correctLocalDrift)
                 delay(1_000L)
             }
@@ -373,14 +377,16 @@ class ListeningRoomActivity : Activity() {
             roomId = id,
             scope = scope,
             onPlaybackSignal = {
-                playbackSignalSequence.incrementAndGet()
                 scope.launch {
-                    if (roomId == id) scheduleRemotePlaybackRefresh(id)
+                    if (roomId == id && roomSessionGeneration == sessionGeneration) {
+                        playbackSignalSequence.incrementAndGet()
+                        scheduleRemotePlaybackRefresh(id, sessionGeneration)
+                    }
                 }
             },
             onChatSignal = {
                 scope.launch {
-                    if (roomId == id) {
+                    if (roomId == id && roomSessionGeneration == sessionGeneration) {
                         try {
                             refreshMessages()
                         } catch (cancelled: CancellationException) {
@@ -396,7 +402,7 @@ class ListeningRoomActivity : Activity() {
             onConnectionChanged = { connected ->
                 scope.launch {
                     // Ignore delayed callbacks from a room that is no longer active.
-                    if (roomId == id) {
+                    if (roomId == id && roomSessionGeneration == sessionGeneration) {
                         val wasConnected = realtimeConnected
                         realtimeConnected = connected
                         status.text = if (connected) {
@@ -407,7 +413,7 @@ class ListeningRoomActivity : Activity() {
                         // Reconcile immediately after a socket reconnect so commands missed
                         // during the network gap do not wait for the REST safety poll.
                         if (connected && !wasConnected) {
-                            scheduleRemotePlaybackRefresh(id)
+                            scheduleRemotePlaybackRefresh(id, sessionGeneration)
                             try {
                                 refreshMessages()
                             } catch (cancelled: CancellationException) {
@@ -429,7 +435,7 @@ class ListeningRoomActivity : Activity() {
             var lastClockCalibration = SystemClock.elapsedRealtime()
             var lastMessageRefresh = SystemClock.elapsedRealtime() - 30_000L
             var consecutiveFailures = 0
-            while (isActive && roomId == id) {
+            while (isActive && roomId == id && roomSessionGeneration == sessionGeneration) {
                 var iterationFailed = false
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastClockCalibration >= 300_000L) {
@@ -512,8 +518,11 @@ class ListeningRoomActivity : Activity() {
      * command arrives during that read or during remote track loading, run one more read
      * after the current operation instead of queuing an unbounded chain of stale reads.
      */
-    private fun scheduleRemotePlaybackRefresh(id: String) {
-        if (roomId != id) return
+    private fun scheduleRemotePlaybackRefresh(
+        id: String,
+        sessionGeneration: Long = roomSessionGeneration
+    ) {
+        if (roomId != id || roomSessionGeneration != sessionGeneration) return
         remoteRefreshRequested = true
         if (remoteRefreshJob?.isActive == true) return
 
@@ -530,15 +539,21 @@ class ListeningRoomActivity : Activity() {
                         status.text = "Playback reconnecting · ${error.message ?: "retrying"}"
                     }
                 }
-            } while (remoteRefreshRequested && roomId == id && isActive)
+            } while (
+                remoteRefreshRequested &&
+                    roomId == id &&
+                    roomSessionGeneration == sessionGeneration &&
+                    isActive
+            )
         }
     }
 
     private suspend fun refreshMessages() {
         val id = roomId ?: return
+        val sessionGeneration = roomSessionGeneration
         val messages = api.loadMessages(id)
-        // A late response from an exited room must not repaint the next room.
-        if (roomId != id) return
+        // A late response from an exited/re-entered room must not repaint the active room.
+        if (roomId != id || roomSessionGeneration != sessionGeneration) return
         if (messages.isEmpty()) {
             if (messagesBox.childCount == 1 && messagesBox.getChildAt(0).tag == "empty") return
             messagesBox.removeAllViews()
@@ -583,21 +598,22 @@ class ListeningRoomActivity : Activity() {
         val sender = userId ?: return
         val body = messageInput.text.toString().trim()
         if (body.isEmpty()) return
+        val sessionGeneration = roomSessionGeneration
         sendButton.isEnabled = false
         scope.launch {
             try {
                 api.sendMessage(id, sender, body)
-                if (roomId != id) return@launch
+                if (roomId != id || roomSessionGeneration != sessionGeneration) return@launch
                 messageInput.text.clear()
                 refreshMessages()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                if (roomId == id) {
+                if (roomId == id && roomSessionGeneration == sessionGeneration) {
                     status.text = error.message ?: "Message could not be sent."
                 }
             } finally {
-                if (roomId == id) sendButton.isEnabled = true
+                if (roomId == id && roomSessionGeneration == sessionGeneration) sendButton.isEnabled = true
             }
         }
     }
@@ -1055,6 +1071,7 @@ class ListeningRoomActivity : Activity() {
 
     private fun leaveRoom() {
         val id = roomId ?: return
+        val sessionGeneration = roomSessionGeneration
         scope.launch {
             var leaveFailed = false
             try {
@@ -1064,7 +1081,7 @@ class ListeningRoomActivity : Activity() {
             } catch (_: Exception) {
                 leaveFailed = true
             }
-            if (roomId != id) return@launch
+            if (roomId != id || roomSessionGeneration != sessionGeneration) return@launch
             exitRoom()
             if (leaveFailed) {
                 status.text = "Exited on this phone. The server will release this seat automatically if the connection was interrupted."
@@ -1073,6 +1090,8 @@ class ListeningRoomActivity : Activity() {
     }
 
     private fun exitRoom() {
+        // Invalidate every callback/request captured by the previous join session.
+        roomSessionGeneration += 1L
         syncJob?.cancel()
         syncJob = null
         driftJob?.cancel()
@@ -1114,6 +1133,7 @@ class ListeningRoomActivity : Activity() {
         codeInput.visibility = View.VISIBLE
         joinButton.visibility = View.VISIBLE
         messagesBox.removeAllViews()
+        sendButton.isEnabled = true
         status.text = "Exited this room. Its history remains until one hour of inactivity."
     }
 
