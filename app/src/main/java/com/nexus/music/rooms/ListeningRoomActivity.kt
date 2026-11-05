@@ -357,6 +357,8 @@ class ListeningRoomActivity : Activity() {
         } catch (_: Exception) {
             // Clock calibration is best-effort; retain the previous offset on failure.
         }
+        // Exit/rejoin may have happened while the network clock probe was suspended.
+        if (roomId != id || roomSessionGeneration != sessionGeneration) return
         playbackSignalSequence.set(0L)
         remoteRefreshRequested = false
         status.text = "Connected · starting live sync…"
@@ -451,7 +453,11 @@ class ListeningRoomActivity : Activity() {
                 }
                 if (now - lastHeartbeat >= 25_000L) {
                     try {
-                        if (!api.touchRoom(id)) {
+                        val membershipActive = api.touchRoom(id)
+                        if (roomId != id || roomSessionGeneration != sessionGeneration) {
+                            return@launch
+                        }
+                        if (!membershipActive) {
                             exitRoom()
                             status.text = "This room has expired or your membership ended. Join with a current invite code."
                             return@launch
@@ -488,7 +494,7 @@ class ListeningRoomActivity : Activity() {
                 }
 
                 try {
-                    publishLocalPlaybackIfChanged()
+                    publishLocalPlaybackIfChanged(sessionGeneration)
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Exception) {
@@ -1158,6 +1164,8 @@ class ListeningRoomActivity : Activity() {
         messageInput.text.clear()
         codeInput.text.clear()
         isSeeking = false
+        // An old resolver may still be unwinding after cancellation. It must not hold
+        // the new room's local-action callbacks behind a stale applying-remote flag.
         applyingRemote = false
         localPublishJob?.cancel()
         localPublishJob = null
