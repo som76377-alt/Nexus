@@ -159,6 +159,14 @@ class RoomsApi(context: Context) {
         ).trim().equals("true", ignoreCase = true)
     }
 
+    suspend fun leaveRoom(roomId: String): Boolean = withContext(Dispatchers.IO) {
+        apiRequest(
+            "POST",
+            "/rest/v1/rpc/leave_room",
+            JSONObject().put("p_room_id", roomId).toString()
+        ).trim().equals("true", ignoreCase = true)
+    }
+
     suspend fun loadMessages(roomId: String): List<RoomMessage> = withContext(Dispatchers.IO) {
         val rows = JSONArray(
             apiRequest(
