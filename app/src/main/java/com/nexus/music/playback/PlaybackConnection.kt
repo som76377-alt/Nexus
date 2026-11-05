@@ -85,7 +85,9 @@ class PlaybackConnection(
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
+            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED ||
+                reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK
+            ) {
                 recordUserAction("TRACK")
             }
             publishState()
