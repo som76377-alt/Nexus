@@ -6,6 +6,7 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import com.nexus.music.BuildConfig
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -77,16 +78,37 @@ class RoomsApi(context: Context) {
         ?.let { SystemClock.elapsedRealtime() + it }
         ?: System.currentTimeMillis()
 
+    /**
+     * Estimate the Supabase clock from several request/response samples.
+     *
+     * A single midpoint sample is easily biased by asymmetric mobile-network latency.
+     * Keep the three lowest-RTT samples and take their median offset so one slow or
+     * unusually routed request cannot move the room timeline.
+     */
     suspend fun calibrateServerClock() = withContext(Dispatchers.IO) {
-        val requestStarted = SystemClock.elapsedRealtime()
-        val response = apiRequest("POST", "/rest/v1/rpc/room_server_time", "{}")
-            .trim()
-            .removeSurrounding(34.toChar().toString())
-        val requestFinished = SystemClock.elapsedRealtime()
-        val serverTime = parseServerTimestampMillis(response)
-            ?: throw IOException("The server returned an invalid clock timestamp.")
-        val midpoint = requestStarted + (requestFinished - requestStarted) / 2L
-        serverClockOffsetFromElapsedMs = serverTime - midpoint
+        val samples = mutableListOf<ClockOffsetSample>()
+        repeat(5) {
+            val requestStarted = SystemClock.elapsedRealtime()
+            try {
+                val response = apiRequest("POST", "/rest/v1/rpc/room_server_time", "{}")
+                    .trim()
+                    .removeSurrounding(34.toChar().toString())
+                val requestFinished = SystemClock.elapsedRealtime()
+                val serverTime = parseServerTimestampMillis(response)
+                    ?: throw IOException("The server returned an invalid clock timestamp.")
+                val midpoint = requestStarted + (requestFinished - requestStarted) / 2L
+                samples += ClockOffsetSample(
+                    offsetMs = serverTime - midpoint,
+                    roundTripMs = (requestFinished - requestStarted).coerceAtLeast(0L)
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Keep successful samples; a transient failed sample should not discard them.
+            }
+        }
+        serverClockOffsetFromElapsedMs = ServerClockEstimator.estimateOffset(samples)
+            ?: throw IOException("Nexus could not obtain enough reliable server-clock samples.")
     }
 
     private fun parseServerTimestampMillis(value: String): Long? {
