@@ -20,7 +20,9 @@ sdkmanager --licenses
 sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 ```
 
-Debug builds use a development-only version (`0.0.0-dev-debug`, version code `1`) so they cannot masquerade as the current public release. Debug APKs are test-only and should not be distributed as official updates.\n\nBuild the debug APK:
+Debug builds use a development-only version (`0.0.0-dev-debug`, version code `1`) so they cannot masquerade as the current public release. Debug APKs are test-only and should not be distributed as official updates.
+
+Build the debug APK:
 
 ```bash
 ./gradlew --no-daemon :app:assembleDebug
@@ -33,7 +35,9 @@ Run unit tests and Android lint:
 ./gradlew --no-daemon :app:lintDebug
 ```
 
-Release builds require the permanent keystore environment variables and explicit, matching `-PnexusVersionName` / `-PnexusVersionCode` values. The build fails rather than creating an unsigned or development-version release APK.\n\nAPK output:
+Release builds require the permanent keystore environment variables and explicit, matching `-PnexusVersionName` / `-PnexusVersionCode` values. The build fails rather than creating an unsigned or development-version release APK.
+
+APK output:
 
 `app/build/outputs/apk/debug/app-debug.apk`
 
@@ -51,7 +55,11 @@ A failure may indicate an upstream extractor/service change or network restricti
 
 The `Android CI` workflow installs JDK 17 and Android SDK Platform 36 / Build Tools 36.0.0, then uses the checked-in wrapper to run Android lint, unit tests, and a debug APK build. It uploads the APK as a 14-day artifact. Debug APKs use the standard debug signing key and are for CI/testing only; they are not suitable for updating the permanently signed release installation. The separate `Nexus Signed Release` workflow uses the `NEXUS_KEYSTORE_*` secrets to create release APKs.
 
-## Signed APK and release workflow\n\nSee [UPDATES.md](UPDATES.md) for the required signing-key setup and release process. Do not lose the signing key: Android rejects future in-place updates signed with a different key.\n\n## Physical-device verification
+## Signed APK and release workflow
+
+See [UPDATES.md](UPDATES.md) for the required signing-key setup and release process. Do not lose the signing key: Android rejects future in-place updates signed with a different key.
+
+## Physical-device verification
 
 A successful CI build only proves that the app compiles and its configured checks pass. It does not prove that a particular stream resolves or that playback survives on a specific phone.
 
