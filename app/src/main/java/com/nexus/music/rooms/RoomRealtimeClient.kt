@@ -153,12 +153,14 @@ internal class RoomRealtimeClient(
                             if (payload?.optString("status") == "error") {
                                 val detail = payload.optString("message")
                                     .ifBlank { "Realtime could not deliver a database change." }
+                                joined.complete(false)
                                 ended.complete(IOException(detail))
                             }
                         }
-                        "phx_error", "phx_close" -> ended.complete(
-                            IOException("Realtime channel closed.")
-                        )
+                        "phx_error", "phx_close" -> {
+                            joined.complete(false)
+                            ended.complete(IOException("Realtime channel closed."))
+                        }
                     }
                 }
             }
@@ -178,7 +180,10 @@ internal class RoomRealtimeClient(
         activeSocket = socket
         try {
             val accepted = withTimeoutOrNull(12_000L) { joined.await() } == true
-            if (!accepted) throw IOException("Realtime subscription did not become ready.")
+            if (!accepted) {
+                val rejection = withTimeoutOrNull(250L) { ended.await() }
+                throw rejection ?: IOException("Realtime subscription did not become ready.")
+            }
             lastSuccessfulJoinElapsedMs = android.os.SystemClock.elapsedRealtime()
             onConnectionChanged(true)
 
