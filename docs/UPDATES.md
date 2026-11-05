@@ -21,16 +21,16 @@ The keystore must be generated once, kept backed up securely, and never committe
 
 The release workflow checks that all four secrets are non-empty, decodes the keystore, and uses it to sign the release APK. A successful release workflow run is the definitive validation that the configured secrets and keystore work together. Secret values are never printed by the workflow.
 
-The earlier phone-testing APK was signed with a temporary GitHub runner debug key. Android may therefore require a one-time uninstall/reinstall when moving to the first APK signed with the permanent key. This can remove local app data. After that transition, keep using the same permanent key for every update.
+Debug APKs and CI test artifacts are not distribution builds and may use a different signing key. Android will reject an update if the APK signer differs from the installed app. Install the official `nexus-release.apk` from GitHub Releases on every device. If a phone currently has a debug-signed build, the one-time move to the official signed build may require uninstalling the old copy, which can erase its local data; back up anything important first. After that transition, install only official release APKs signed with the permanent key. The first install may request Android's per-device 'install unknown apps' permission.
 
 ## Publishing a release
 
-Publish a GitHub Release with a semantic version tag such as `v0.1.1`. The **Nexus Signed Release** workflow builds the matching signed APK, calculates its SHA-256 checksum, and attaches:
+Create and push a semantic version tag such as `v0.1.8` only after the source is ready. The **Nexus Signed Release** workflow builds the version from that tag, verifies the permanent signing certificate, calculates its SHA-256 checksum, and attaches. A push to `main` only runs signed validation and never creates or overwrites a public release. This removes the old hard-coded `v0.1.7` publishing condition.
 
 - `nexus-release.apk`
 - `nexus-release.apk.sha256`
 
-Tags must use `vMAJOR.MINOR.PATCH`. The app reads the latest non-draft, non-prerelease GitHub Release and expects the `nexus-release.apk` asset and its SHA-256 digest.
+Tags must use `vMAJOR.MINOR.PATCH`. Never reuse a published tag for a different build. Keep the same permanent keystore and certificate fingerprint for every update. The app reads the latest non-draft, non-prerelease GitHub Release and expects the `nexus-release.apk` asset and its SHA-256 digest.
 
 ## Android installation and playback notes
 
@@ -44,6 +44,6 @@ Android 13+ also has a notification permission. Declining it does not block play
 
 ## Current scope
 
-The first tested build includes YouTube search, streaming playback, background/screen-off playback, media notification controls, and update checking. Social rooms, accounts, chat, playlists, pagination, offline media and backend services are not included yet.
+The app declares Android 7.0 (API 24) as its minimum OS. This is a compatibility floor, not a promise that every device/ROM, audio codec, network or OEM background policy behaves identically. Validate on multiple Android versions and manufacturers before calling a release device-compatible. The current scope includes YouTube search, streaming playback, background/screen-off playback, media notification controls, room playback and update checking.
 
 NewPipe Extractor is GPL-3.0-or-later; review its license obligations before distributing the app.
