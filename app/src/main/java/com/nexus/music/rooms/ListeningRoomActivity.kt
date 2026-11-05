@@ -757,7 +757,7 @@ class ListeningRoomActivity : Activity() {
             )
             val latest = activePlayer.snapshot()
             if (RoomPlaybackMath.needsSeek(latest.positionMs, expectedPosition) &&
-                !activePlayer.seekTo(expectedPosition)
+                !activePlayer.seekTo(expectedPosition, userInitiated = false)
             ) {
                 throw java.io.IOException("The player is not ready to seek yet. Retrying sync…")
             }
