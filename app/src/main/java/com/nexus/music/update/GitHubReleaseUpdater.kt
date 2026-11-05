@@ -5,6 +5,7 @@ import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.content.pm.Signature
 import android.os.Build
+import android.os.SystemClock
 import com.nexus.music.BuildConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -137,6 +138,7 @@ class GitHubReleaseUpdater(
                     }
 
                     onProgress(0L, expectedLength)
+                    var lastProgressCallbackAt = SystemClock.elapsedRealtime()
                     val digest = MessageDigest.getInstance("SHA-256")
                     var totalBytes = 0L
                     body.byteStream().use { input ->
@@ -151,11 +153,17 @@ class GitHubReleaseUpdater(
                                 }
                                 digest.update(buffer, 0, count)
                                 output.write(buffer, 0, count)
-                                onProgress(totalBytes, expectedLength)
+                                val now = SystemClock.elapsedRealtime()
+                                // Do not flood the main thread with one UI callback per 32 KiB chunk.
+                                if (now - lastProgressCallbackAt >= PROGRESS_CALLBACK_INTERVAL_MS) {
+                                    onProgress(totalBytes, expectedLength)
+                                    lastProgressCallbackAt = now
+                                }
                             }
                             output.flush()
                         }
                     }
+                    onProgress(totalBytes, expectedLength)
 
                     if (totalBytes == 0L) throw IOException("The downloaded update was empty.")
                     if (expectedLength >= 0L && totalBytes != expectedLength) {
@@ -370,6 +378,7 @@ class GitHubReleaseUpdater(
     companion object {
         private const val MAX_APK_BYTES = 150L * 1024L * 1024L
         private const val DOWNLOAD_BUFFER_BYTES = 32 * 1024
+        private const val PROGRESS_CALLBACK_INTERVAL_MS = 100L
         private const val GITHUB_API_VERSION = "2026-03-10"
         private val SHA256_PATTERN = Regex("^[a-f0-9]{64}$")
 
