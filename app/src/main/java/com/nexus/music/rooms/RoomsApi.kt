@@ -81,7 +81,7 @@ class RoomsApi(context: Context) {
         val requestStarted = SystemClock.elapsedRealtime()
         val response = apiRequest("POST", "/rest/v1/rpc/room_server_time", "{}")
             .trim()
-            .removeSurrounding("\\\"")
+            .removeSurrounding(34.toChar().toString())
         val requestFinished = SystemClock.elapsedRealtime()
         val serverTime = parseServerTimestampMillis(response)
             ?: throw IOException("The server returned an invalid clock timestamp.")
