@@ -7,6 +7,32 @@ import org.junit.Test
 
 class RoomPlaybackMathTest {
     @Test
+    fun serverClockEstimatorUsesMedianOfThreeFastestSamples() {
+        val estimate = ServerClockEstimator.estimateOffset(
+            listOf(
+                ClockOffsetSample(offsetMs = 1_000L, roundTripMs = 20L),
+                ClockOffsetSample(offsetMs = 1_040L, roundTripMs = 30L),
+                ClockOffsetSample(offsetMs = 1_020L, roundTripMs = 25L),
+                ClockOffsetSample(offsetMs = 9_000L, roundTripMs = 900L),
+                ClockOffsetSample(offsetMs = -8_000L, roundTripMs = 1_200L)
+            )
+        )
+        assertEquals(1_020L, estimate)
+    }
+
+    @Test
+    fun serverClockEstimatorRejectsInsufficientSamples() {
+        assertEquals(
+            null,
+            ServerClockEstimator.estimateOffset(
+                listOf(
+                    ClockOffsetSample(offsetMs = 1_000L, roundTripMs = 20L),
+                    ClockOffsetSample(offsetMs = 1_020L, roundTripMs = 30L)
+                )
+            )
+        )
+    }
+    @Test
     fun remotePlayingPositionAdvancesByElapsedTime() {
         assertEquals(
             6_500L,
