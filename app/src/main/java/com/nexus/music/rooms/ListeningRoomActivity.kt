@@ -695,7 +695,7 @@ class ListeningRoomActivity : Activity() {
                 throw java.io.IOException("The player is not ready to seek yet. Retrying sync…")
             }
             activePlayer.resetPlaybackSpeed()
-            activePlayer.setPlaying(remote.isPlaying)
+            activePlayer.setPlaying(remote.isPlaying, expectedPosition)
             rememberPublishedPlayback(activePlayer.snapshot())
             status.text = "Synced with the other device."
         } finally {
