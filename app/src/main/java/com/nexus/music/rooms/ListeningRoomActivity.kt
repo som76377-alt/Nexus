@@ -645,6 +645,7 @@ class ListeningRoomActivity : Activity() {
             // If a fresh local tap lost the revision race, rebase that same intent once
             // only when its calibrated event time is newer than the competing server command.
             // Otherwise the newer remote command remains authoritative.
+            var localActionWins = false
             remoteApplyMutex.withLock remoteLock@ {
                 val latest = api.loadPlayback(id) ?: return@remoteLock
                 lastRemotePlayback = latest
@@ -664,7 +665,7 @@ class ListeningRoomActivity : Activity() {
                 val remoteCommandServerMs = parseTimestamp(
                     latest.commandAt.ifBlank { latest.updatedAt }
                 ) ?: Long.MAX_VALUE
-                val localActionWins = samePendingIntent &&
+                localActionWins = samePendingIntent &&
                     localActionServerMs > remoteCommandServerMs + 200L
 
                 val authoritative = if (localActionWins) {
@@ -939,7 +940,7 @@ class ListeningRoomActivity : Activity() {
         }
     }
 
-    private fun parseTimestamp(value: String): Long? {    private fun parseTimestamp(value: String): Long? {
+    private fun parseTimestamp(value: String): Long? {
         // Postgres may return microsecond precision; SimpleDateFormat's SSS pattern expects
         // milliseconds, so trim any extra fractional digits before parsing.
         val fractionPattern = Regex("(\\.\\d{3})\\d+(?=Z|[+-]\\d{2}:?\\d{2}$)")
