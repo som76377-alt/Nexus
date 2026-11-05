@@ -1,0 +1,32 @@
+name: Nexus Web Room Test
+
+on:
+  push:
+    branches: [main, feature/web-room-test-client]
+    paths:
+      - "web-room-test/**"
+      - ".github/workflows/web-room-test.yml"
+  pull_request:
+    paths:
+      - "web-room-test/**"
+      - ".github/workflows/web-room-test.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web-room-test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web-room-test/package-lock.json
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
