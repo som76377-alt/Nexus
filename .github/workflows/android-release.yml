@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to build for signing validation (for example 0.1.7)"
+        description: "Version to build for signing validation (for example 0.1.8)"
         required: true
-        default: "0.1.7"
+        default: "0.1.8"
         type: string
 
 permissions:
@@ -99,7 +99,7 @@ jobs:
       - name: Derive Android version
         id: version
         env:
-          RELEASE_TAG: "${{ (github.ref_type == 'tag' && github.ref_name) || inputs.version || '0.1.7' }}"
+          RELEASE_TAG: "${{ (github.ref_type == 'tag' && github.ref_name) || inputs.version || '0.1.8' }}"
         run: |
           VERSION="${RELEASE_TAG#v}"
           if [[ ! "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
@@ -168,13 +168,14 @@ jobs:
       # Publish only the verified APK. gh release upload --clobber also
       # handles rebuilding an already-published tag without an action-side lookup.
       - name: Publish GitHub Release with verified APK
-        if: "${{ github.ref_type == 'tag' || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release: v0.1.7')) }}"
+        if: github.ref_type == 'tag'
         env:
           GH_TOKEN: "${{ github.token }}"
         run: |
           TAG="${GITHUB_REF_NAME}"
-          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
-            TAG="v0.1.7"
+          if [[ ! "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::Refusing to publish a non-semantic release tag: $TAG"
+            exit 1
           fi
           APK="app/build/outputs/apk/release/nexus-release.apk"
           CHECKSUM="app/build/outputs/apk/release/nexus-release.apk.sha256"
