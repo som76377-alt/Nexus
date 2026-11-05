@@ -806,6 +806,9 @@ class ListeningRoomActivity : Activity() {
         val activePlayer = playback ?: return
         val local = activePlayer.snapshot()
         if (!local.connected || local.sourceId != remote.sourceUrl) return
+        // A local seek/play/pause/track change owns the player until it is published.
+        // Never pull the user back to the previous server timeline in that window.
+        if (hasUnpublishedLocalIntent(local)) return
         if (!remote.isPlaying) {
             activePlayer.resetPlaybackSpeed()
             driftController.reset()
