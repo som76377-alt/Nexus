@@ -16,6 +16,8 @@ import org.json.JSONObject
 import java.io.IOException
 import java.security.KeyStore
 import java.util.concurrent.TimeUnit
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -61,6 +63,13 @@ class RoomsApi(context: Context) {
     private val jsonType = "application/json; charset=utf-8".toMediaType()
     private val baseUrl = BuildConfig.SUPABASE_URL.trimEnd('/')
     private val apiKey = BuildConfig.SUPABASE_PUBLISHABLE_KEY
+    @Volatile private var serverClockOffsetMs: Long = 0L
+
+    fun serverNowMillis(): Long = System.currentTimeMillis() + serverClockOffsetMs
+
+    suspend fun realtimeAccessToken(): String = withContext(Dispatchers.IO) {
+        ensureSession().accessToken
+    }
 
     suspend fun identity(): RoomIdentity = withContext(Dispatchers.IO) {
         RoomIdentity(ensureSession().userId)
@@ -247,6 +256,13 @@ class RoomsApi(context: Context) {
         }
         client.newCall(builder.build()).execute().use { response ->
             val text = response.body?.string().orEmpty()
+            response.header("Date")?.let { date ->
+                runCatching {
+                    val serverMillis = ZonedDateTime.parse(date, DateTimeFormatter.RFC_1123_DATE_TIME)
+                        .toInstant().toEpochMilli()
+                    serverClockOffsetMs = serverMillis - response.receivedResponseAtMillis
+                }
+            }
             if (!response.isSuccessful) throwIfNotUnauthorized(response.code, text)
             return response.code to text
         }
