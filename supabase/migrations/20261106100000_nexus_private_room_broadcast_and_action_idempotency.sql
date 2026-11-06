@@ -117,8 +117,8 @@ begin
   if p_source_url is null or length(btrim(p_source_url)) = 0 or length(p_source_url) > 16384 then
     raise exception 'Invalid playback source URL';
   end if;
-  if p_source_url !~* '^https://(www\\.|music\\.|m\\.)?youtube\\.com/' and
-     p_source_url !~* '^https://youtu\\.be/' then
+  if p_source_url !~* '^https://(www\.|music\.|m\.)?youtube\.com/' and
+     p_source_url !~* '^https://youtu\.be/' then
     raise exception 'Playback source must be a canonical HTTPS YouTube URL';
   end if;
   if p_title is null or length(btrim(p_title)) = 0 or length(p_title) > 500 then
