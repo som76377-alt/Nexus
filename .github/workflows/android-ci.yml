@@ -71,7 +71,7 @@ jobs:
           echo "Unsigned release build correctly refused before producing an APK."
 
       - name: Upload debug APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: nexus-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
