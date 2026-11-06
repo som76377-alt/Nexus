@@ -147,12 +147,19 @@ internal class Media3RoomPlayerPort(
 @OptIn(UnstableApi::class)
 internal class RoomIntentForwardingPlayer(
     private val delegate: Player,
-    private val recordIntent: (RoomPlayerIntent) -> Unit
+    private val recordIntent: (RoomPlayerIntent) -> Unit,
+    private val isRoomActive: () -> Boolean = { false }
 ) : androidx.media3.common.ForwardingPlayer(delegate) {
 
     override fun play() {
         recordIntent(RoomPlayerIntent.Play)
-        super.play()
+        if (isRoomActive()) {
+            // User intent is published by the room controller; local playback is released
+            // only when the shared start barrier completes.
+            delegate.pause()
+        } else {
+            super.play()
+        }
     }
 
     override fun pause() {
@@ -207,39 +214,51 @@ internal class RoomIntentForwardingPlayer(
 
     override fun setPlayWhenReady(playWhenReady: Boolean) {
         recordIntent(if (playWhenReady) RoomPlayerIntent.Play else RoomPlayerIntent.Pause)
-        super.setPlayWhenReady(playWhenReady)
+        if (playWhenReady && isRoomActive()) {
+            delegate.pause()
+        } else {
+            super.setPlayWhenReady(playWhenReady)
+        }
     }
 
     override fun seekToNext() {
-        recordIntent(RoomPlayerIntent.SkipToNext(
-            previousSourceId = delegate.currentMediaItem?.mediaId.orEmpty(),
-            previousPositionMs = delegate.currentPosition.coerceAtLeast(0L)
-        ))
+        val previousSourceId = delegate.currentMediaItem?.mediaId.orEmpty()
+        val previousPositionMs = delegate.currentPosition.coerceAtLeast(0L)
         super.seekToNext()
+        recordIntent(RoomPlayerIntent.SkipToNext(
+            previousSourceId = previousSourceId,
+            previousPositionMs = previousPositionMs
+        ))
     }
 
     override fun seekToNextMediaItem() {
-        recordIntent(RoomPlayerIntent.SkipToNext(
-            previousSourceId = delegate.currentMediaItem?.mediaId.orEmpty(),
-            previousPositionMs = delegate.currentPosition.coerceAtLeast(0L)
-        ))
+        val previousSourceId = delegate.currentMediaItem?.mediaId.orEmpty()
+        val previousPositionMs = delegate.currentPosition.coerceAtLeast(0L)
         super.seekToNextMediaItem()
+        recordIntent(RoomPlayerIntent.SkipToNext(
+            previousSourceId = previousSourceId,
+            previousPositionMs = previousPositionMs
+        ))
     }
 
     override fun seekToPrevious() {
-        recordIntent(RoomPlayerIntent.SkipToPrevious(
-            previousSourceId = delegate.currentMediaItem?.mediaId.orEmpty(),
-            previousPositionMs = delegate.currentPosition.coerceAtLeast(0L)
-        ))
+        val previousSourceId = delegate.currentMediaItem?.mediaId.orEmpty()
+        val previousPositionMs = delegate.currentPosition.coerceAtLeast(0L)
         super.seekToPrevious()
+        recordIntent(RoomPlayerIntent.SkipToPrevious(
+            previousSourceId = previousSourceId,
+            previousPositionMs = previousPositionMs
+        ))
     }
 
     override fun seekToPreviousMediaItem() {
-        recordIntent(RoomPlayerIntent.SkipToPrevious(
-            previousSourceId = delegate.currentMediaItem?.mediaId.orEmpty(),
-            previousPositionMs = delegate.currentPosition.coerceAtLeast(0L)
-        ))
+        val previousSourceId = delegate.currentMediaItem?.mediaId.orEmpty()
+        val previousPositionMs = delegate.currentPosition.coerceAtLeast(0L)
         super.seekToPreviousMediaItem()
+        recordIntent(RoomPlayerIntent.SkipToPrevious(
+            previousSourceId = previousSourceId,
+            previousPositionMs = previousPositionMs
+        ))
     }
 
     override fun stop() {
@@ -260,12 +279,17 @@ internal class RoomIntentForwardingPlayer(
         val canonicalUrl = mediaItem.mediaId.takeIf(String::isNotBlank) ?: return
         val title = mediaItem.mediaMetadata.title?.toString().orEmpty()
         if (canonicalUrl.isBlank() || title.isBlank()) return
+        val shouldPlay = delegate.playWhenReady
+        // Do not let a new item inherit the previous item's active playWhenReady.
+        // The intent is preserved and released only after the room start barrier.
+        if (shouldPlay) delegate.pause()
         recordIntent(
             RoomPlayerIntent.SelectTrack(
                 sourceId = canonicalUrl,
                 canonicalSourceUrl = canonicalUrl,
                 title = title,
-                artist = mediaItem.mediaMetadata.artist?.toString()
+                artist = mediaItem.mediaMetadata.artist?.toString(),
+                shouldPlay = shouldPlay
             )
         )
     }

@@ -29,7 +29,8 @@ sealed interface RoomPlayerIntent {
         val sourceId: String,
         val canonicalSourceUrl: String,
         val title: String,
-        val artist: String?
+        val artist: String?,
+        val shouldPlay: Boolean = false
     ) : RoomPlayerIntent
     data class SkipToNext(
         val previousSourceId: String,
@@ -124,6 +125,7 @@ enum class RoomConnectionState {
 
 sealed interface RoomRealtimeSignal {
     data object PlaybackInvalidated : RoomRealtimeSignal
+    data class PlaybackUpdated(val snapshot: RoomPlaybackSnapshot) : RoomRealtimeSignal
     data object ChatInvalidated : RoomRealtimeSignal
     data class StartScheduled(
         val revision: Long,

@@ -83,7 +83,7 @@ class PlaybackService : MediaSessionService() {
 
         val exoPlayer = ExoPlayer.Builder(this, renderersFactory)
             .setMediaSourceFactory(mediaSourceFactory)
-            .setWakeMode(C.WAKE_MODE_LOCAL)
+            .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
             .apply {
                 setAudioAttributes(musicAudioAttributes, /* handleAudioFocus = */ true)
@@ -110,7 +110,11 @@ class PlaybackService : MediaSessionService() {
         roomController = controller
         activeRoomController.value = controller
 
-        val sessionPlayer = RoomIntentForwardingPlayer(exoPlayer, playerPort::recordUserIntent)
+        val sessionPlayer = RoomIntentForwardingPlayer(
+            delegate = exoPlayer,
+            recordIntent = playerPort::recordUserIntent,
+            isRoomActive = { controller.state.value.roomId != null }
+        )
         mediaSession = MediaSession.Builder(this, sessionPlayer).build()
     }
 

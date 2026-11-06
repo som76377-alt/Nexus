@@ -82,8 +82,11 @@ internal class SupabaseRoomRepository(
                 api = api,
                 roomId = roomId,
                 scope = this,
-                onPlaybackSignal = {
-                    trySend(RoomRealtimeSignal.PlaybackInvalidated)
+                onPlaybackSignal = { snapshot ->
+                    trySend(
+                        snapshot?.let { RoomRealtimeSignal.PlaybackUpdated(it) }
+                            ?: RoomRealtimeSignal.PlaybackInvalidated
+                    )
                 },
                 onChatSignal = {
                     trySend(RoomRealtimeSignal.ChatInvalidated)

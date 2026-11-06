@@ -97,14 +97,14 @@ class ServiceRoomControllerTest {
             assertTrue("play intent must survive buffering", repository.published.single().isPlaying)
             assertFalse("the new track remains paused until the room barrier completes", player.snapshot().playWhenReady)
             assertFalse(player.snapshot().isPlaying)
-            assertTrue(repository.readinessCalls >= 1)
+            assertEquals("a buffering local stream is not READY yet", 0, repository.readinessCalls)
         } finally {
             controller.close()
         }
     }
 
     @Test
-    fun explicitPauseDuringBufferingPublishesPausedIntent() = runTest {
+    fun explicitPauseDuringBufferingPublishesPausedIntent = runTest {
         val canonical = "https://www.youtube.com/watch?v=pause-buffering"
         val repository = FakeRoomRepository()
         val player = FakeRoomPlayer(
@@ -247,13 +247,111 @@ class ServiceRoomControllerTest {
             assertTrue(repository.readinessCalls >= 1)
             assertFalse("track must wait for the scheduled start", player.snapshot().playWhenReady)
 
-            advanceTimeBy(1_500L)
-            clock.advance(1_500L)
+            clock.advance(1_501L)
+            advanceTimeBy(250L)
             runCurrent()
 
             assertTrue(player.snapshot().playWhenReady)
             assertTrue(player.snapshot().isPlaying)
             assertEquals(1L, controller.state.value.playback?.revision)
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
+    fun explicitPlayOnPausedTrackPublishesPlayIntentAndWaitsForBarrier() = runTest {
+        val canonical = "https://www.youtube.com/watch?v=local-resume"
+        val repository = FakeRoomRepository()
+        val player = FakeRoomPlayer(
+            LocalPlaybackSnapshot(
+                sourceId = canonical,
+                canonicalSourceUrl = canonical,
+                title = "Local resume",
+                artist = "Artist",
+                playWhenReady = false,
+                isPlaying = false,
+                isReady = true,
+                positionMs = 25_000L,
+                durationMs = 100_000L
+            )
+        )
+        val controller = newController(repository, player)
+
+        try {
+            controller.attach("room-local-resume")
+            advanceTimeBy(100L)
+            runCurrent()
+            assertEquals(RoomActionType.TRACK, repository.published.single().actionType)
+            assertFalse(repository.published.single().isPlaying)
+
+            player.emitIntent(RoomPlayerIntent.Play)
+            runCurrent()
+            advanceTimeBy(100L)
+            runCurrent()
+
+            assertEquals(2, repository.published.size)
+            assertEquals(RoomActionType.PLAY, repository.published.last().actionType)
+            assertTrue("PLAY intent must remain true even though the local player is held paused", repository.published.last().isPlaying)
+            assertEquals(1, repository.readinessCalls)
+            assertFalse(player.snapshot().playWhenReady)
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
+    fun localTrackFallsBackToSharedTimelineWhenPeerNeverBecomesReady() = runTest {
+        val canonical = "https://www.youtube.com/watch?v=barrier-fallback"
+        val repository = FakeRoomRepository()
+        val player = FakeRoomPlayer(
+            LocalPlaybackSnapshot(
+                sourceId = canonical,
+                canonicalSourceUrl = canonical,
+                title = "Fallback track",
+                artist = "Artist",
+                playWhenReady = true,
+                isPlaying = true,
+                isReady = true,
+                positionMs = 0L,
+                durationMs = 90_000L
+            )
+        )
+        val clock = FakeRoomClock()
+        val controller = newController(repository, player, clock = clock)
+
+        try {
+            controller.attach("room-barrier-fallback")
+            runCurrent()
+            assertFalse(player.snapshot().playWhenReady)
+            assertEquals(1, repository.readinessCalls)
+
+            clock.advance(46_100L)
+            advanceTimeBy(100L)
+            runCurrent()
+
+            assertTrue("the ready device must not remain paused forever", player.snapshot().playWhenReady)
+            assertTrue(player.snapshot().isPlaying)
+            assertEquals(46_100L, player.snapshot().positionMs)
+            assertEquals(2, repository.readinessCalls)
+            assertEquals(1L, controller.state.value.playback?.revision)
+            assertTrue(
+                controller.diagnostics.value.events.any { it.contains("barrier.started_without_peer") }
+            )
+
+            // A peer that becomes ready at the edge of the server expiry window can
+            // still deliver the shared anchor after local fallback has begun.
+            clock.advance(1_500L)
+            player.setSnapshot(player.snapshot().copy(positionMs = 47_600L))
+            repository.emit(
+                RoomRealtimeSignal.StartScheduled(
+                    revision = 1L,
+                    sourceId = canonical,
+                    startAt = "1970-01-01T00:00:57.601Z"
+                )
+            )
+            runCurrent()
+            assertEquals("late shared anchor must realign the fallback player", 0L, player.snapshot().positionMs)
         } finally {
             controller.close()
         }
@@ -298,12 +396,71 @@ class ServiceRoomControllerTest {
             assertTrue(repository.published.isEmpty())
             assertEquals(7L, controller.state.value.playback?.revision)
 
-            advanceTimeBy(1_500L)
-            clock.advance(1_500L)
+            clock.advance(1_501L)
+            advanceTimeBy(250L)
             runCurrent()
 
             assertTrue(player.snapshot().playWhenReady)
             assertTrue(player.snapshot().isPlaying)
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
+    fun playOnAnAlreadyPreparedPausedTrackUsesTheSharedStartBarrier() = runTest {
+        val canonical = "https://www.youtube.com/watch?v=resume-barrier"
+        val repository = FakeRoomRepository(
+            initialSnapshot = RoomPlaybackSnapshot(
+                roomId = "room-resume",
+                sourceId = canonical,
+                canonicalSourceUrl = canonical,
+                title = "Resume track",
+                artist = "Artist",
+                isPlaying = true,
+                positionMs = 30_000L,
+                durationMs = 120_000L,
+                revision = 9L,
+                updatedBy = "other-device",
+                updatedAt = "1970-01-01T00:00:10.001Z",
+                actionId = "resume-action",
+                actionType = RoomActionType.PLAY,
+                originDeviceId = "other-device",
+                commandAt = "1970-01-01T00:00:10.001Z"
+            )
+        )
+        repository.scheduledStartAt = "1970-01-01T00:00:11.501Z"
+        val player = FakeRoomPlayer(
+            LocalPlaybackSnapshot(
+                sourceId = canonical,
+                canonicalSourceUrl = canonical,
+                title = "Resume track",
+                artist = "Artist",
+                playWhenReady = false,
+                isPlaying = false,
+                isReady = true,
+                positionMs = 30_000L,
+                durationMs = 120_000L
+            )
+        )
+        val clock = FakeRoomClock()
+        val controller = newController(repository, player, clock = clock)
+
+        try {
+            controller.attach("room-resume")
+            runCurrent()
+            assertFalse("resume must wait for the shared anchor", player.snapshot().playWhenReady)
+            assertEquals(1, repository.readinessCalls)
+            assertTrue(repository.published.isEmpty())
+
+            clock.advance(1_501L)
+            advanceTimeBy(250L)
+            runCurrent()
+
+            assertTrue(player.snapshot().playWhenReady)
+            assertTrue(player.snapshot().isPlaying)
+            assertEquals(30_001L, player.snapshot().positionMs)
+            assertTrue(repository.published.isEmpty())
         } finally {
             controller.close()
         }

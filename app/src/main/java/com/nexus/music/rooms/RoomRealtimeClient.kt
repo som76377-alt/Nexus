@@ -1,6 +1,8 @@
 package com.nexus.music.rooms
 
 import com.nexus.music.BuildConfig
+import com.nexus.music.rooms.domain.RoomActionType
+import com.nexus.music.rooms.domain.RoomPlaybackSnapshot
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -35,7 +37,7 @@ internal class RoomRealtimeClient(
     private val api: RoomsApi,
     private val roomId: String,
     private val scope: CoroutineScope,
-    private val onPlaybackSignal: () -> Unit,
+    private val onPlaybackSignal: (RoomPlaybackSnapshot?) -> Unit,
     private val onChatSignal: () -> Unit,
     private val onStartScheduled: (Long, String, String) -> Unit,
     private val onConnectionChanged: (Boolean) -> Unit
@@ -148,7 +150,10 @@ internal class RoomRealtimeClient(
                         "broadcast" -> {
                             val payload = message.optJSONObject("payload")
                             when (payload?.optString("event")) {
-                                "playback_invalidated" -> onPlaybackSignal()
+                                "playback_invalidated" -> {
+                                    val row = payload.optJSONObject("payload")
+                                    onPlaybackSignal(row?.let(::parsePlaybackSnapshot))
+                                }
                                 "playback_start_scheduled" -> {
                                     val data = payload.optJSONObject("payload")
                                     val revision = data?.optLong("revision", -1L) ?: -1L
@@ -241,6 +246,36 @@ internal class RoomRealtimeClient(
         }
     }
 
+    private fun parsePlaybackSnapshot(row: JSONObject): RoomPlaybackSnapshot? {
+        val incomingRoomId = row.optString("room_id")
+        if (incomingRoomId != roomId) return null
+        val sourceId = row.optString("source_id")
+        val sourceUrl = row.optString("source_url")
+        val title = row.optString("title")
+        val revision = row.optLong("revision", -1L)
+        if (sourceId.isBlank() || sourceUrl.isBlank() || title.isBlank() || revision < 1L) return null
+        val artistValue = row.optString("artist")
+        val originValue = row.optString("origin_device_id")
+        return runCatching {
+            RoomPlaybackSnapshot(
+                roomId = incomingRoomId,
+                sourceId = sourceId,
+                canonicalSourceUrl = sourceUrl,
+                title = title,
+                artist = artistValue.takeIf { it.isNotBlank() && it != "null" },
+                isPlaying = row.optBoolean("is_playing", false),
+                positionMs = row.optLong("position_ms", -1L),
+                durationMs = row.optLong("duration_ms", -1L),
+                revision = revision,
+                updatedBy = row.optString("updated_by"),
+                updatedAt = row.optString("updated_at"),
+                actionId = row.optString("action_id"),
+                actionType = RoomActionType.fromWireValue(row.optString("action_type")) ?: RoomActionType.STATE,
+                originDeviceId = originValue.takeIf { it.isNotBlank() && it != "null" },
+                commandAt = row.optString("command_at")
+            )
+        }.getOrNull()?.takeIf { it.positionMs >= 0L && it.durationMs >= 0L }
+    }
     private fun setConnectionState(connected: Boolean) {
         if (connectionState.getAndSet(connected) != connected) {
             onConnectionChanged(connected)
