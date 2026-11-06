@@ -83,7 +83,9 @@ class PlaybackService : MediaSessionService() {
 
         val exoPlayer = ExoPlayer.Builder(this, renderersFactory)
             .setMediaSourceFactory(mediaSourceFactory)
-            .setWakeMode(C.WAKE_MODE_NETWORK)
+            // Music continues with the screen off; local mode holds the CPU wake lock
+            // needed by MediaSessionService background playback without a Wi-Fi lock.
+            .setWakeMode(C.WAKE_MODE_LOCAL)
             .build()
             .apply {
                 setAudioAttributes(musicAudioAttributes, /* handleAudioFocus = */ true)

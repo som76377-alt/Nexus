@@ -147,7 +147,9 @@ data class RoomControllerState(
     val playback: RoomPlaybackSnapshot? = null,
     val lastError: String? = null,
     val realtimeConnected: Boolean = false,
-    val chatSignalVersion: Long = 0L
+    val chatSignalVersion: Long = 0L,
+    /** Non-error progress shown while a room operation is running. */
+    val statusMessage: String? = null
 )
 
 data class RoomPublishResult(

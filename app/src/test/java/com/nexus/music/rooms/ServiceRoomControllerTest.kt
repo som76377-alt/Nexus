@@ -246,6 +246,8 @@ class ServiceRoomControllerTest {
             assertTrue(repository.published.single().isPlaying)
             assertTrue(repository.readinessCalls >= 1)
             assertFalse("track must wait for the scheduled start", player.snapshot().playWhenReady)
+            assertEquals("barrier progress is not an error", null, controller.state.value.lastError)
+            assertEquals("Preparing synchronized start…", controller.state.value.statusMessage)
 
             clock.advance(1_501L)
             advanceTimeBy(250L)
@@ -254,6 +256,7 @@ class ServiceRoomControllerTest {
             assertTrue(player.snapshot().playWhenReady)
             assertTrue(player.snapshot().isPlaying)
             assertEquals(1L, controller.state.value.playback?.revision)
+            assertEquals(null, controller.state.value.statusMessage)
         } finally {
             controller.close()
         }
@@ -292,6 +295,7 @@ class ServiceRoomControllerTest {
 
             assertEquals(2, repository.published.size)
             assertEquals(RoomActionType.PLAY, repository.published.last().actionType)
+            assertEquals(2L, controller.state.value.playback?.revision)
             assertTrue("PLAY intent must remain true even though the local player is held paused", repository.published.last().isPlaying)
             assertEquals(1, repository.readinessCalls)
             assertFalse(player.snapshot().playWhenReady)

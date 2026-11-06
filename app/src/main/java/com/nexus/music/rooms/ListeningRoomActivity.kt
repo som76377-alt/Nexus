@@ -406,7 +406,7 @@ class ListeningRoomActivity : Activity() {
                         exitRoom()
                         return@collect
                     }
-                    status.text = roomState.lastError ?: when (roomState.connection) {
+                    status.text = roomState.lastError ?: roomState.statusMessage ?: when (roomState.connection) {
                         RoomConnectionState.CONNECTED ->
                             if (roomState.realtimeConnected) "Connected · live sync"
                             else "Connected · restoring live sync"

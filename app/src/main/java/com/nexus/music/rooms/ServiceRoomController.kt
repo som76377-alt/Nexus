@@ -689,7 +689,7 @@ internal class ServiceRoomController(
         if (pendingAction?.generation == pending.generation) {
             pendingAction = null
         }
-        lastRemotePlayback = RoomPlaybackSnapshot(
+        val publishedSnapshot = RoomPlaybackSnapshot(
             roomId = command.roomId,
             sourceId = command.sourceId,
             canonicalSourceUrl = command.canonicalSourceUrl,
@@ -706,13 +706,16 @@ internal class ServiceRoomController(
             originDeviceId = command.originDeviceId,
             commandAt = serverTimestamp()
         )
+        lastRemotePlayback = publishedSnapshot
         if (command.actionType != RoomActionType.TRACK) {
             playbackAnchorRevision = null
             playbackAnchorAt = null
         }
         mutableState.value = mutableState.value.copy(
             connection = RoomConnectionState.CONNECTED,
-            lastError = null
+            playback = publishedSnapshot,
+            lastError = null,
+            statusMessage = null
         )
         if (command.isPlaying &&
             command.actionType in setOf(RoomActionType.TRACK, RoomActionType.PLAY)
@@ -1056,7 +1059,8 @@ internal class ServiceRoomController(
         player.pause()
         player.seekTo(0L)
         mutableState.value = mutableState.value.copy(
-            lastError = "Preparing synchronized start…"
+            lastError = null,
+            statusMessage = "Preparing synchronized start…"
         )
         recordDiagnostic(
             "barrier.prepare",
@@ -1083,7 +1087,8 @@ internal class ServiceRoomController(
                 val local = player.snapshot()
                 if (local.sourceId != sourceId || !local.isReady) {
                     mutableState.value = mutableState.value.copy(
-                        lastError = "This device could not prepare the selected track."
+                        lastError = "This device could not prepare the selected track.",
+                        statusMessage = null
                     )
                     recordDiagnostic("barrier.local_ready_timeout", "revision=$revision")
                     barrierRevision = null
@@ -1160,7 +1165,8 @@ internal class ServiceRoomController(
                     !readyLocal.isReady
                 ) {
                     mutableState.value = mutableState.value.copy(
-                        lastError = "The track is not ready to start on this device."
+                        lastError = "The track is not ready to start on this device.",
+                        statusMessage = null
                     )
                     recordDiagnostic("barrier.fallback_not_ready", "revision=$revision")
                     barrierRevision = null
@@ -1189,7 +1195,8 @@ internal class ServiceRoomController(
                 playbackAnchorAt = remote.commandAt.ifBlank { remote.updatedAt }
                 mutableState.value = mutableState.value.copy(
                     connection = RoomConnectionState.CONNECTED,
-                    lastError = null
+                    lastError = null,
+                    statusMessage = null
                 )
                 recordDiagnostic("barrier.started_without_peer", "revision=$revision offset=${target}ms")
             } catch (cancelled: CancellationException) {
@@ -1264,7 +1271,8 @@ internal class ServiceRoomController(
                 } == true
                 if (!ready) {
                     mutableState.value = mutableState.value.copy(
-                        lastError = "The local stream stopped being ready before the shared start."
+                        lastError = "The local stream stopped being ready before the shared start.",
+                        statusMessage = null
                     )
                     barrierRevision = null
                     barrierScheduledStartAt = null
@@ -1296,7 +1304,8 @@ internal class ServiceRoomController(
                 playbackAnchorAt = startAt
                 mutableState.value = mutableState.value.copy(
                     connection = RoomConnectionState.CONNECTED,
-                    lastError = null
+                    lastError = null,
+                    statusMessage = null
                 )
                 recordDiagnostic(
                     "barrier.started",
@@ -1324,6 +1333,7 @@ internal class ServiceRoomController(
         barrierStartJob = null
         barrierRevision = null
         barrierScheduledStartAt = null
+        mutableState.value = mutableState.value.copy(statusMessage = null)
     }
 
     private fun correctLocalDrift(remote: RoomPlaybackSnapshot) {
@@ -1388,7 +1398,10 @@ internal class ServiceRoomController(
     private fun setError(error: Exception, prefix: String) {
         if (error is CancellationException) throw error
         val message = error.message?.takeIf(String::isNotBlank) ?: "Please try again."
-        mutableState.value = mutableState.value.copy(lastError = "$prefix · $message")
+        mutableState.value = mutableState.value.copy(
+            lastError = "$prefix · $message",
+            statusMessage = null
+        )
     }
 
     private fun parseTimestamp(value: String): Long? = RoomTimestampParser.parse(value)
