@@ -1,5 +1,9 @@
 package com.nexus.music.rooms
 
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
+
 /**
  * Position projection and anti-oscillation policy for two-device playback.
  * Small drift is ignored; sustained moderate drift is corrected gradually;
@@ -26,7 +30,7 @@ internal object RoomPlaybackMath {
     fun needsSeek(
         currentPositionMs: Long,
         expectedPositionMs: Long,
-        thresholdMs: Long = 1_000L
+        thresholdMs: Long = 700L
     ): Boolean = distanceMs(currentPositionMs, expectedPositionMs) >= thresholdMs
 
     private fun safeAdd(first: Long, second: Long): Long {
@@ -47,12 +51,12 @@ internal data class DriftCorrection(
  * A seek is rate-limited, and buffering samples never trigger recovery loops.
  */
 internal class DriftCorrectionController(
-    private val deadZoneMs: Long = 160L,
-    private val seekThresholdMs: Long = 1_800L,
-    private val seekCooldownMs: Long = 12_000L,
-    private val minimumSamples: Int = 3,
-    private val emaAlpha: Double = 0.35,
-    private val speedGain: Double = 0.03
+    private val deadZoneMs: Long = 120L,
+    private val seekThresholdMs: Long = 900L,
+    private val seekCooldownMs: Long = 6_000L,
+    private val minimumSamples: Int = 2,
+    private val emaAlpha: Double = 0.5,
+    private val speedGain: Double = 0.05
 ) {
     private var consecutiveDriftSamples = 0
     private var lastSeekAtMs = Long.MIN_VALUE
@@ -115,8 +119,8 @@ internal class DriftCorrectionController(
         if (magnitude < adaptiveSeekThresholdMs && consecutiveDriftSamples >= 2) {
             // Positive drift means this device is ahead, so it must slow down.
             val adjustment = (filteredDriftMs / 1_000.0 * speedGain)
-                .coerceIn(-0.01, 0.01)
-            val speed = (1.0 - adjustment).toFloat().coerceIn(0.99f, 1.01f)
+                .coerceIn(-0.02, 0.02)
+            val speed = (1.0 - adjustment).toFloat().coerceIn(0.98f, 1.02f)
             if (kotlin.math.abs(speed - currentSpeed) >= 0.001f) {
                 currentSpeed = speed
                 return DriftCorrection(DriftCorrectionType.SET_SPEED, speed)
@@ -286,4 +290,39 @@ internal object ServerClockEstimator {
 
     fun estimateOffset(samples: List<ClockOffsetSample>): Long? =
         estimate(samples)?.offsetMs
+}
+
+
+/**
+ * Parses Postgres/Supabase ISO timestamps without allocating a Regex and four
+ * SimpleDateFormat instances on every drift tick. Formatters are thread-local because
+ * SimpleDateFormat is mutable and not thread-safe.
+ */
+internal object RoomTimestampParser {
+    private val fractionalSeconds = Regex(
+        """(\\.\\d{3})\\d+(?=Z|[+-]\\d{2}:?\\d{2}$)"""
+    )
+    private val formatters = object : ThreadLocal<List<SimpleDateFormat>>() {
+        override fun initialValue(): List<SimpleDateFormat> = listOf(
+            "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
+            "yyyy-MM-dd'T'HH:mm:ssXXX",
+            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss'Z'"
+        ).map { pattern ->
+            SimpleDateFormat(pattern, Locale.US).apply {
+                isLenient = false
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+        }
+    }
+
+    fun parse(value: String): Long? {
+        if (value.isBlank()) return null
+        val normalized = fractionalSeconds.replace(value) { match ->
+            match.groupValues[1]
+        }
+        return formatters.get().firstNotNullOfOrNull { formatter ->
+            runCatching { formatter.parse(normalized)?.time }.getOrNull()
+        }
+    }
 }
