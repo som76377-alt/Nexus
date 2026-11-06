@@ -96,6 +96,13 @@ internal class Media3RoomPlayerPort(
     }
 
     override fun play() {
+        when (player.playbackState) {
+            Player.STATE_IDLE -> player.prepare()
+            Player.STATE_ENDED -> {
+                player.seekTo(0L)
+                player.prepare()
+            }
+        }
         player.play()
     }
 
