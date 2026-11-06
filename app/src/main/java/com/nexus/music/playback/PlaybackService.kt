@@ -10,10 +10,7 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.nexus.music.catalog.YoutubeCatalogRepository
-import com.nexus.music.rooms.RoomMediaResolver
 import com.nexus.music.rooms.ServiceRoomController
-import com.nexus.music.rooms.SupabaseRoomClock
-import com.nexus.music.rooms.SupabaseRoomRepository
 import com.nexus.music.rooms.YoutubeRoomMediaResolver
 import com.nexus.music.rooms.data.SupabaseRoomClock
 import com.nexus.music.rooms.data.SupabaseRoomRepository
