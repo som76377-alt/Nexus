@@ -313,6 +313,8 @@ internal class ServiceRoomController(
     private fun captureLocalIntent(intent: RoomPlayerIntent) {
         val roomId = activeRoomId ?: return
         cancelStartBarrier("new local playback intent")
+        playbackAnchorRevision = null
+        playbackAnchorAt = null
         when (intent) {
             is RoomPlayerIntent.SkipToNext -> {
                 captureSkipIntent(
@@ -923,6 +925,13 @@ internal class ServiceRoomController(
                 )
                 val isNewTrackStart = authoritative.actionType == RoomActionType.TRACK &&
                     authoritative.isPlaying
+                if (barrierRevision != null && barrierRevision != authoritative.revision) {
+                    cancelStartBarrier("a newer room revision arrived")
+                }
+                if (!isNewTrackStart && playbackAnchorRevision != authoritative.revision) {
+                    playbackAnchorRevision = null
+                    playbackAnchorAt = null
+                }
                 val current = player.snapshot()
                 if (isNewTrackStart) {
                     player.pause()
@@ -1121,6 +1130,9 @@ internal class ServiceRoomController(
                     mutableState.value = mutableState.value.copy(
                         lastError = "The local stream stopped being ready before the shared start."
                     )
+                    barrierRevision = null
+                    barrierScheduledStartAt = null
+                    recordDiagnostic("barrier.final_ready_timeout", "revision=$revision")
                     return@launch
                 }
 
@@ -1159,6 +1171,8 @@ internal class ServiceRoomController(
                 if (isCurrent(roomId, generation)) {
                     setError(error, "Synchronized playback could not start")
                     recordDiagnostic("barrier.start_error", error.message.orEmpty())
+                    barrierRevision = null
+                    barrierScheduledStartAt = null
                 }
             }
         }
