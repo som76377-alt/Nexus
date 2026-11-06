@@ -604,11 +604,12 @@ internal class ServiceRoomController(
                     local.sourceId != remote.canonicalSourceUrl ||
                     local.isPlaying != remote.isPlaying ||
                     localNeedsStreamRecovery)
-            val shouldRetry = retryPolicy.shouldRetry(
-                remote.revision,
-                clock.elapsedRealtimeMs()
+            val shouldAttemptApply = retryPolicy.shouldAttempt(
+                revision = remote.revision,
+                nowElapsedMs = clock.elapsedRealtimeMs(),
+                hasUnappliedChanges = changed
             )
-            if (changed || shouldRetry) {
+            if (shouldAttemptApply) {
                 try {
                     applyRemoteSnapshot(remote, roomId, generation)
                     retryPolicy.recordSuccess(remote.revision)

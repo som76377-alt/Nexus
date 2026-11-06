@@ -235,6 +235,15 @@ class RoomPlaybackMathTest {
     }
 
     @Test
+    fun stillUnappliedRevisionCannotBypassItsRetryBackoff() {
+        val policy = RemoteApplyRetryPolicy()
+        assertTrue(policy.shouldAttempt(4L, 0L, hasUnappliedChanges = true))
+        assertEquals(1_000L, policy.recordFailure(4L, 0L))
+        assertFalse(policy.shouldAttempt(4L, 999L, hasUnappliedChanges = true))
+        assertTrue(policy.shouldAttempt(4L, 1_000L, hasUnappliedChanges = true))
+    }
+
+    @Test
     fun newerRevisionIsNeverBlockedByOlderRetry() {
         val policy = RemoteApplyRetryPolicy()
         policy.recordFailure(4L, 0L)
