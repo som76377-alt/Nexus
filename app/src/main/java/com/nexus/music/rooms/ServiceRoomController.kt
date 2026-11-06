@@ -129,6 +129,7 @@ internal class ServiceRoomController(
         require(roomId.isNotBlank()) { "Room ID must not be blank." }
         stopRoomSession()
         val generation = ++sessionGeneration
+        localActionGeneration = 0L
         activeRoomId = roomId
         mutableState.value = RoomControllerState(
             roomId = roomId,
@@ -234,6 +235,8 @@ internal class ServiceRoomController(
         activeRoomId = null
         userId = null
         pendingAction = null
+        lastPublishedPlaying = false
+        expectedRemoteStartSource = null
         mutableState.value = RoomControllerState()
         lastRemotePlayback = null
         lastRemoteRevision = 0L
@@ -267,6 +270,7 @@ internal class ServiceRoomController(
         stopRoomSession()
         activeRoomId = null
         lastPublishedPlaying = false
+        expectedRemoteStartSource = null
         player.resetPlaybackSpeed()
         controllerJob.cancel()
         mutableState.value = RoomControllerState()
