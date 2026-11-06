@@ -76,10 +76,6 @@ internal class ServiceRoomController(
     private var lastAppliedRevision = 0L
     private var lastRemotePlayback: RoomPlaybackSnapshot? = null
     private var pendingAction: PendingLocalAction? = null
-    private var lastPublishedSource = ""
-    private var lastPublishedPlaying = false
-    private var expectedRemoteStartSource: String? = null
-    private var lastObservedIsPlaying = player.snapshot().isPlaying
     private var signalSequence = 0L
 
     private data class PendingLocalAction(
@@ -99,30 +95,6 @@ internal class ServiceRoomController(
                 captureLocalIntent(intent)
             }
         }
-        controllerScope.launch {
-            player.playback.collect { local ->
-                // If remote PLAY had to wait for buffering, consume that expected transition
-                // rather than publishing it back as a fresh local action.
-                val started = local.isPlaying && !lastObservedIsPlaying
-                lastObservedIsPlaying = local.isPlaying
-                if (!started || expectedRemoteStartSource == local.sourceId) {
-                    if (expectedRemoteStartSource == local.sourceId && started) {
-                        expectedRemoteStartSource = null
-                    }
-                    return@collect
-                }
-                val activeId = activeRoomId ?: return@collect
-                if (pendingAction == null &&
-                    local.sourceId.isNotBlank() &&
-                    local.sourceId == lastPublishedSource &&
-                    !lastPublishedPlaying
-                ) {
-                    captureLocalIntent(RoomPlayerIntent.Play)
-                    // Keep this observer service-scoped; it does not poll position.
-                    requestReconciliation(activeId, sessionGeneration)
-                }
-            }
-        }
     }
 
     override suspend fun attach(roomId: String) {
@@ -139,10 +111,6 @@ internal class ServiceRoomController(
         lastRemoteRevision = 0L
         lastAppliedRevision = 0L
         lastRemotePlayback = null
-        lastPublishedSource = ""
-        lastPublishedPlaying = false
-        expectedRemoteStartSource = null
-        lastObservedIsPlaying = player.snapshot().isPlaying
         retryPolicy.reset()
         driftController.reset()
         driftSeekGate.reset()
@@ -235,17 +203,11 @@ internal class ServiceRoomController(
         activeRoomId = null
         userId = null
         pendingAction = null
-        lastPublishedPlaying = false
-        expectedRemoteStartSource = null
         mutableState.value = RoomControllerState()
         lastRemotePlayback = null
         lastRemoteRevision = 0L
         lastAppliedRevision = 0L
-        lastPublishedSource = ""
-        lastPublishedPlaying = false
         localActionGeneration = 0L
-        expectedRemoteStartSource = null
-        lastObservedIsPlaying = player.snapshot().isPlaying
         retryPolicy.reset()
         driftController.reset()
         driftSeekGate.reset()
@@ -269,8 +231,6 @@ internal class ServiceRoomController(
     fun close() {
         stopRoomSession()
         activeRoomId = null
-        lastPublishedPlaying = false
-        expectedRemoteStartSource = null
         player.resetPlaybackSpeed()
         controllerJob.cancel()
         mutableState.value = RoomControllerState()
@@ -295,7 +255,6 @@ internal class ServiceRoomController(
     private fun captureLocalIntent(intent: RoomPlayerIntent) {
         val roomId = activeRoomId ?: return
         val elapsed = clock.elapsedRealtimeMs()
-        expectedRemoteStartSource = null
         val current = player.snapshot()
         val previous = pendingAction
         val preserveTrack = previous?.actionType == RoomActionType.TRACK &&
@@ -494,7 +453,9 @@ internal class ServiceRoomController(
                 title = title,
                 artist = local.artist ?: pending.artist,
                 // The database timeline advances only when the audio is actually advancing.
-                isPlaying = local.isPlaying,
+                // Shared state represents the requested play state, not transient audio advancement.
+                // A buffering player may have isPlaying=false while playWhenReady=true.
+                isPlaying = local.playWhenReady,
                 positionMs = local.positionMs.coerceAtLeast(0L),
                 durationMs = local.durationMs.coerceAtLeast(0L)
             )
@@ -547,8 +508,6 @@ internal class ServiceRoomController(
     ) {
         lastRemoteRevision = maxOf(lastRemoteRevision, revision)
         lastAppliedRevision = maxOf(lastAppliedRevision, revision)
-        lastPublishedSource = command.canonicalSourceUrl
-        lastPublishedPlaying = command.isPlaying
         retryPolicy.recordSuccess(revision)
         if (pendingAction?.generation == pending.generation) {
             pendingAction = null
@@ -590,11 +549,10 @@ internal class ServiceRoomController(
                 !local.isReady && !local.isBuffering
             val sameDeviceState = remote.updatedBy == userId &&
                 local.sourceId == remote.canonicalSourceUrl &&
+                local.playWhenReady == remote.isPlaying &&
                 !localNeedsStreamRecovery
             if (sameDeviceState && pending == null) {
                 lastAppliedRevision = maxOf(lastAppliedRevision, remote.revision)
-                lastPublishedSource = remote.canonicalSourceUrl
-                lastPublishedPlaying = remote.isPlaying
                 retryPolicy.recordSuccess(remote.revision)
                 return
             }
@@ -602,7 +560,7 @@ internal class ServiceRoomController(
             val changed = remote.revision > lastAppliedRevision &&
                 (remote.actionType != RoomActionType.STATE ||
                     local.sourceId != remote.canonicalSourceUrl ||
-                    local.isPlaying != remote.isPlaying ||
+                    local.playWhenReady != remote.isPlaying ||
                     localNeedsStreamRecovery)
             val shouldAttemptApply = retryPolicy.shouldAttempt(
                 revision = remote.revision,
@@ -743,15 +701,12 @@ internal class ServiceRoomController(
             player.resetPlaybackSpeed()
             driftController.reset()
             driftSeekGate.reset()
-            expectedRemoteStartSource = if (remote.isPlaying) {
                 remote.canonicalSourceUrl
             } else {
                 null
             }
             if (remote.isPlaying) player.play() else player.pause()
             lastAppliedRevision = maxOf(lastAppliedRevision, remote.revision)
-            lastPublishedSource = remote.canonicalSourceUrl
-            lastPublishedPlaying = remote.isPlaying
             mutableState.value = mutableState.value.copy(
                 roomId = roomId,
                 connection = RoomConnectionState.CONNECTED,
