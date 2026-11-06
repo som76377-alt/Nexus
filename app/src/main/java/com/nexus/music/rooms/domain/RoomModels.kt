@@ -96,6 +96,9 @@ data class LocalPlaybackSnapshot(
     val canonicalSourceUrl: String = "",
     val title: String = "",
     val artist: String? = null,
+    /** Desired playback state; remains true while audio is buffering. */
+    val playWhenReady: Boolean = false,
+    /** Actual audio advancement, used only for drift measurement. */
     val isPlaying: Boolean = false,
     val isBuffering: Boolean = false,
     val isReady: Boolean = false,
