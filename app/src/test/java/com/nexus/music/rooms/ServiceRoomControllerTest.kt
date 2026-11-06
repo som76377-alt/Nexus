@@ -205,6 +205,111 @@ class ServiceRoomControllerTest {
     }
 
     @Test
+    fun sameDeviceTrackWithIdleLocalPlayerResolvesFreshStream() = runTest {
+        val canonical = "https://www.youtube.com/watch?v=same-device-expired-stream"
+        val repository = FakeRoomRepository(
+            initialSnapshot = RoomPlaybackSnapshot(
+                roomId = "room-own-expired",
+                sourceId = canonical,
+                canonicalSourceUrl = canonical,
+                title = "Local shared track",
+                artist = "Artist",
+                isPlaying = false,
+                positionMs = 7_000L,
+                durationMs = 100_000L,
+                revision = 5L,
+                updatedBy = "device-1",
+                updatedAt = "2026-11-06T00:00:00.000Z",
+                actionId = "own-track-action",
+                actionType = RoomActionType.TRACK,
+                originDeviceId = "device-1",
+                commandAt = "2026-11-06T00:00:00.000Z"
+            )
+        )
+        val player = FakeRoomPlayer(
+            LocalPlaybackSnapshot(
+                sourceId = canonical,
+                canonicalSourceUrl = canonical,
+                title = "Local shared track",
+                artist = "Artist",
+                isPlaying = false,
+                isBuffering = false,
+                isReady = false,
+                positionMs = 7_000L,
+                durationMs = 100_000L
+            )
+        )
+        val resolver = FakeRoomMediaResolver()
+        val controller = newController(repository, player, resolver)
+
+        try {
+            controller.attach("room-own-expired")
+            runCurrent()
+            advanceTimeBy(50L)
+            runCurrent()
+
+            assertEquals(1, resolver.resolveCount)
+            assertTrue(player.snapshot().isReady)
+            assertFalse(player.snapshot().isPlaying)
+            assertTrue(repository.published.isEmpty())
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
+    fun sameDeviceTrackAlreadyBufferingIsNotRestarted() = runTest {
+        val canonical = "https://www.youtube.com/watch?v=same-device-buffering"
+        val repository = FakeRoomRepository(
+            initialSnapshot = RoomPlaybackSnapshot(
+                roomId = "room-own-buffering",
+                sourceId = canonical,
+                canonicalSourceUrl = canonical,
+                title = "Buffering track",
+                artist = "Artist",
+                isPlaying = true,
+                positionMs = 2_000L,
+                durationMs = 100_000L,
+                revision = 6L,
+                updatedBy = "device-1",
+                updatedAt = "2026-11-06T00:00:00.000Z",
+                actionId = "own-buffering-action",
+                actionType = RoomActionType.TRACK,
+                originDeviceId = "device-1",
+                commandAt = "2026-11-06T00:00:00.000Z"
+            )
+        )
+        val player = FakeRoomPlayer(
+            LocalPlaybackSnapshot(
+                sourceId = canonical,
+                canonicalSourceUrl = canonical,
+                title = "Buffering track",
+                artist = "Artist",
+                isPlaying = false,
+                isBuffering = true,
+                isReady = false,
+                positionMs = 2_000L,
+                durationMs = 100_000L
+            )
+        )
+        val resolver = FakeRoomMediaResolver()
+        val controller = newController(repository, player, resolver)
+
+        try {
+            controller.attach("room-own-buffering")
+            runCurrent()
+            advanceTimeBy(50L)
+            runCurrent()
+
+            assertEquals(0, resolver.resolveCount)
+            assertTrue(player.snapshot().isBuffering)
+            assertTrue(repository.published.isEmpty())
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
     fun chatInvalidationUpdatesUiStateWithoutTouchingPlaybackRevision() = runTest {
         val repository = FakeRoomRepository()
         val player = FakeRoomPlayer()

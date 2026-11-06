@@ -583,8 +583,14 @@ internal class ServiceRoomController(
                 return
             }
 
+            // A same-device snapshot is already reflected locally only while Media3
+            // still has a usable item. An idle/ended/error player may retain the same
+            // media ID while its extracted stream URL has expired; it must be resolved again.
+            val localNeedsStreamRecovery = local.sourceId == remote.canonicalSourceUrl &&
+                !local.isReady && !local.isBuffering
             val sameDeviceState = remote.updatedBy == userId &&
-                local.sourceId == remote.canonicalSourceUrl
+                local.sourceId == remote.canonicalSourceUrl &&
+                !localNeedsStreamRecovery
             if (sameDeviceState && pending == null) {
                 lastAppliedRevision = maxOf(lastAppliedRevision, remote.revision)
                 lastPublishedSource = remote.canonicalSourceUrl
@@ -596,7 +602,8 @@ internal class ServiceRoomController(
             val changed = remote.revision > lastAppliedRevision &&
                 (remote.actionType != RoomActionType.STATE ||
                     local.sourceId != remote.canonicalSourceUrl ||
-                    local.isPlaying != remote.isPlaying)
+                    local.isPlaying != remote.isPlaying ||
+                    localNeedsStreamRecovery)
             val shouldRetry = retryPolicy.shouldRetry(
                 remote.revision,
                 clock.elapsedRealtimeMs()
