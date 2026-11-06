@@ -741,17 +741,13 @@ internal class ServiceRoomController(
             )
             val current = player.snapshot()
             if (RoomPlaybackMath.needsSeek(current.positionMs, expected) ||
-                (!remote.isPlaying && current.isPlaying && current.positionMs != expected)
+                (!remote.isPlaying && current.playWhenReady && current.positionMs != expected)
             ) {
                 player.seekTo(expected)
             }
             player.resetPlaybackSpeed()
             driftController.reset()
             driftSeekGate.reset()
-                remote.canonicalSourceUrl
-            } else {
-                null
-            }
             if (remote.isPlaying) player.play() else player.pause()
             lastAppliedRevision = maxOf(lastAppliedRevision, remote.revision)
             mutableState.value = mutableState.value.copy(
