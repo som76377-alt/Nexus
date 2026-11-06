@@ -283,7 +283,10 @@ class ListeningRoomActivity : Activity() {
      */
     private fun restoreActiveRoomIfPresent() {
         if (restoreRoomAttempted || roomId != null) return
+        // Prefer the live service session, but fall back to the stored room UUID when
+        // Android stopped the paused service or process while the Activity was absent.
         val activeRoomId = PlaybackService.currentRoomController()?.state?.value?.roomId
+            ?: ActiveRoomSessionStore.read(this)
             ?: return
         restoreRoomAttempted = true
         scope.launch {
@@ -383,6 +386,7 @@ class ListeningRoomActivity : Activity() {
                 controller.attach(id)
             }
             if (roomId != id || roomSessionGeneration != sessionGeneration) return
+            ActiveRoomSessionStore.save(this@ListeningRoomActivity, id)
 
             diagnosticsJob?.cancel()
             diagnosticsJob = scope.launch {
@@ -445,10 +449,14 @@ class ListeningRoomActivity : Activity() {
             }
             refreshMessages()
         } catch (cancelled: CancellationException) {
-            if (roomId == id && roomSessionGeneration == sessionGeneration) exitRoom()
+            if (roomId == id && roomSessionGeneration == sessionGeneration) {
+                exitRoom(clearPersistedRoom = false)
+            }
             throw cancelled
         } catch (error: Exception) {
-            if (roomId == id && roomSessionGeneration == sessionGeneration) exitRoom()
+            if (roomId == id && roomSessionGeneration == sessionGeneration) {
+                exitRoom(clearPersistedRoom = false)
+            }
             throw error
         }
     }
@@ -579,7 +587,7 @@ class ListeningRoomActivity : Activity() {
         }
     }
 
-    private fun exitRoom() {
+    private fun exitRoom(clearPersistedRoom: Boolean = true) {
         // Detaching cancels only this room session. It never releases the service/player.
         roomSessionGeneration += 1L
         messageRefreshGeneration += 1L
@@ -601,6 +609,7 @@ class ListeningRoomActivity : Activity() {
         roomId = null
         inviteCode = null
         userId = null
+        if (clearPersistedRoom) ActiveRoomSessionStore.clear(this)
         lastChatSignalVersion = 0L
         lastSnapshot = playback?.snapshot() ?: PlaybackSnapshot(connected = false)
         roomPanel.visibility = View.GONE
