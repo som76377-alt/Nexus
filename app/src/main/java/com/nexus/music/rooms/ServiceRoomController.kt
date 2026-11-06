@@ -262,11 +262,14 @@ internal class ServiceRoomController(
         publishLatencyMs: Long? = null,
         snapshotLatencyMs: Long? = null,
         applyLatencyMs: Long? = null,
-        driftMs: Long? = null
+        driftMs: Long? = null,
+        commandAgeMs: Long? = null
     ) {
         val elapsed = clock.elapsedRealtimeMs()
         val wall = System.currentTimeMillis()
-        val line = "$wall +${elapsed}ms $event" +
+        val serverNow = runCatching { clock.estimatedServerTimeMs() }.getOrNull()
+        val measuredRtt = clock.estimatedRoundTripTimeMs().takeIf { it >= 0L }
+        val line = "wall=$wall mono=$elapsed server=${serverNow ?: "unknown"} $event" +
             detail.takeIf(String::isNotBlank)?.let { " | $it" }.orEmpty()
         val previous = mutableDiagnostics.value
         mutableDiagnostics.value = previous.copy(
@@ -274,6 +277,8 @@ internal class ServiceRoomController(
             lastSnapshotLatencyMs = snapshotLatencyMs ?: previous.lastSnapshotLatencyMs,
             lastApplyLatencyMs = applyLatencyMs ?: previous.lastApplyLatencyMs,
             lastDriftMs = driftMs ?: previous.lastDriftMs,
+            lastRoundTripMs = measuredRtt ?: previous.lastRoundTripMs,
+            lastCommandAgeMs = commandAgeMs ?: previous.lastCommandAgeMs,
             events = (previous.events + line).takeLast(MAX_DIAGNOSTIC_EVENTS)
         )
     }
@@ -553,7 +558,8 @@ internal class ServiceRoomController(
             val publishLatency = (clock.elapsedRealtimeMs() - publishStarted).coerceAtLeast(0L)
             recordDiagnostic(
                 "rpc.publish",
-                "type=${pending.actionType} applied=${result.applied} revision=${result.revision}",
+                "type=${pending.actionType} applied=${result.applied} revision=${result.revision} " +
+                    "intent_to_request=${(publishStarted - pending.elapsedMs).coerceAtLeast(0L)}ms",
                 publishLatencyMs = publishLatency
             )
             if (!isCurrent(roomId, generation)) return
@@ -744,9 +750,15 @@ internal class ServiceRoomController(
         if (!applyingRevisions.add(remote.revision)) return
 
         val applyStarted = clock.elapsedRealtimeMs()
+        val commandTimestamp = parseTimestamp(remote.commandAt.ifBlank { remote.updatedAt })
+        val commandAge = commandTimestamp?.let {
+            (clock.estimatedServerTimeMs() - it).coerceAtLeast(0L)
+        }
         recordDiagnostic(
             "player.apply_start",
-            "revision=${remote.revision} action=${remote.actionType}"
+            "revision=${remote.revision} action=${remote.actionType} " +
+                "command_age=${commandAge?.let { "${it}ms" } ?: "unknown"}",
+            commandAgeMs = commandAge
         )
         val localGeneration = localActionGeneration
         val startingSignal = signalSequence
