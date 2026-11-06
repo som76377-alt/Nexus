@@ -104,7 +104,7 @@ class ServiceRoomControllerTest {
     }
 
     @Test
-    fun explicitPauseDuringBufferingPublishesPausedIntent = runTest {
+    fun explicitPauseDuringBufferingPublishesPausedIntent() = runTest {
         val canonical = "https://www.youtube.com/watch?v=pause-buffering"
         val repository = FakeRoomRepository()
         val player = FakeRoomPlayer(
