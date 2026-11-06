@@ -10,6 +10,7 @@ import com.nexus.music.rooms.domain.RoomDiagnosticsSnapshot
 import com.nexus.music.rooms.domain.RoomPlayerIntent
 import com.nexus.music.rooms.domain.RoomPlayerPort
 import com.nexus.music.rooms.domain.RoomPlaybackSnapshot
+import com.nexus.music.rooms.domain.RoomPlaybackReadyResult
 import com.nexus.music.rooms.domain.RoomPublishResult
 import com.nexus.music.rooms.domain.RoomRealtimeSignal
 import com.nexus.music.rooms.domain.RoomRepository
@@ -68,6 +69,11 @@ internal class ServiceRoomController(
     private var reconcileJob: Job? = null
     private var reconcileRequested = false
     private var publishJob: Job? = null
+    private var barrierJob: Job? = null
+    private var barrierStartJob: Job? = null
+    private var barrierRevision: Long? = null
+    private var barrierScheduledStartAt: String? = null
+    private var barrierCompletedRevision: Long = 0L
 
     @Volatile private var activeRoomId: String? = null
     private var sessionGeneration = 0L
@@ -118,6 +124,8 @@ internal class ServiceRoomController(
         driftController.reset()
         driftSeekGate.reset()
         signalSequence = 0L
+        barrierRevision = null
+        barrierCompletedRevision = 0L
 
         val newUserId = repository.currentUserId()
         if (!isCurrent(roomId, generation)) return
@@ -153,6 +161,15 @@ internal class ServiceRoomController(
                     RoomRealtimeSignal.ChatInvalidated -> {
                         mutableState.value = mutableState.value.copy(
                             chatSignalVersion = mutableState.value.chatSignalVersion + 1L
+                        )
+                    }
+                    is RoomRealtimeSignal.StartScheduled -> {
+                        onBarrierStartScheduled(
+                            roomId = roomId,
+                            generation = generation,
+                            revision = signal.revision,
+                            sourceId = signal.sourceId,
+                            startAt = signal.startAt
                         )
                     }
                     is RoomRealtimeSignal.ConnectionChanged -> {
@@ -251,6 +268,12 @@ internal class ServiceRoomController(
         reconcileRequested = false
         publishJob?.cancel()
         publishJob = null
+        barrierJob?.cancel()
+        barrierJob = null
+        barrierStartJob?.cancel()
+        barrierStartJob = null
+        barrierRevision = null
+        barrierScheduledStartAt = null
     }
 
     private fun isCurrent(roomId: String, generation: Long): Boolean =
@@ -285,6 +308,7 @@ internal class ServiceRoomController(
 
     private fun captureLocalIntent(intent: RoomPlayerIntent) {
         val roomId = activeRoomId ?: return
+        cancelStartBarrier("new local playback intent")
         when (intent) {
             is RoomPlayerIntent.SkipToNext -> {
                 captureSkipIntent(
@@ -623,6 +647,14 @@ internal class ServiceRoomController(
             connection = RoomConnectionState.CONNECTED,
             lastError = null
         )
+        if (command.actionType == RoomActionType.TRACK && command.isPlaying) {
+            beginPlaybackStartBarrier(
+                roomId = command.roomId,
+                generation = sessionGeneration,
+                revision = revision,
+                sourceId = command.canonicalSourceUrl
+            )
+        }
     }
 
     private suspend fun refreshRemotePlayback(roomId: String, generation: Long) {
@@ -764,8 +796,14 @@ internal class ServiceRoomController(
         val startingSignal = signalSequence
         var shouldReconcileAgain = false
         var shouldPublishLocal = false
+        var shouldStartBarrier = false
         try {
             val before = player.snapshot()
+            if (remote.actionType == RoomActionType.TRACK && remote.isPlaying) {
+                // Stop the previous item immediately. New-track playback remains paused
+                // until every currently active room member has prepared its own stream.
+                player.pause()
+            }
             // Never hold applyMutex across NewPipe, stream preparation or readiness waits.
             val needsFreshStream = before.sourceId != remote.canonicalSourceUrl ||
                 (!before.isReady && !before.isBuffering)
@@ -858,18 +896,26 @@ internal class ServiceRoomController(
                     elapsedSinceUpdateMs = elapsed,
                     durationMs = authoritative.durationMs
                 )
+                val isNewTrackStart = authoritative.actionType == RoomActionType.TRACK &&
+                    authoritative.isPlaying
                 val current = player.snapshot()
-                if (RoomPlaybackMath.needsSeek(current.positionMs, expected) ||
-                    (!authoritative.isPlaying &&
-                        current.playWhenReady &&
-                        current.positionMs != expected)
-                ) {
-                    player.seekTo(expected)
+                if (isNewTrackStart) {
+                    player.pause()
+                    player.seekTo(0L)
+                    shouldStartBarrier = true
+                } else {
+                    if (RoomPlaybackMath.needsSeek(current.positionMs, expected) ||
+                        (!authoritative.isPlaying &&
+                            current.playWhenReady &&
+                            current.positionMs != expected)
+                    ) {
+                        player.seekTo(expected)
+                    }
+                    if (authoritative.isPlaying) player.play() else player.pause()
                 }
                 player.resetPlaybackSpeed()
                 driftController.reset()
                 driftSeekGate.reset()
-                if (authoritative.isPlaying) player.play() else player.pause()
                 lastAppliedRevision = maxOf(lastAppliedRevision, authoritative.revision)
                 lastRemotePlayback = authoritative
                 mutableState.value = mutableState.value.copy(
@@ -889,10 +935,216 @@ internal class ServiceRoomController(
             if (shouldPublishLocal && isCurrent(roomId, generation)) {
                 requestPublishAfterApplyLock(roomId, generation)
             }
+            if (shouldStartBarrier && isCurrent(roomId, generation)) {
+                beginPlaybackStartBarrier(
+                    roomId = roomId,
+                    generation = generation,
+                    revision = remote.revision,
+                    sourceId = remote.canonicalSourceUrl
+                )
+            }
             if (shouldReconcileAgain && isCurrent(roomId, generation)) {
                 requestReconciliation(roomId, generation)
             }
         }
+    }
+
+    private fun beginPlaybackStartBarrier(
+        roomId: String,
+        generation: Long,
+        revision: Long,
+        sourceId: String
+    ) {
+        if (!isCurrent(roomId, generation) || revision <= barrierCompletedRevision) return
+        if (barrierRevision == revision && barrierJob?.isActive == true) return
+
+        barrierJob?.cancel()
+        barrierStartJob?.cancel()
+        barrierStartJob = null
+        barrierRevision = revision
+        barrierScheduledStartAt = null
+        player.pause()
+        player.seekTo(0L)
+        mutableState.value = mutableState.value.copy(
+            lastError = "Preparing synchronized start…"
+        )
+        recordDiagnostic(
+            "barrier.prepare",
+            "revision=$revision source=$sourceId"
+        )
+
+        val scope = roomScope ?: return
+        barrierJob = scope.launch {
+            val expiresAt = clock.elapsedRealtimeMs() + BARRIER_READY_TIMEOUT_MS
+            try {
+                while (
+                    isCurrent(roomId, generation) &&
+                    barrierRevision == revision &&
+                    localActionGeneration >= 0L &&
+                    clock.elapsedRealtimeMs() < expiresAt
+                ) {
+                    val local = player.snapshot()
+                    if (local.sourceId != sourceId || !local.isReady) {
+                        delay(BARRIER_READY_RETRY_MS)
+                        continue
+                    }
+
+                    val result: RoomPlaybackReadyResult = repository.markPlaybackReady(
+                        roomId = roomId,
+                        revision = revision,
+                        sourceId = sourceId
+                    )
+                    recordDiagnostic(
+                        "barrier.ready",
+                        "revision=$revision ready=${result.readyMembers}/${result.activeMembers}"
+                    )
+                    val scheduled = result.startAt
+                    if (!scheduled.isNullOrBlank()) {
+                        onBarrierStartScheduled(
+                            roomId = roomId,
+                            generation = generation,
+                            revision = revision,
+                            sourceId = sourceId,
+                            startAt = scheduled
+                        )
+                        return@launch
+                    }
+
+                    mutableState.value = mutableState.value.copy(
+                        lastError = "Waiting for the other device to prepare…"
+                    )
+                    delay(BARRIER_READY_RETRY_MS)
+                }
+
+                if (isCurrent(roomId, generation) && barrierRevision == revision) {
+                    mutableState.value = mutableState.value.copy(
+                        lastError = "The other device has not become ready. Playback remains paused; retry the track to try again."
+                    )
+                    recordDiagnostic("barrier.timeout", "revision=$revision")
+                    barrierRevision = null
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (isCurrent(roomId, generation) && barrierRevision == revision) {
+                    setError(error, "Synchronized start could not be scheduled")
+                    recordDiagnostic("barrier.error", error.message.orEmpty())
+                    barrierRevision = null
+                }
+            }
+        }
+    }
+
+    private fun onBarrierStartScheduled(
+        roomId: String,
+        generation: Long,
+        revision: Long,
+        sourceId: String,
+        startAt: String
+    ) {
+        if (!isCurrent(roomId, generation) ||
+            barrierRevision != revision ||
+            revision <= barrierCompletedRevision
+        ) return
+        val remote = lastRemotePlayback
+        if (remote != null &&
+            (remote.revision != revision || remote.canonicalSourceUrl != sourceId || !remote.isPlaying)
+        ) return
+
+        val startAtMs = parseTimestamp(startAt) ?: run {
+            recordDiagnostic("barrier.invalid_start", "revision=$revision")
+            return
+        }
+        if (barrierScheduledStartAt == startAt && barrierStartJob?.isActive == true) return
+
+        barrierJob?.cancel()
+        barrierJob = null
+        barrierScheduledStartAt = startAt
+        val scope = roomScope ?: return
+        barrierStartJob?.cancel()
+        barrierStartJob = scope.launch {
+            try {
+                recordDiagnostic(
+                    "barrier.start_scheduled",
+                    "revision=$revision server_start=$startAt"
+                )
+                while (isCurrent(roomId, generation) && barrierRevision == revision) {
+                    val remaining = startAtMs - clock.estimatedServerTimeMs()
+                    if (remaining <= 0L) break
+                    delay(remaining.coerceAtMost(250L))
+                }
+                if (!isCurrent(roomId, generation) ||
+                    barrierRevision != revision ||
+                    pendingAction != null
+                ) return@launch
+
+                val currentRemote = lastRemotePlayback
+                if (currentRemote == null ||
+                    currentRemote.revision != revision ||
+                    currentRemote.canonicalSourceUrl != sourceId ||
+                    !currentRemote.isPlaying
+                ) return@launch
+
+                val ready = withTimeoutOrNull(BARRIER_FINAL_READY_TIMEOUT_MS) {
+                    while (isCurrent(roomId, generation) && !player.snapshot().isReady) {
+                        delay(100L)
+                    }
+                    player.snapshot().isReady
+                } == true
+                if (!ready) {
+                    mutableState.value = mutableState.value.copy(
+                        lastError = "The local stream stopped being ready before the shared start."
+                    )
+                    return@launch
+                }
+
+                val elapsedSinceStart = (
+                    clock.estimatedServerTimeMs() - startAtMs
+                ).coerceAtLeast(0L)
+                val duration = player.snapshot().durationMs
+                val target = if (duration > 0L) {
+                    elapsedSinceStart.coerceAtMost(duration)
+                } else {
+                    elapsedSinceStart
+                }
+                player.seekTo(target)
+                player.resetPlaybackSpeed()
+                if (!isCurrent(roomId, generation) ||
+                    barrierRevision != revision ||
+                    pendingAction != null
+                ) return@launch
+                player.play()
+                barrierCompletedRevision = revision
+                barrierRevision = null
+                barrierScheduledStartAt = null
+                mutableState.value = mutableState.value.copy(
+                    connection = RoomConnectionState.CONNECTED,
+                    lastError = null
+                )
+                recordDiagnostic(
+                    "barrier.started",
+                    "revision=$revision start_offset=${elapsedSinceStart}ms"
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (isCurrent(roomId, generation)) {
+                    setError(error, "Synchronized playback could not start")
+                    recordDiagnostic("barrier.start_error", error.message.orEmpty())
+                }
+            }
+        }
+    }
+
+    private fun cancelStartBarrier(reason: String) {
+        if (barrierRevision == null) return
+        recordDiagnostic("barrier.cancelled", "revision=$barrierRevision reason=$reason")
+        barrierJob?.cancel()
+        barrierJob = null
+        barrierStartJob?.cancel()
+        barrierStartJob = null
+        barrierRevision = null
+        barrierScheduledStartAt = null
     }
 
     private fun correctLocalDrift(remote: RoomPlaybackSnapshot) {
@@ -963,6 +1215,9 @@ internal class ServiceRoomController(
         const val CLOCK_CALIBRATION_INTERVAL_MS = 300_000L
         const val TRACK_READY_TIMEOUT_MS = 20_000L
         const val SKIP_OBSERVE_DELAY_MS = 120L
+        const val BARRIER_READY_TIMEOUT_MS = 45_000L
+        const val BARRIER_READY_RETRY_MS = 750L
+        const val BARRIER_FINAL_READY_TIMEOUT_MS = 20_000L
         const val LOCAL_ACTION_WIN_MARGIN_MS = 200L
         const val MAX_DIAGNOSTIC_EVENTS = 120
     }
