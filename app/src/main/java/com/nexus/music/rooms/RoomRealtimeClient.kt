@@ -27,11 +27,11 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Authenticated Supabase Realtime Postgres Changes subscription for one room.
+ * Authenticated Supabase Realtime private Broadcast subscription for one room.
  *
- * The database row remains authoritative. A Realtime event is only a fast signal to
- * re-read that row; it is never applied as an unverified command. The caller retains
- * a REST polling fallback for missed events and reconnect gaps.
+ * Playback broadcasts carry the authoritative row produced by a database trigger.
+ * The receiver validates the room identity and revision before applying the snapshot.
+ * Chat remains a Postgres Changes subscription protected by the room-membership RLS policy.
  */
 internal class RoomRealtimeClient(
     private val api: RoomsApi,
