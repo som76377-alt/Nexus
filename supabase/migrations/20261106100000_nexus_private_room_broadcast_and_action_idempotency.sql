@@ -90,6 +90,7 @@ as $function$
 declare
   v_user_id uuid := auth.uid();
   v_current_revision bigint;
+  v_existing_action_id uuid;
   v_action_revision bigint;
   v_new_revision bigint;
 begin
@@ -162,11 +163,20 @@ begin
     return;
   end if;
 
-  select rp.revision
-  into v_current_revision
+  select rp.revision, rp.action_id
+  into v_current_revision, v_existing_action_id
   from public.room_playback rp
   where rp.room_id = p_room_id
   for update;
+
+  if found and v_existing_action_id = p_action_id then
+    -- Bridge retries for the action that was current immediately before this migration.
+    insert into private.room_playback_actions(room_id, action_id, revision)
+    values (p_room_id, p_action_id, v_current_revision)
+    on conflict (room_id, action_id) do nothing;
+    return query select true, v_current_revision;
+    return;
+  end if;
 
   if not found then
     if p_expected_revision <> 0 then
@@ -174,7 +184,7 @@ begin
       return;
     end if;
 
-    insert into public.room_playback(
+    insert into public.room_playback as inserted(
       room_id, source_id, source_url, title, artist, is_playing, position_ms,
       duration_ms, updated_by, action_id, action_type, origin_device_id, command_at
     ) values (
@@ -182,14 +192,14 @@ begin
       p_position_ms, p_duration_ms, v_user_id, p_action_id,
       p_action_type, p_origin_device_id, now()
     )
-    returning public.room_playback.revision into v_new_revision;
+    returning inserted.revision into v_new_revision;
   else
     if v_current_revision <> p_expected_revision then
       return query select false, v_current_revision;
       return;
     end if;
 
-    update public.room_playback
+    update public.room_playback as current_playback
     set source_id = p_source_id,
         source_url = p_source_url,
         title = p_title,
@@ -203,7 +213,7 @@ begin
         origin_device_id = p_origin_device_id,
         command_at = now()
     where room_id = p_room_id
-    returning public.room_playback.revision into v_new_revision;
+    returning current_playback.revision into v_new_revision;
   end if;
 
   insert into private.room_playback_actions(room_id, action_id, revision)
