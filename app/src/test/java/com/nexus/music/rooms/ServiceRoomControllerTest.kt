@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -144,7 +145,7 @@ class ServiceRoomControllerTest {
         }
     }
 
-    private fun newController(
+    private fun TestScope.newController(
         repository: FakeRoomRepository,
         player: FakeRoomPlayer
     ) = ServiceRoomController(
