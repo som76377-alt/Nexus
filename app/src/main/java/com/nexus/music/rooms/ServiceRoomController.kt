@@ -28,9 +28,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.IOException
-import java.text.SimpleDateFormat
-import java.util.Locale
-import java.util.TimeZone
 import java.util.UUID
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.isActive
@@ -717,7 +714,7 @@ internal class ServiceRoomController(
         }
     }
 
-    /** Called from a lock-held path; schedule publication after releasing applyMutex. */
+    /** Schedule a current local command after the reconciliation decision has released its mutex. */
     private fun requestPublishAfterApplyLock(roomId: String, generation: Long) {
         roomScope?.launch {
             delay(50L)
@@ -947,27 +944,7 @@ internal class ServiceRoomController(
         mutableState.value = mutableState.value.copy(lastError = "$prefix · $message")
     }
 
-    private fun parseTimestamp(value: String): Long? {
-        if (value.isBlank()) return null
-        val fractionPattern = Regex("(\\.\\d{3})\\d+(?=Z|[+-]\\d{2}:?\\d{2}$)")
-        val normalized = fractionPattern.replace(value) { match -> match.groupValues[1] }
-        val patterns = listOf(
-            "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
-            "yyyy-MM-dd'T'HH:mm:ssXXX",
-            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
-            "yyyy-MM-dd'T'HH:mm:ss'Z'"
-        )
-        for (pattern in patterns) {
-            val parsed = runCatching {
-                SimpleDateFormat(pattern, Locale.US).apply {
-                    isLenient = false
-                    timeZone = TimeZone.getTimeZone("UTC")
-                }.parse(normalized)?.time
-            }.getOrNull()
-            if (parsed != null) return parsed
-        }
-        return null
-    }
+    private fun parseTimestamp(value: String): Long? = RoomTimestampParser.parse(value)
 
     private companion object {
         const val HEARTBEAT_INTERVAL_MS = 25_000L
