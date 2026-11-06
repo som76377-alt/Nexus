@@ -168,6 +168,80 @@ internal class RoomIntentForwardingPlayer(
         super.setMediaItem(mediaItem, startPositionMs)
     }
 
+    override fun setMediaItems(mediaItems: List<MediaItem>) {
+        recordPlaylistSelection(mediaItems, 0)
+        super.setMediaItems(mediaItems)
+    }
+
+    override fun setMediaItems(mediaItems: List<MediaItem>, resetPosition: Boolean) {
+        val selectedIndex = if (resetPosition) 0 else player.currentMediaItemIndex
+        recordPlaylistSelection(mediaItems, selectedIndex)
+        super.setMediaItems(mediaItems, resetPosition)
+    }
+
+    override fun setMediaItems(
+        mediaItems: List<MediaItem>,
+        startIndex: Int,
+        startPositionMs: Long
+    ) {
+        val selectedIndex = if (startIndex == C.INDEX_UNSET) {
+            player.currentMediaItemIndex
+        } else {
+            startIndex
+        }
+        recordPlaylistSelection(mediaItems, selectedIndex)
+        super.setMediaItems(mediaItems, startIndex, startPositionMs)
+    }
+
+    override fun setPlayWhenReady(playWhenReady: Boolean) {
+        recordIntent(if (playWhenReady) RoomPlayerIntent.Play else RoomPlayerIntent.Pause)
+        super.setPlayWhenReady(playWhenReady)
+    }
+
+    override fun seekToNext() {
+        recordIntent(RoomPlayerIntent.SkipToNext(
+            previousSourceId = player.currentMediaItem?.mediaId.orEmpty(),
+            previousPositionMs = player.currentPosition.coerceAtLeast(0L)
+        ))
+        super.seekToNext()
+    }
+
+    override fun seekToNextMediaItem() {
+        recordIntent(RoomPlayerIntent.SkipToNext(
+            previousSourceId = player.currentMediaItem?.mediaId.orEmpty(),
+            previousPositionMs = player.currentPosition.coerceAtLeast(0L)
+        ))
+        super.seekToNextMediaItem()
+    }
+
+    override fun seekToPrevious() {
+        recordIntent(RoomPlayerIntent.SkipToPrevious(
+            previousSourceId = player.currentMediaItem?.mediaId.orEmpty(),
+            previousPositionMs = player.currentPosition.coerceAtLeast(0L)
+        ))
+        super.seekToPrevious()
+    }
+
+    override fun seekToPreviousMediaItem() {
+        recordIntent(RoomPlayerIntent.SkipToPrevious(
+            previousSourceId = player.currentMediaItem?.mediaId.orEmpty(),
+            previousPositionMs = player.currentPosition.coerceAtLeast(0L)
+        ))
+        super.seekToPreviousMediaItem()
+    }
+
+    override fun stop() {
+        recordIntent(RoomPlayerIntent.Pause)
+        super.stop()
+    }
+
+    private fun recordPlaylistSelection(items: List<MediaItem>, selectedIndex: Int) {
+        val selected = items.getOrNull(selectedIndex)
+            ?: items.firstOrNull()
+            ?: return
+        recordTrack(selected)
+    }
+
     private fun recordTrack(mediaItem: MediaItem) {
         // The media ID is the canonical shared identity. Never fall back to the
         // local playback URI: it is an expiring extracted stream URL, not room state.
