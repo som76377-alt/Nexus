@@ -283,11 +283,35 @@ internal class ServiceRoomController(
 
     private fun captureLocalIntent(intent: RoomPlayerIntent) {
         val roomId = activeRoomId ?: return
+        when (intent) {
+            is RoomPlayerIntent.SkipToNext -> {
+                captureSkipIntent(
+                    roomId,
+                    intent.previousSourceId,
+                    intent.previousPositionMs,
+                    next = true
+                )
+                return
+            }
+            is RoomPlayerIntent.SkipToPrevious -> {
+                captureSkipIntent(
+                    roomId,
+                    intent.previousSourceId,
+                    intent.previousPositionMs,
+                    next = false
+                )
+                return
+            }
+            else -> Unit
+        }
         val elapsed = clock.elapsedRealtimeMs()
         val current = player.snapshot()
         val previous = pendingAction
+        // Merge Play/Pause/Seek into a pending Track only when Media3 already exposes
+        // that exact canonical item. No time-window guess is needed.
         val preserveTrack = previous?.actionType == RoomActionType.TRACK &&
-            elapsed - previous.elapsedMs in 0L..750L
+            current.sourceId.isNotBlank() &&
+            previous.sourceId == current.sourceId
 
         val next = when (intent) {
             is RoomPlayerIntent.SelectTrack -> PendingLocalAction(
@@ -316,6 +340,8 @@ internal class ServiceRoomController(
             } else {
                 pendingFromSnapshot(RoomActionType.SEEK, current, elapsed)
             }
+            is RoomPlayerIntent.SkipToNext,
+            is RoomPlayerIntent.SkipToPrevious -> null
         } ?: return
 
         pendingAction = next
@@ -325,6 +351,41 @@ internal class ServiceRoomController(
         publishJob = scope.launch {
             delay(100L)
             publishPendingAction(roomId, sessionGeneration)
+        }
+    }
+
+    private fun captureSkipIntent(
+        roomId: String,
+        previousSourceId: String,
+        previousPositionMs: Long,
+        next: Boolean
+    ) {
+        val scope = roomScope ?: return
+        val session = sessionGeneration
+        val generation = ++localActionGeneration
+        recordDiagnostic(
+            "local.skip_requested",
+            "direction=${if (next) "next" else "previous"} source=$previousSourceId"
+        )
+        scope.launch {
+            // ForwardingPlayer records before delegating. Observe the resulting Media3
+            // timeline after its synchronous command has completed.
+            delay(SKIP_OBSERVE_DELAY_MS)
+            if (!isCurrent(roomId, session) || localActionGeneration != generation) return@launch
+            val after = player.snapshot()
+            val intent = if (after.sourceId.isNotBlank() && after.sourceId != previousSourceId) {
+                RoomPlayerIntent.SelectTrack(
+                    sourceId = after.sourceId,
+                    canonicalSourceUrl = after.canonicalSourceUrl.ifBlank { after.sourceId },
+                    title = after.title,
+                    artist = after.artist
+                )
+            } else if (after.positionMs != previousPositionMs) {
+                RoomPlayerIntent.SeekTo(after.positionMs)
+            } else {
+                return@launch
+            }
+            captureLocalIntent(intent)
         }
     }
 
@@ -912,6 +973,7 @@ internal class ServiceRoomController(
         const val HEARTBEAT_INTERVAL_MS = 25_000L
         const val CLOCK_CALIBRATION_INTERVAL_MS = 300_000L
         const val TRACK_READY_TIMEOUT_MS = 20_000L
+        const val SKIP_OBSERVE_DELAY_MS = 120L
         const val LOCAL_ACTION_WIN_MARGIN_MS = 200L
         const val MAX_DIAGNOSTIC_EVENTS = 120
     }
