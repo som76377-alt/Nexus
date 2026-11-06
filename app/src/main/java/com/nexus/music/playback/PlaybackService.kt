@@ -12,6 +12,7 @@ import androidx.media3.session.MediaSessionService
 import com.nexus.music.catalog.YoutubeCatalogRepository
 import com.nexus.music.rooms.ServiceRoomController
 import com.nexus.music.rooms.YoutubeRoomMediaResolver
+import com.nexus.music.rooms.RoomsApi
 import com.nexus.music.rooms.data.SupabaseRoomClock
 import com.nexus.music.rooms.data.SupabaseRoomRepository
 import com.nexus.music.rooms.domain.RoomController
@@ -32,6 +33,7 @@ class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private var roomPlayerPort: Media3RoomPlayerPort? = null
     private var roomController: ServiceRoomController? = null
+    private var roomsApi: RoomsApi? = null
     private lateinit var serviceScope: CoroutineScope
 
     companion object {
@@ -40,12 +42,16 @@ class PlaybackService : MediaSessionService() {
                 "(KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36 Nexus/0.1"
 
         private val activeRoomController = MutableStateFlow<RoomController?>(null)
+        private val activeRoomsApi = MutableStateFlow<RoomsApi?>(null)
 
-        /** Process-local bridge for the UI; the controller itself remains service-owned. */
+        /** Process-local UI bridge; the controller and authenticated API remain service-owned. */
         fun currentRoomController(): RoomController? = activeRoomController.value
 
         suspend fun awaitRoomController(): RoomController =
             activeRoomController.filterNotNull().first()
+
+        suspend fun awaitRoomsApi(): RoomsApi =
+            activeRoomsApi.filterNotNull().first()
     }
 
     @UnstableApi
@@ -80,7 +86,9 @@ class PlaybackService : MediaSessionService() {
         val playerPort = Media3RoomPlayerPort(exoPlayer)
         roomPlayerPort = playerPort
 
-        val roomsApi = com.nexus.music.rooms.RoomsApi(this)
+        val roomsApi = RoomsApi(this)
+        this.roomsApi = roomsApi
+        activeRoomsApi.value = roomsApi
         val repository = SupabaseRoomRepository(roomsApi)
         val clock = SupabaseRoomClock(roomsApi)
         val mediaResolver = YoutubeRoomMediaResolver(YoutubeCatalogRepository())
@@ -109,6 +117,10 @@ class PlaybackService : MediaSessionService() {
         if (activeRoomController.value === roomController) {
             activeRoomController.value = null
         }
+        if (activeRoomsApi.value === roomsApi) {
+            activeRoomsApi.value = null
+        }
+        roomsApi = null
         roomController?.close()
         roomController = null
         serviceScope.cancel()
