@@ -249,10 +249,40 @@ class ListeningRoomActivity : Activity() {
         registerBackNavigation()
         playback = PlaybackConnection(
             context = this,
-            onReady = { renderPlayback(playback?.snapshot() ?: PlaybackSnapshot(false)) },
+                        onReady = {
+                renderPlayback(playback?.snapshot() ?: PlaybackSnapshot(false))
+                restoreActiveRoomIfPresent()
+            },
             onStateChanged = ::onPlaybackChanged,
             onError = { message -> status.text = "Player: $message" }
         )
+    }
+
+    private var restoreRoomAttempted = false
+
+    /**
+     * PlaybackService can outlive this Activity. If Android recreates the Activity while
+     * the service still owns an active room, restore the room UI without resetting the
+     * controller session or its realtime/heartbeat/drift jobs.
+     */
+    private fun restoreActiveRoomIfPresent() {
+        if (restoreRoomAttempted || roomId != null) return
+        val activeRoomId = PlaybackService.currentRoomController()?.state?.value?.roomId
+            ?: return
+        restoreRoomAttempted = true
+        scope.launch {
+            try {
+                val api = PlaybackService.awaitRoomsApi()
+                if (roomId != null || isFinishing || isDestroyed) return@launch
+                userId = api.identity().userId
+                enterRoom(activeRoomId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                restoreRoomAttempted = false
+                status.text = "Couldn't restore the active room: ${error.message ?: "reconnect and try again."}"
+            }
+        }
     }
 
     private fun createRoom() {
@@ -331,7 +361,11 @@ class ListeningRoomActivity : Activity() {
             val controller = PlaybackService.awaitRoomController()
             if (roomId != id || roomSessionGeneration != sessionGeneration) return
             roomController = controller
-            controller.attach(id)
+            // The controller may already own this room after Activity recreation.
+            // Observe the live session instead of tearing down and restarting its jobs.
+            if (controller.state.value.roomId != id) {
+                controller.attach(id)
+            }
             if (roomId != id || roomSessionGeneration != sessionGeneration) return
 
             lastChatSignalVersion = controller.state.value.chatSignalVersion
