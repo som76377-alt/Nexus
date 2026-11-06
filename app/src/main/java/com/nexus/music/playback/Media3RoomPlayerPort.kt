@@ -59,8 +59,8 @@ internal class Media3RoomPlayerPort(
                 Player.PLAYBACK_SUPPRESSION_REASON_TRANSIENT_AUDIO_FOCUS_LOSS
             ) {
                 // Transient focus loss suppresses output while playWhenReady can remain true.
-                // Pause the room so the other device does not continue audibly by itself.
-                forwardSystemPause()
+                // Pause locally too, so a later focus return cannot resume one phone alone.
+                forwardSystemPause(pauseLocal = true)
             } else if (playbackSuppressionReason == Player.PLAYBACK_SUPPRESSION_REASON_NONE &&
                 player.playWhenReady
             ) {
@@ -68,9 +68,12 @@ internal class Media3RoomPlayerPort(
             }
         }
 
-        private fun forwardSystemPause() {
+        private fun forwardSystemPause(pauseLocal: Boolean = false) {
             if (systemPauseForwarded) return
             systemPauseForwarded = true
+            if (pauseLocal && player.playWhenReady) {
+                player.pause()
+            }
             mutableUserIntents.tryEmit(RoomPlayerIntent.Pause)
         }
     }
