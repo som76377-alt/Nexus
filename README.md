@@ -55,7 +55,7 @@ Then open the local URL printed by Vite (normally `http://localhost:5173/`). The
 - Direct Supabase REST/Auth requests over OkHttp; no service-role key is embedded in the APK
 - GitHub Actions for lint, tests, and cloud APK builds
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/ROOMS_BACKEND.md](docs/ROOMS_BACKEND.md), [docs/PROJECT_MAP.md](docs/PROJECT_MAP.md), [docs/UPDATES.md](docs/UPDATES.md), and [docs/BUILDING.md](docs/BUILDING.md).
+See the [documentation index](docs/README.md) for the architecture, project map, room backend, updates and build guides. The [target architecture](docs/ARCHITECTURE_TARGET.md) describes the next room-engine structure; it is a plan, not a claim that the controller migration is complete.
 
 ## Build and test
 
