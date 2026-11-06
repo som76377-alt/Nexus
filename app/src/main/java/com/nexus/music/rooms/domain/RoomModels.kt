@@ -20,12 +20,7 @@ enum class RoomActionType(val wireValue: String) {
     }
 }
 
-/**
- * Explicit local user intent captured at the player command boundary.
- *
- * The player adapter must emit these only for genuine local user commands.
- * Applying a remote room command must never emit another local intent.
- */
+/** Explicit local user intent captured at the MediaSession command boundary. */
 sealed interface RoomPlayerIntent {
     data object Play : RoomPlayerIntent
     data object Pause : RoomPlayerIntent
@@ -34,16 +29,14 @@ sealed interface RoomPlayerIntent {
         val sourceId: String,
         val canonicalSourceUrl: String,
         val title: String,
-        val artist: String?,
-        val durationMs: Long
+        val artist: String?
     ) : RoomPlayerIntent
 }
 
 /**
  * A user or recovery command against the authoritative room playback revision.
  *
- * expectedRevision is the database compare-and-swap version. It is deliberately
- * not a Lamport counter: revision CAS remains the ordering authority in v1.
+ * expectedRevision is the database compare-and-swap version, not a Lamport counter.
  */
 data class RoomCommand(
     val roomId: String,
@@ -100,6 +93,7 @@ data class RoomPlaybackSnapshot(
 /** Small player-neutral snapshot; Media3 constants never cross this boundary. */
 data class LocalPlaybackSnapshot(
     val sourceId: String = "",
+    val canonicalSourceUrl: String = "",
     val title: String = "",
     val artist: String? = null,
     val isPlaying: Boolean = false,
@@ -116,11 +110,19 @@ enum class RoomConnectionState {
     ERROR
 }
 
+sealed interface RoomRealtimeSignal {
+    data object PlaybackInvalidated : RoomRealtimeSignal
+    data object ChatInvalidated : RoomRealtimeSignal
+    data class ConnectionChanged(val connected: Boolean) : RoomRealtimeSignal
+}
+
 data class RoomControllerState(
     val roomId: String? = null,
     val connection: RoomConnectionState = RoomConnectionState.DISCONNECTED,
     val playback: RoomPlaybackSnapshot? = null,
-    val lastError: String? = null
+    val lastError: String? = null,
+    val realtimeConnected: Boolean = false,
+    val chatSignalVersion: Long = 0L
 )
 
 data class RoomPublishResult(
