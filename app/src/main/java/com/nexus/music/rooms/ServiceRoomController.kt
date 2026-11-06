@@ -80,6 +80,7 @@ internal class ServiceRoomController(
     private var barrierCompletedRevision: Long = 0L
     private var playbackAnchorRevision: Long? = null
     private var playbackAnchorAt: String? = null
+    private var playbackAnchorPositionMs: Long? = null
 
     @Volatile private var activeRoomId: String? = null
     private var sessionGeneration = 0L
@@ -135,6 +136,7 @@ internal class ServiceRoomController(
         barrierCompletedRevision = 0L
         playbackAnchorRevision = null
         playbackAnchorAt = null
+        playbackAnchorPositionMs = null
 
         val newUserId = repository.currentUserId()
         if (!isCurrent(roomId, generation)) return
@@ -334,6 +336,7 @@ internal class ServiceRoomController(
         cancelStartBarrier("new local playback intent")
         playbackAnchorRevision = null
         playbackAnchorAt = null
+        playbackAnchorPositionMs = null
         when (intent) {
             is RoomPlayerIntent.SkipToNext -> {
                 captureSkipIntent(
@@ -710,6 +713,7 @@ internal class ServiceRoomController(
         if (command.actionType != RoomActionType.TRACK) {
             playbackAnchorRevision = null
             playbackAnchorAt = null
+            playbackAnchorPositionMs = null
         }
         mutableState.value = mutableState.value.copy(
             connection = RoomConnectionState.CONNECTED,
@@ -988,6 +992,7 @@ internal class ServiceRoomController(
                 if (!isNewTrackStart && playbackAnchorRevision != authoritative.revision) {
                     playbackAnchorRevision = null
                     playbackAnchorAt = null
+                    playbackAnchorPositionMs = null
                 }
                 val current = player.snapshot()
                 if (shouldUseSharedStart) {
@@ -1193,6 +1198,7 @@ internal class ServiceRoomController(
                 barrierScheduledStartAt = null
                 playbackAnchorRevision = revision
                 playbackAnchorAt = remote.commandAt.ifBlank { remote.updatedAt }
+                playbackAnchorPositionMs = remote.positionMs
                 mutableState.value = mutableState.value.copy(
                     connection = RoomConnectionState.CONNECTED,
                     lastError = null,
@@ -1245,6 +1251,7 @@ internal class ServiceRoomController(
             }
             playbackAnchorRevision = revision
             playbackAnchorAt = remote.commandAt.ifBlank { remote.updatedAt }
+            playbackAnchorPositionMs = remote.positionMs
             recordDiagnostic("barrier.late_shared_anchor", "revision=$revision offset=${expected}ms")
             return
         }
@@ -1339,6 +1346,7 @@ internal class ServiceRoomController(
                 barrierScheduledStartAt = null
                 playbackAnchorRevision = revision
                 playbackAnchorAt = startAt
+                playbackAnchorPositionMs = positionAtStart
                 mutableState.value = mutableState.value.copy(
                     connection = RoomConnectionState.CONNECTED,
                     lastError = null,
@@ -1404,8 +1412,13 @@ internal class ServiceRoomController(
         val elapsed = anchorTime?.let {
             (clock.estimatedServerTimeMs() - it).coerceAtLeast(0L)
         } ?: 0L
+        val anchorPosition = if (playbackAnchorRevision == remote.revision) {
+            playbackAnchorPositionMs ?: remote.positionMs
+        } else {
+            remote.positionMs
+        }
         val expected = RoomPlaybackMath.expectedRemotePositionMs(
-            positionMs = remote.positionMs,
+            positionMs = anchorPosition,
             isPlaying = remote.isPlaying,
             elapsedSinceUpdateMs = elapsed,
             durationMs = remote.durationMs
