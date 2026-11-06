@@ -155,6 +155,20 @@ class RoomsApi(context: Context) {
         ensureSession().accessToken
     }
 
+    /**
+     * Refresh the signed JWT during a long-lived Realtime connection. Refresh-token
+     * rotation is persisted atomically with the new session before it is returned.
+     */
+    suspend fun refreshRealtimeAccessToken(): String = withContext(Dispatchers.IO) {
+        synchronized(sessionLock) {
+            val current = ensureSession()
+            if (current.refreshToken.isBlank()) {
+                throw IOException("The room session cannot refresh its Realtime token.")
+            }
+            refreshSession(current).accessToken
+        }
+    }
+
     suspend fun identity(): RoomIdentity = withContext(Dispatchers.IO) {
         RoomIdentity(ensureSession().userId)
     }
