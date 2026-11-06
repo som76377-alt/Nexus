@@ -300,7 +300,7 @@ internal object ServerClockEstimator {
  */
 internal object RoomTimestampParser {
     private val fractionalSeconds = Regex(
-        """(\\.\\d{3})\\d+(?=Z|[+-]\\d{2}:?\\d{2}$)"""
+        """(\.\\d{3})\\d+(?=Z|[+-]\\d{2}:?\\d{2}$)"""
     )
     private val formatters = object : ThreadLocal<List<SimpleDateFormat>>() {
         override fun initialValue(): List<SimpleDateFormat> = listOf(
