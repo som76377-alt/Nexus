@@ -30,6 +30,7 @@ internal class Media3RoomPlayerPort(
     private val mutableUserIntents = MutableSharedFlow<RoomPlayerIntent>(
         extraBufferCapacity = 32
     )
+    private var systemPauseForwarded = false
 
     override val playback: StateFlow<LocalPlaybackSnapshot> = mutablePlayback
     override val userIntents: SharedFlow<RoomPlayerIntent> = mutableUserIntents
@@ -41,14 +42,36 @@ internal class Media3RoomPlayerPort(
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
             mutablePlayback.value = readSnapshot()
-            if (!playWhenReady &&
-                (reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY ||
-                    reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS)
+            if (playWhenReady) {
+                systemPauseForwarded = false
+            } else if (
+                reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY ||
+                reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS ||
+                reason == Player.PLAY_WHEN_READY_CHANGE_REASON_SUPPRESSED_TOO_LONG
             ) {
-                // These are explicit Media3 system reasons, not inferred from isPlaying.
-                // Propagate a real system pause to the paired device.
-                mutableUserIntents.tryEmit(RoomPlayerIntent.Pause)
+                forwardSystemPause()
             }
+        }
+
+        override fun onPlaybackSuppressionReasonChanged(playbackSuppressionReason: Int) {
+            mutablePlayback.value = readSnapshot()
+            if (playbackSuppressionReason ==
+                Player.PLAYBACK_SUPPRESSION_REASON_TRANSIENT_AUDIO_FOCUS_LOSS
+            ) {
+                // Transient focus loss suppresses output while playWhenReady can remain true.
+                // Pause the room so the other device does not continue audibly by itself.
+                forwardSystemPause()
+            } else if (playbackSuppressionReason == Player.PLAYBACK_SUPPRESSION_REASON_NONE &&
+                player.playWhenReady
+            ) {
+                systemPauseForwarded = false
+            }
+        }
+
+        private fun forwardSystemPause() {
+            if (systemPauseForwarded) return
+            systemPauseForwarded = true
+            mutableUserIntents.tryEmit(RoomPlayerIntent.Pause)
         }
     }
 
