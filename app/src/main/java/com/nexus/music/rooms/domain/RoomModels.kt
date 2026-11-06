@@ -133,3 +133,25 @@ data class RoomPublishResult(
     val applied: Boolean,
     val revision: Long
 )
+
+/** Bounded diagnostics for measuring actual transport and playback behavior on devices. */
+data class RoomDiagnosticsSnapshot(
+    val lastPublishLatencyMs: Long? = null,
+    val lastSnapshotLatencyMs: Long? = null,
+    val lastApplyLatencyMs: Long? = null,
+    val lastDriftMs: Long? = null,
+    val events: List<String> = emptyList()
+) {
+    val summary: String
+        get() = "publish=${lastPublishLatencyMs?.let { "${it}ms" } ?: "—"} · " +
+            "snapshot=${lastSnapshotLatencyMs?.let { "${it}ms" } ?: "—"} · " +
+            "apply=${lastApplyLatencyMs?.let { "${it}ms" } ?: "—"} · " +
+            "drift=${lastDriftMs?.let { "${it}ms" } ?: "—"}"
+
+    fun exportText(): String = buildString {
+        appendLine("Nexus room synchronization diagnostics")
+        appendLine(summary)
+        appendLine("Events are device-local monotonic observations; compare timestamps across phones only through server-anchored measurements.")
+        events.forEach(::appendLine)
+    }
+}
