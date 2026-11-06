@@ -4,7 +4,6 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -24,6 +23,7 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v6
 
+      - name: Set up JDK
       - name: Set up JDK
         uses: actions/setup-java@v5
         with:
