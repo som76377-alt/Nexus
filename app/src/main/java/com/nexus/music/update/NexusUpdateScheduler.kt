@@ -6,6 +6,9 @@ import androidx.work.WorkManager
 /**
  * Retires the old background updater. Update checks and APK downloads now happen
  * in MainActivity so the user can see the result and the download progress.
+ *
+ * Keep the legacy unique-work names so installations upgrading from older builds
+ * can cancel their already-persisted WorkManager jobs.
  */
 object NexusUpdateScheduler {
     private const val PERIODIC_WORK = "nexus_periodic_update_check"
@@ -17,10 +20,5 @@ object NexusUpdateScheduler {
         manager.cancelUniqueWork(PERIODIC_WORK)
         manager.cancelUniqueWork(INITIAL_WORK)
         manager.cancelUniqueWork(PUSH_WORK)
-    }
-
-    /** Older installations may still receive a release push; never queue a silent download. */
-    fun requestFromPush(context: Context) {
-        disableBackgroundUpdates(context)
     }
 }
