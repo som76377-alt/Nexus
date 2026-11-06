@@ -52,7 +52,6 @@ import java.util.Locale
  */
 class ListeningRoomActivity : Activity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val api by lazy { RoomsApi(this) }
     private val handler = Handler(Looper.getMainLooper())
 
     private lateinit var status: TextView
@@ -261,6 +260,7 @@ class ListeningRoomActivity : Activity() {
         setBusy(true, "Creating a private room…")
         scope.launch {
             try {
+                val api = PlaybackService.awaitRoomsApi()
                 val identity = api.identity()
                 userId = identity.userId
                 val created = api.createRoom()
@@ -399,6 +399,7 @@ class ListeningRoomActivity : Activity() {
         val id = roomId ?: return
         val sessionGeneration = roomSessionGeneration
         val requestGeneration = ++messageRefreshGeneration
+        val api = PlaybackService.awaitRoomsApi()
         val messages = api.loadMessages(id)
         // Ignore both cross-room responses and older concurrent reads from this same room.
         if (roomId != id ||
@@ -453,6 +454,7 @@ class ListeningRoomActivity : Activity() {
         sendButton.isEnabled = false
         scope.launch {
             try {
+                val api = PlaybackService.awaitRoomsApi()
                 api.sendMessage(id, sender, body)
                 if (roomId != id || roomSessionGeneration != sessionGeneration) return@launch
                 messageInput.text.clear()
@@ -495,6 +497,7 @@ class ListeningRoomActivity : Activity() {
         scope.launch {
             var leaveFailed = false
             try {
+                val api = PlaybackService.awaitRoomsApi()
                 api.leaveRoom(id)
             } catch (cancelled: CancellationException) {
                 throw cancelled
