@@ -116,7 +116,7 @@ internal class Media3RoomPlayerPort(
     }
 
     override fun setPlaybackSpeed(speed: Float) {
-        player.setPlaybackSpeed(speed.coerceIn(0.99f, 1.01f))
+        player.setPlaybackSpeed(speed.coerceIn(0.98f, 1.02f))
     }
 
     override fun resetPlaybackSpeed() {
