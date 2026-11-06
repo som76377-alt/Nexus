@@ -26,6 +26,13 @@ interface RoomRepository {
 interface RoomPlayerPort {
     val playback: StateFlow<LocalPlaybackSnapshot>
 
+    /**
+     * Explicit local commands captured at the MediaSession/player command boundary.
+     * Use a ForwardingPlayer (or equivalent explicit command adapter), not timing
+     * windows or heuristics over playWhenReady/position callbacks.
+     */
+    val userIntents: Flow<RoomPlayerIntent>
+
     suspend fun prepareCanonicalSource(
         sourceId: String,
         canonicalSourceUrl: String,
