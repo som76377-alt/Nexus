@@ -6,7 +6,7 @@ A lightweight browser participant for testing the existing Nexus listening-room 
 
 - Anonymous browser authentication using the same Supabase project as Nexus.
 - Create a room in the browser and join it from Nexus on Android, or join a room created by Android.
-- Two-member room capacity and membership heartbeat.
+- Two-member room capacity, 25-second membership heartbeats, and server-derived active participant count (45-second presence window).
 - Room-scoped chat in both directions.
 - Realtime playback snapshots and REST polling fallback.
 - Playback commands from the browser to the Android player: load a YouTube track, play, pause, and seek.
@@ -46,7 +46,7 @@ The existing Nexus public Supabase URL and publishable key are used as safe defa
 2. Start the web client on your laptop.
 3. In the browser, choose **Create test room**. The browser creates its own anonymous Supabase identity and displays a room code.
 4. In Nexus on the phone, open Listening Room → Join room and enter that code.
-5. Confirm the Participants panel shows two members.
+5. Confirm the Participants panel shows two active members. This count comes from a membership-checked server RPC, not chat or playback activity.
 6. Send a message from the browser, then send one from Nexus. Both should appear on both devices.
 7. On the phone, play a YouTube track using the normal Nexus app. The browser should show the title/state and a newer revision.
 8. In the browser, enter a YouTube URL or 11-character video ID and choose **Send track**. The Android phone should receive the track command and resolve it through its existing NewPipe/Media3 path.
@@ -59,7 +59,7 @@ You can reverse steps 3–4: create the room in Nexus and join it from the brows
 
 - **Anonymous sign-in disabled:** the existing Nexus Supabase project must have Anonymous Sign-Ins enabled in Authentication settings. It was enabled for the Android app's room flow.
 - **Room code rejected:** use the current five-character code; rooms expire after one hour without activity.
-- **Only one participant appears:** make sure both devices joined the same code. A room is limited to two members.
+- **Only one participant appears:** make sure both devices joined the same code and that both membership heartbeats are current. The browser refreshes the count every five seconds; stale seats are not shown as active.
 - **Chat works but Realtime says reconnecting:** the client continues polling every five seconds. Check browser internet access and Supabase Realtime status.
 - **Browser commands do not load a track:** use a normal public YouTube video URL or its 11-character video ID. Android still performs the actual extraction; browser does not.
 - **Playback state is visible but phone does not respond:** capture the browser Event log and Android logcat. The web tool can prove the backend command was accepted; Android logs show whether Media3 received/resolved/applied it.
