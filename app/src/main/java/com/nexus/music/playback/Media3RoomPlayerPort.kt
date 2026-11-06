@@ -62,6 +62,7 @@ internal class Media3RoomPlayerPort(
             canonicalSourceUrl = canonicalUrl,
             title = item?.mediaMetadata?.title?.toString().orEmpty(),
             artist = item?.mediaMetadata?.artist?.toString(),
+            playWhenReady = player.playWhenReady,
             isPlaying = player.isPlaying,
             isBuffering = player.playbackState == Player.STATE_BUFFERING,
             isReady = player.playbackState == Player.STATE_READY,
