@@ -148,13 +148,17 @@ data class RoomDiagnosticsSnapshot(
     val lastSnapshotLatencyMs: Long? = null,
     val lastApplyLatencyMs: Long? = null,
     val lastDriftMs: Long? = null,
+    val lastRoundTripMs: Long? = null,
+    val lastCommandAgeMs: Long? = null,
     val events: List<String> = emptyList()
 ) {
     val summary: String
         get() = "publish=${lastPublishLatencyMs?.let { "${it}ms" } ?: "—"} · " +
             "snapshot=${lastSnapshotLatencyMs?.let { "${it}ms" } ?: "—"} · " +
             "apply=${lastApplyLatencyMs?.let { "${it}ms" } ?: "—"} · " +
-            "drift=${lastDriftMs?.let { "${it}ms" } ?: "—"}"
+            "peer-age=${lastCommandAgeMs?.let { "${it}ms" } ?: "—"} · " +
+            "drift=${lastDriftMs?.let { "${it}ms" } ?: "—"} · " +
+            "RTT=${lastRoundTripMs?.let { "${it}ms" } ?: "—"}"
 
     fun exportText(): String = buildString {
         appendLine("Nexus room synchronization diagnostics")
