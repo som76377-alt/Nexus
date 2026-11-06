@@ -37,6 +37,7 @@ internal class RoomRealtimeClient(
     private val scope: CoroutineScope,
     private val onPlaybackSignal: () -> Unit,
     private val onChatSignal: () -> Unit,
+    private val onStartScheduled: (Long, String, String) -> Unit,
     private val onConnectionChanged: (Boolean) -> Unit
 ) {
     // Shared across room lifetimes. The Phoenix heartbeat loop below is the application
@@ -146,8 +147,20 @@ internal class RoomRealtimeClient(
                         }
                         "broadcast" -> {
                             val payload = message.optJSONObject("payload")
-                            if (payload?.optString("event") == "playback_invalidated") {
-                                onPlaybackSignal()
+                            when (payload?.optString("event")) {
+                                "playback_invalidated" -> onPlaybackSignal()
+                                "playback_start_scheduled" -> {
+                                    val data = payload.optJSONObject("payload")
+                                    val revision = data?.optLong("revision", -1L) ?: -1L
+                                    val sourceId = data?.optString("source_id").orEmpty()
+                                    val startAt = data?.optString("start_at").orEmpty()
+                                    if (revision >= 0L &&
+                                        sourceId.isNotBlank() &&
+                                        startAt.isNotBlank()
+                                    ) {
+                                        onStartScheduled(revision, sourceId, startAt)
+                                    }
+                                }
                             }
                         }
                         "system" -> {
