@@ -64,6 +64,7 @@ internal class Media3RoomPlayerPort(
             artist = item?.mediaMetadata?.artist?.toString(),
             isPlaying = player.isPlaying,
             isBuffering = player.playbackState == Player.STATE_BUFFERING,
+            isReady = player.playbackState == Player.STATE_READY,
             positionMs = player.currentPosition.coerceAtLeast(0L),
             durationMs = duration
         )
