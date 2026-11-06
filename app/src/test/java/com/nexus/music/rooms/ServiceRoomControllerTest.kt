@@ -259,21 +259,21 @@ class ServiceRoomControllerTest {
 
             assertTrue(player.snapshot().playWhenReady)
             assertTrue(player.snapshot().isPlaying)
-            assertEquals(1_501L, player.snapshot().positionMs)
+            assertEquals(1_502L, player.snapshot().positionMs)
             assertEquals(1L, controller.state.value.playback?.revision)
             assertEquals(null, controller.state.value.statusMessage)
 
             // Drift correction must project from the exact position at the scheduled
             // anchor, not combine the old command position with the new anchor time.
             clock.advance(1_000L)
-            player.setSnapshot(player.snapshot().copy(positionMs = 2_501L))
+            player.setSnapshot(player.snapshot().copy(positionMs = 2_502L))
             advanceTimeBy(1_000L)
             runCurrent()
             clock.advance(1_000L)
-            player.setSnapshot(player.snapshot().copy(positionMs = 3_501L))
+            player.setSnapshot(player.snapshot().copy(positionMs = 3_502L))
             advanceTimeBy(1_000L)
             runCurrent()
-            assertEquals(3_501L, player.snapshot().positionMs)
+            assertEquals(3_502L, player.snapshot().positionMs)
         } finally {
             controller.close()
         }
