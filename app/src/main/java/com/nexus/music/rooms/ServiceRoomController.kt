@@ -6,6 +6,7 @@ import com.nexus.music.rooms.domain.RoomCommand
 import com.nexus.music.rooms.domain.RoomConnectionState
 import com.nexus.music.rooms.domain.RoomController
 import com.nexus.music.rooms.domain.RoomControllerState
+import com.nexus.music.rooms.domain.RoomDiagnosticsSnapshot
 import com.nexus.music.rooms.domain.RoomPlayerIntent
 import com.nexus.music.rooms.domain.RoomPlayerPort
 import com.nexus.music.rooms.domain.RoomPlaybackSnapshot
@@ -55,6 +56,8 @@ internal class ServiceRoomController(
     )
     private val mutableState = MutableStateFlow(RoomControllerState())
     override val state: StateFlow<RoomControllerState> = mutableState.asStateFlow()
+    private val mutableDiagnostics = MutableStateFlow(RoomDiagnosticsSnapshot())
+    override val diagnostics: StateFlow<RoomDiagnosticsSnapshot> = mutableDiagnostics.asStateFlow()
 
     private val publishMutex = Mutex()
     private val applyMutex = Mutex()
@@ -103,6 +106,8 @@ internal class ServiceRoomController(
         val generation = ++sessionGeneration
         localActionGeneration = 0L
         activeRoomId = roomId
+        mutableDiagnostics.value = RoomDiagnosticsSnapshot()
+        recordDiagnostic("room.attach", "room=$roomId")
         mutableState.value = RoomControllerState(
             roomId = roomId,
             connection = RoomConnectionState.CONNECTING
@@ -144,6 +149,7 @@ internal class ServiceRoomController(
                 when (signal) {
                     RoomRealtimeSignal.PlaybackInvalidated -> {
                         signalSequence++
+                        recordDiagnostic("realtime.playback_signal", "sequence=$signalSequence")
                         requestReconciliation(roomId, generation)
                     }
                     RoomRealtimeSignal.ChatInvalidated -> {
@@ -252,6 +258,28 @@ internal class ServiceRoomController(
     private fun isCurrent(roomId: String, generation: Long): Boolean =
         activeRoomId == roomId && sessionGeneration == generation
 
+    private fun recordDiagnostic(
+        event: String,
+        detail: String = "",
+        publishLatencyMs: Long? = null,
+        snapshotLatencyMs: Long? = null,
+        applyLatencyMs: Long? = null,
+        driftMs: Long? = null
+    ) {
+        val elapsed = clock.elapsedRealtimeMs()
+        val wall = System.currentTimeMillis()
+        val line = "$wall +${elapsed}ms $event" +
+            detail.takeIf(String::isNotBlank)?.let { " | $it" }.orEmpty()
+        val previous = mutableDiagnostics.value
+        mutableDiagnostics.value = previous.copy(
+            lastPublishLatencyMs = publishLatencyMs ?: previous.lastPublishLatencyMs,
+            lastSnapshotLatencyMs = snapshotLatencyMs ?: previous.lastSnapshotLatencyMs,
+            lastApplyLatencyMs = applyLatencyMs ?: previous.lastApplyLatencyMs,
+            lastDriftMs = driftMs ?: previous.lastDriftMs,
+            events = (previous.events + line).takeLast(MAX_DIAGNOSTIC_EVENTS)
+        )
+    }
+
     private fun captureLocalIntent(intent: RoomPlayerIntent) {
         val roomId = activeRoomId ?: return
         val elapsed = clock.elapsedRealtimeMs()
@@ -290,6 +318,7 @@ internal class ServiceRoomController(
         } ?: return
 
         pendingAction = next
+        recordDiagnostic("local.intent", "type=${next.actionType} source=${next.sourceId} generation=${next.generation}")
         val scope = roomScope ?: return
         if (publishJob?.isActive == true) return
         publishJob = scope.launch {
@@ -460,7 +489,14 @@ internal class ServiceRoomController(
                 durationMs = local.durationMs.coerceAtLeast(0L)
             )
 
+            val publishStarted = clock.elapsedRealtimeMs()
             val result = repository.publishPlayback(command)
+            val publishLatency = (clock.elapsedRealtimeMs() - publishStarted).coerceAtLeast(0L)
+            recordDiagnostic(
+                "rpc.publish",
+                "type=${pending.actionType} applied=${result.applied} revision=${result.revision}",
+                publishLatencyMs = publishLatency
+            )
             if (!isCurrent(roomId, generation)) return
             if (result.applied) {
                 acceptPublished(command, result.revision, pending)
@@ -482,7 +518,13 @@ internal class ServiceRoomController(
 
             if (localWins) {
                 val rebased = command.copy(expectedRevision = latest.revision)
+                val retryStarted = clock.elapsedRealtimeMs()
                 val retry = repository.publishPlayback(rebased)
+                recordDiagnostic(
+                    "rpc.publish_retry",
+                    "applied=${retry.applied} revision=${retry.revision}",
+                    publishLatencyMs = (clock.elapsedRealtimeMs() - retryStarted).coerceAtLeast(0L)
+                )
                 if (!isCurrent(roomId, generation)) return
                 if (retry.applied) {
                     acceptPublished(rebased, retry.revision, pending)
@@ -521,7 +563,10 @@ internal class ServiceRoomController(
     private suspend fun refreshRemotePlayback(roomId: String, generation: Long) {
         applyMutex.withLock {
             if (!isCurrent(roomId, generation)) return
+            val snapshotStarted = clock.elapsedRealtimeMs()
             val remote = repository.fetchPlaybackSnapshot(roomId) ?: return
+            val snapshotLatency = (clock.elapsedRealtimeMs() - snapshotStarted).coerceAtLeast(0L)
+            recordDiagnostic("rest.snapshot", "revision=${remote.revision}", snapshotLatencyMs = snapshotLatency)
             if (!isCurrent(roomId, generation) || remote.revision < lastRemoteRevision) return
             lastRemotePlayback = remote
             lastRemoteRevision = maxOf(lastRemoteRevision, remote.revision)
@@ -616,6 +661,8 @@ internal class ServiceRoomController(
         generation: Long
     ) {
         if (!isCurrent(roomId, generation)) return
+        val applyStarted = clock.elapsedRealtimeMs()
+        recordDiagnostic("player.apply_start", "revision=${remote.revision} action=${remote.actionType}")
         val localGeneration = localActionGeneration
         val startingSignal = signalSequence
         val before = player.snapshot()
@@ -714,6 +761,11 @@ internal class ServiceRoomController(
                 lastError = null
             )
         } finally {
+            recordDiagnostic(
+                "player.apply_end",
+                "revision=${remote.revision}",
+                applyLatencyMs = (clock.elapsedRealtimeMs() - applyStarted).coerceAtLeast(0L)
+            )
             if (isCurrent(roomId, generation) && pendingAction != null) {
                 requestPublishAfterApplyLock(roomId, generation)
             }
@@ -760,6 +812,9 @@ internal class ServiceRoomController(
             nowMs = nowElapsed,
             roundTripMs = clock.estimatedRoundTripTimeMs()
         )
+        if (kotlin.math.abs(drift) >= 100L || correction.type != DriftCorrectionType.NONE) {
+            recordDiagnostic("drift.correction", "type=${correction.type} rtt=${clock.estimatedRoundTripTimeMs()}ms", driftMs = drift)
+        }
         when (correction.type) {
             DriftCorrectionType.NONE -> Unit
             DriftCorrectionType.SET_SPEED -> player.setPlaybackSpeed(correction.speed)
@@ -805,5 +860,6 @@ internal class ServiceRoomController(
         const val CLOCK_CALIBRATION_INTERVAL_MS = 300_000L
         const val TRACK_READY_TIMEOUT_MS = 20_000L
         const val LOCAL_ACTION_WIN_MARGIN_MS = 200L
+        const val MAX_DIAGNOSTIC_EVENTS = 120
     }
 }
