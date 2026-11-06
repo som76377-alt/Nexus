@@ -1,44 +1,41 @@
-# Nexus foundation status
+# Nexus foundation and room-engine status
 
 Last updated: 2026-11-06
 
-## Baseline used for this foundation branch
+## Main baseline
 
-- Repository: `som76377-alt/Nexus`
-- Foundation branch starts from PR #6 head: `ff4c80644ba38551d7c735906b55b84a4843b3ec`.
-- PR #6 (room playback reliability and updater baseline) was merged into `main` on 2026-11-06 as merge commit `36bfa816f694426d1a10c35a5e7b0ecbd03ecab9`.
-- Main at this foundation review: `36bfa816f694426d1a10c35a5e7b0ecbd03ecab9`.
-- Current release at audit: v0.1.7.
-- Live Supabase project: active/healthy; migrations through `20261105164854` are recorded as applied. Merging repository code does not apply database migrations.
+- Repository: `som76377-alt/Nexus`.
+- Room playback reliability and updater baseline PR #6 merged as `36bfa816f694426d1a10c35a5e7b0ecbd03ecab9`.
+- Architecture foundation PR #7 merged as `fa050c9145488413d04238cf4e9f16cf506f04a7`.
+- The current implementation branch is `feature/service-owned-room-controller`, based on that main commit.
+- The live Supabase project already has the RPC-only playback write migration `20261105164854` recorded as applied. App code and this branch do not modify the live database.
 
-## Foundation added by this branch
+## Implemented on the service-owned controller branch
 
-- Player/backend-neutral room domain models.
-- Explicit repository, player and clock ports.
-- A RoomController lifecycle contract intended to be owned by PlaybackService.
-- Documentation index, target package boundaries and architecture decision records.
-- Removal of the obsolete release-update-only Firebase messaging service. FCM remote room wake-up is not part of v1.
+- `PlaybackService` creates and owns one concrete `ServiceRoomController` alongside the existing ExoPlayer and MediaSession.
+- `Media3RoomPlayerPort` adapts that same ExoPlayer; it does not construct a second player.
+- `RoomIntentForwardingPlayer` captures explicit MediaSession play, pause, seek and track-selection intent. Remote room corrections call the player port directly and do not echo through the local-intent wrapper.
+- `SupabaseRoomRepository` adapts the existing authenticated `RoomsApi` RPC/REST calls and `RoomRealtimeClient`. Realtime messages are invalidation signals; the controller fetches the authoritative database snapshot.
+- `SupabaseRoomClock` reuses the current five-probe clock calibration.
+- Heartbeat, Realtime, playback revision reconciliation, conflict recovery, local command publication, clock recalibration and drift correction run in the service controller, not in `ListeningRoomActivity`.
+- `ListeningRoomActivity` observes controller state and handles room controls/chat UI. Chat invalidation remains separate from playback reconciliation.
+- Focused controller tests cover local track publication, buffered local start, remote track/play without command echo, chat invalidation and detach.
 
-## Not implemented by this foundation
+## Explicit limits
 
-- No concrete service-owned RoomController implementation yet.
-- No migration of existing room jobs out of ListeningRoomActivity yet.
-- No new Realtime Broadcast transport.
-- No Lamport ordering; database revision CAS remains the v1 ordering authority.
-- No two-phase PREPARE/READY/START barrier.
-- No proof of two-phone audio synchronization.
-- No new APK or release has been built by this foundation branch.
+- The current branch has not yet passed its fresh Android CI run; do not treat the source as build-verified until the PR checks pass.
+- No physical two-phone acceptance run has been completed by CI or this code change.
+- No two-phase PREPARE/READY/START barrier is implemented.
+- No private Realtime Broadcast transport, Lamport ordering, FCM remote wake, or second player is introduced.
+- Android may stop an idle service/process; remote wake after process death is not promised.
+- No signed public APK release is produced by this feature branch.
 
-## Required next implementation sequence
+## Validation gates
 
-1. Confirm this foundation compiles and tests pass.
-2. Implement a RoomPlayerPort adapter over the existing MediaSession/ExoPlayer instance.
-3. Implement RoomRepository adapters over the existing RoomsApi and RoomRealtimeClient.
-4. Implement the concrete RoomController inside PlaybackService.
-5. Move heartbeat, playback signals, snapshot reconciliation, clock calibration and drift jobs into that controller.
-6. Reduce ListeningRoomActivity to UI, room entry/exit and state observation.
-7. Run the two-device acceptance matrix in [ROOM_SYNC_RELIABILITY_PLAN.md](ROOM_SYNC_RELIABILITY_PLAN.md).
-8. Only after measured need, evaluate private Broadcast or FCM wake-up.
+1. Fresh CI on the exact feature-branch head: Android lint, unit tests, debug APK assembly, unsigned-release fail-closed guard and debug artifact upload.
+2. Review any failures and require a new committed head plus a fresh successful CI run.
+3. Physical-device acceptance on two Android phones: room create/join, track handoff, play/pause/seek, buffering, simultaneous controls, background playback, Activity navigation/recreation and network reconnect.
+4. Release only from a semantic version tag after signed-release workflow validation.
 
 ## Safety rails
 

@@ -6,14 +6,15 @@ import kotlinx.coroutines.flow.StateFlow
 /**
  * Backend boundary for room playback.
  *
- * Realtime notifications are invalidation/wake-up signals only. Callers must
- * fetch the authoritative snapshot and compare its revision before applying it.
+ * Realtime notifications are invalidation/wake-up signals only. Callers fetch the
+ * authoritative snapshot and compare its revision before applying it.
  */
 interface RoomRepository {
+    suspend fun currentUserId(): String
     suspend fun fetchPlaybackSnapshot(roomId: String): RoomPlaybackSnapshot?
     suspend fun publishPlayback(command: RoomCommand): RoomPublishResult
-    fun observePlaybackSignals(roomId: String): Flow<Unit>
-    suspend fun touchRoom(roomId: String)
+    fun observeRealtimeSignals(roomId: String): Flow<RoomRealtimeSignal>
+    suspend fun touchRoom(roomId: String): Boolean
     suspend fun leaveRoom(roomId: String)
 }
 
@@ -25,26 +26,27 @@ interface RoomRepository {
  */
 interface RoomPlayerPort {
     val playback: StateFlow<LocalPlaybackSnapshot>
-
-    /**
-     * Explicit local commands captured at the MediaSession/player command boundary.
-     * Use a ForwardingPlayer (or equivalent explicit command adapter), not timing
-     * windows or heuristics over playWhenReady/position callbacks.
-     */
     val userIntents: Flow<RoomPlayerIntent>
 
+    /** Read a fresh position/state; StateFlow is for observation, not a clock. */
+    fun snapshot(): LocalPlaybackSnapshot
+
+    /** Resolve externally, then replace the item in the one local player. */
     suspend fun prepareCanonicalSource(
         sourceId: String,
         canonicalSourceUrl: String,
+        streamUrl: String,
         title: String,
         artist: String?,
-        playWhenReady: Boolean
+        mimeType: String?
     )
 
+    /** These methods apply remote state directly and must not emit local user intent. */
     fun play()
     fun pause()
     fun seekTo(positionMs: Long)
     fun setPlaybackSpeed(speed: Float)
+    fun resetPlaybackSpeed()
 }
 
 /** Clock boundary so sync math can use elapsed time and deterministic tests. */
