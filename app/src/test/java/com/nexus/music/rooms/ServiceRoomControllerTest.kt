@@ -233,7 +233,7 @@ class ServiceRoomControllerTest {
                 durationMs = 90_000L
             )
         )
-        val clock = FakeRoomClock()
+        val clock = FakeRoomClock(failuresBeforeSuccess = 1)
         val controller = newController(repository, player, clock = clock)
 
         try {
@@ -242,6 +242,8 @@ class ServiceRoomControllerTest {
             advanceTimeBy(150L)
             runCurrent()
 
+            assertTrue("a failed attach probe must be retried before playback scheduling", clock.calibrationCalls >= 2)
+            assertTrue(clock.isCalibrated())
             assertEquals(1, repository.published.size)
             assertTrue(repository.published.single().isPlaying)
             assertTrue(repository.readinessCalls >= 1)
@@ -891,13 +893,25 @@ class ServiceRoomControllerTest {
         }
     }
 
-    private class FakeRoomClock : RoomClock {
+    private class FakeRoomClock(
+        private var failuresBeforeSuccess: Int = 0
+    ) : RoomClock {
         private var elapsedMs = 10_000L
+        private var calibrated = failuresBeforeSuccess == 0
+        var calibrationCalls = 0
+            private set
         override fun elapsedRealtimeMs(): Long = elapsedMs
         override fun estimatedServerTimeMs(): Long = elapsedMs
         override fun estimatedRoundTripTimeMs(): Long = 25L
+        override fun isCalibrated(): Boolean = calibrated
         override suspend fun calibrate() {
+            calibrationCalls += 1
             elapsedMs += 1L
+            if (failuresBeforeSuccess > 0) {
+                failuresBeforeSuccess -= 1
+                throw IOException("Temporary clock probe failure")
+            }
+            calibrated = true
         }
 
         fun advance(milliseconds: Long) {

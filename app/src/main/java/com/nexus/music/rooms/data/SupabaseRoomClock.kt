@@ -14,6 +14,8 @@ internal class SupabaseRoomClock(
 
     override fun estimatedRoundTripTimeMs(): Long = api.serverClockRoundTripMillis()
 
+    override fun isCalibrated(): Boolean = api.hasServerClockEstimate()
+
     override suspend fun calibrate() {
         api.calibrateServerClock()
     }

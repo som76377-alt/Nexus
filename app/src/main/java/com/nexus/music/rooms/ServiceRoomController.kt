@@ -142,8 +142,15 @@ internal class ServiceRoomController(
         if (!isCurrent(roomId, generation)) return
         userId = newUserId
 
-        // Keep the last valid clock estimate if a network probe temporarily fails.
-        runCatching { clock.calibrate() }
+        // Keep a previous valid estimate when a network probe temporarily fails, but
+        // never treat the wall-clock fallback as a valid synchronized server clock.
+        try {
+            clock.calibrate()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            recordDiagnostic("clock.calibration_failed", error.message.orEmpty())
+        }
         if (!isCurrent(roomId, generation)) return
 
         val initial = repository.fetchPlaybackSnapshot(roomId)
@@ -486,7 +493,15 @@ internal class ServiceRoomController(
             val now = clock.elapsedRealtimeMs()
 
             if (now - lastCalibration >= CLOCK_CALIBRATION_INTERVAL_MS) {
-                runCatching { clock.calibrate() }
+                try {
+                    clock.calibrate()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    // Retain the previous calibrated estimate; never replace it with the
+                    // device wall clock just because a refresh probe temporarily failed.
+                    recordDiagnostic("clock.recalibration_failed", error.message.orEmpty())
+                }
                 lastCalibration = clock.elapsedRealtimeMs()
             }
 
@@ -884,6 +899,12 @@ internal class ServiceRoomController(
         var shouldPublishLocal = false
         var shouldStartBarrier = false
         try {
+            if (remote.isPlaying && !clock.isCalibrated()) {
+                clock.calibrate()
+                if (!clock.isCalibrated()) {
+                    throw IOException("A calibrated server clock is required before synchronized playback.")
+                }
+            }
             val before = player.snapshot()
             if (remote.actionType == RoomActionType.TRACK && remote.isPlaying) {
                 // Stop the previous item immediately. New-track playback remains paused
@@ -1074,8 +1095,14 @@ internal class ServiceRoomController(
 
         val scope = roomScope ?: return
         barrierJob = scope.launch {
-            val localReadyDeadline = clock.elapsedRealtimeMs() + TRACK_READY_TIMEOUT_MS
             try {
+                if (!clock.isCalibrated()) {
+                    clock.calibrate()
+                    if (!clock.isCalibrated()) {
+                        throw IOException("A calibrated server clock is required before starting the room.")
+                    }
+                }
+                val localReadyDeadline = clock.elapsedRealtimeMs() + TRACK_READY_TIMEOUT_MS
                 // Wait for this device's own stream once. A peer that is not ready must
                 // never cause repeated readiness RPCs or leave this device paused forever.
                 while (
@@ -1394,6 +1421,7 @@ internal class ServiceRoomController(
         }
         if (local.isBuffering || !local.isPlaying) return
 
+        if (!clock.isCalibrated()) return
         val nowElapsed = clock.elapsedRealtimeMs()
         if (driftSeekGate.shouldWait(
                 localPositionMs = local.positionMs,

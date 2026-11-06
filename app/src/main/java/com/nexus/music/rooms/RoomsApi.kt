@@ -89,6 +89,8 @@ class RoomsApi(context: Context) {
 
     fun serverClockRoundTripMillis(): Long = serverClockRoundTripMs
 
+    fun hasServerClockEstimate(): Boolean = serverClockOffsetFromElapsedMs != null
+
     /**
      * Estimate the Supabase clock from several request/response samples.
      *

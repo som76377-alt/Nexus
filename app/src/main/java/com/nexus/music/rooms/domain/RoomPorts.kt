@@ -59,5 +59,7 @@ interface RoomClock {
     fun elapsedRealtimeMs(): Long
     fun estimatedServerTimeMs(): Long
     fun estimatedRoundTripTimeMs(): Long
+    /** False means callers must not use this clock to schedule synchronized playback. */
+    fun isCalibrated(): Boolean = true
     suspend fun calibrate()
 }
