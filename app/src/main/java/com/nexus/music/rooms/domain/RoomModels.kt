@@ -125,8 +125,19 @@ enum class RoomConnectionState {
 sealed interface RoomRealtimeSignal {
     data object PlaybackInvalidated : RoomRealtimeSignal
     data object ChatInvalidated : RoomRealtimeSignal
+    data class StartScheduled(
+        val revision: Long,
+        val sourceId: String,
+        val startAt: String
+    ) : RoomRealtimeSignal
     data class ConnectionChanged(val connected: Boolean) : RoomRealtimeSignal
 }
+
+data class RoomPlaybackReadyResult(
+    val startAt: String?,
+    val activeMembers: Int,
+    val readyMembers: Int
+)
 
 data class RoomControllerState(
     val roomId: String? = null,
