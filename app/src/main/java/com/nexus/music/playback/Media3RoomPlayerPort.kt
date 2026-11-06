@@ -1,7 +1,6 @@
-@file:OptIn(androidx.media3.common.util.UnstableApi::class)
-
 package com.nexus.music.playback
 
+import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -23,6 +22,7 @@ import kotlinx.coroutines.withContext
  * Remote room application calls this adapter directly; local user intent is
  * emitted only by the ForwardingPlayer that fronts the MediaSession.
  */
+@OptIn(UnstableApi::class)
 internal class Media3RoomPlayerPort(
     private val player: ExoPlayer
 ) : RoomPlayerPort, AutoCloseable {
@@ -131,7 +131,7 @@ internal class Media3RoomPlayerPort(
  * Captures command intent before it reaches ExoPlayer. Room corrections bypass this
  * wrapper and call Media3RoomPlayerPort directly, so a remote correction cannot echo.
  */
-@UnstableApi
+@OptIn(UnstableApi::class)
 internal class RoomIntentForwardingPlayer(
     player: Player,
     private val recordIntent: (RoomPlayerIntent) -> Unit
