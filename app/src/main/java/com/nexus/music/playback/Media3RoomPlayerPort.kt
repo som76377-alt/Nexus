@@ -38,6 +38,18 @@ internal class Media3RoomPlayerPort(
         override fun onEvents(player: Player, events: Player.Events) {
             mutablePlayback.value = readSnapshot()
         }
+
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            mutablePlayback.value = readSnapshot()
+            if (!playWhenReady &&
+                (reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY ||
+                    reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS)
+            ) {
+                // These are explicit Media3 system reasons, not inferred from isPlaying.
+                // Propagate a real system pause to the paired device.
+                mutableUserIntents.tryEmit(RoomPlayerIntent.Pause)
+            }
+        }
     }
 
     init {
