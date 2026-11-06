@@ -127,9 +127,11 @@ begin
   delete from private.room_playback_readiness
   where room_id = p_room_id
     and expires_at < clock_timestamp() - interval '1 hour';
+  -- Retain the start anchor for the current playback revision so a phone that
+  -- reconnects later can join the existing timeline instead of waiting for a new peer.
   delete from private.room_playback_starts
   where room_id = p_room_id
-    and created_at < clock_timestamp() - interval '1 hour';
+    and revision <> p_revision;
 
   select greatest(count(*)::integer, 1)
   into v_active_members
@@ -157,12 +159,16 @@ begin
       clock_timestamp() + interval '1500 milliseconds'
     )
     on conflict (room_id, revision) do nothing;
-
-    select s.start_at
-    into v_start_at
-    from private.room_playback_starts s
-    where s.room_id = p_room_id and s.revision = p_revision;
   end if;
+
+  -- Always return an existing anchor, including for a device that is joining a
+  -- track whose synchronized start occurred before this device reconnected.
+  select s.start_at
+  into v_start_at
+  from private.room_playback_starts s
+  where s.room_id = p_room_id
+    and s.revision = p_revision
+    and s.source_id = p_source_id;
 
   return query select v_start_at, v_active_members, v_ready_members;
 end;
