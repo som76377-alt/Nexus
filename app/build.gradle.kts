@@ -3,10 +3,6 @@ plugins {
     alias(libs.plugins.kotlin.android)
 }
 
-if (file("google-services.json").exists()) {
-    apply(plugin = "com.google.gms.google-services")
-}
-
 val nexusVersionName = providers.gradleProperty("nexusVersionName").orElse("0.0.0-dev").get()
 val configuredVersionCode = providers.gradleProperty("nexusVersionCode").orNull
 val nexusVersionCode = configuredVersionCode?.toIntOrNull()
@@ -110,7 +106,6 @@ dependencies {
     implementation(libs.coil.network.okhttp)
     implementation("androidx.work:work-runtime-ktx:2.10.1")
     implementation("androidx.core:core-ktx:1.16.0")
-    implementation("com.google.firebase:firebase-messaging:24.1.1")
     testImplementation(libs.junit)
     testImplementation(libs.mockwebserver)
     testImplementation("org.json:json:20240303")
