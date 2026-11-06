@@ -1218,14 +1218,37 @@ internal class ServiceRoomController(
         sourceId: String,
         startAt: String
     ) {
-        if (!isCurrent(roomId, generation) ||
-            barrierRevision != revision ||
-            revision <= barrierCompletedRevision
-        ) return
+        if (!isCurrent(roomId, generation)) return
         val remote = lastRemotePlayback
         if (remote != null &&
             (remote.revision != revision || remote.canonicalSourceUrl != sourceId || !remote.isPlaying)
         ) return
+
+        // A START may arrive after this device used its bounded no-peer fallback.
+        // It is then a peer-join signal, not a command to rewind the already-running track.
+        if (revision == barrierCompletedRevision) {
+            val local = player.snapshot()
+            if (local.sourceId != sourceId || !local.isPlaying || remote == null) return
+            val commandAt = parseTimestamp(remote.commandAt.ifBlank { remote.updatedAt })
+            val elapsed = commandAt?.let {
+                (clock.estimatedServerTimeMs() - it).coerceAtLeast(0L)
+            } ?: 0L
+            val expected = RoomPlaybackMath.expectedRemotePositionMs(
+                positionMs = remote.positionMs,
+                isPlaying = true,
+                elapsedSinceUpdateMs = elapsed,
+                durationMs = remote.durationMs
+            )
+            if (RoomPlaybackMath.needsSeek(local.positionMs, expected)) {
+                player.resetPlaybackSpeed()
+                player.seekTo(expected)
+            }
+            playbackAnchorRevision = revision
+            playbackAnchorAt = remote.commandAt.ifBlank { remote.updatedAt }
+            recordDiagnostic("barrier.late_shared_anchor", "revision=$revision offset=${expected}ms")
+            return
+        }
+        if (barrierRevision != revision || revision < barrierCompletedRevision) return
 
         val startAtMs = parseTimestamp(startAt) ?: run {
             recordDiagnostic("barrier.invalid_start", "revision=$revision")
@@ -1280,11 +1303,25 @@ internal class ServiceRoomController(
                     return@launch
                 }
 
+                // Project the command's position forward to the scheduled anchor first.
+                // A late peer must join the existing track timeline, not restart at zero.
+                val commandAt = parseTimestamp(
+                    currentRemote.commandAt.ifBlank { currentRemote.updatedAt }
+                )
+                val elapsedBeforeStart = commandAt?.let {
+                    (startAtMs - it).coerceAtLeast(0L)
+                } ?: 0L
+                val positionAtStart = RoomPlaybackMath.expectedRemotePositionMs(
+                    positionMs = currentRemote.positionMs,
+                    isPlaying = true,
+                    elapsedSinceUpdateMs = elapsedBeforeStart,
+                    durationMs = currentRemote.durationMs
+                )
                 val elapsedSinceStart = (
                     clock.estimatedServerTimeMs() - startAtMs
                 ).coerceAtLeast(0L)
                 val target = RoomPlaybackMath.expectedRemotePositionMs(
-                    positionMs = currentRemote.positionMs,
+                    positionMs = positionAtStart,
                     isPlaying = true,
                     elapsedSinceUpdateMs = elapsedSinceStart,
                     durationMs = currentRemote.durationMs

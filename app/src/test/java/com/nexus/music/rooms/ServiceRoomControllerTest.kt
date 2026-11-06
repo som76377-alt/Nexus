@@ -255,6 +255,7 @@ class ServiceRoomControllerTest {
 
             assertTrue(player.snapshot().playWhenReady)
             assertTrue(player.snapshot().isPlaying)
+            assertEquals(1_501L, player.snapshot().positionMs)
             assertEquals(1L, controller.state.value.playback?.revision)
             assertEquals(null, controller.state.value.statusMessage)
         } finally {
@@ -355,7 +356,14 @@ class ServiceRoomControllerTest {
                 )
             )
             runCurrent()
-            assertEquals("late shared anchor must realign the fallback player", 0L, player.snapshot().positionMs)
+            assertEquals(
+                "late shared anchor must preserve the command-time playback timeline",
+                47_600L,
+                player.snapshot().positionMs
+            )
+            assertTrue(controller.diagnostics.value.events.any {
+                it.contains("barrier.late_shared_anchor")
+            })
         } finally {
             controller.close()
         }
@@ -463,7 +471,7 @@ class ServiceRoomControllerTest {
 
             assertTrue(player.snapshot().playWhenReady)
             assertTrue(player.snapshot().isPlaying)
-            assertEquals(30_001L, player.snapshot().positionMs)
+            assertEquals(31_501L, player.snapshot().positionMs)
             assertTrue(repository.published.isEmpty())
         } finally {
             controller.close()
@@ -776,6 +784,16 @@ class ServiceRoomControllerTest {
             sourceId: String
         ): RoomPlaybackReadyResult {
             readinessCalls += 1
+            val current = checkNotNull(snapshot) { "readiness requires an authoritative playback snapshot" }
+            check(current.roomId == roomId && current.revision == revision) {
+                "readiness revision must match the authoritative snapshot"
+            }
+            check(current.canonicalSourceUrl == sourceId &&
+                current.actionType in setOf(RoomActionType.TRACK, RoomActionType.PLAY) &&
+                current.isPlaying
+            ) {
+                "only an active TRACK or PLAY revision can enter the shared start barrier"
+            }
             return RoomPlaybackReadyResult(
                 startAt = scheduledStartAt,
                 activeMembers = 2,
