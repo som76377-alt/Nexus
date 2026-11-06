@@ -23,6 +23,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
+import java.io.IOException
 
 /**
  * Owns the one ExoPlayer, its MediaSession and the room coordinator.
@@ -48,10 +50,16 @@ class PlaybackService : MediaSessionService() {
         fun currentRoomController(): RoomController? = activeRoomController.value
 
         suspend fun awaitRoomController(): RoomController =
-            activeRoomController.filterNotNull().first()
+            withTimeoutOrNull(SERVICE_BRIDGE_TIMEOUT_MS) {
+                activeRoomController.filterNotNull().first()
+            } ?: throw IOException("Playback service did not finish starting the room controller.")
 
         suspend fun awaitRoomsApi(): RoomsApi =
-            activeRoomsApi.filterNotNull().first()
+            withTimeoutOrNull(SERVICE_BRIDGE_TIMEOUT_MS) {
+                activeRoomsApi.filterNotNull().first()
+            } ?: throw IOException("Playback service did not finish starting the room API.")
+
+        private const val SERVICE_BRIDGE_TIMEOUT_MS = 10_000L
     }
 
     @UnstableApi
@@ -110,8 +118,9 @@ class PlaybackService : MediaSessionService() {
         controllerInfo: MediaSession.ControllerInfo
     ): MediaSession? = mediaSession
 
-    // MediaSessionService keeps the service alive when a session is actively playing and stops
-    // it when playback is no longer active. Keep the platform default onTaskRemoved behaviour.
+    // Keep Media3's platform-default task-removal behavior. Android stops a paused
+    // MediaSessionService; ListeningRoomActivity persists the opaque room UUID and reattaches
+    // after the app is reopened. Do not claim an indefinitely running paused service.
 
     override fun onDestroy() {
         if (activeRoomController.value === roomController) {
