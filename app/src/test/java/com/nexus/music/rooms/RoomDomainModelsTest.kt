@@ -58,3 +58,4 @@ class RoomDomainModelsTest {
         assertEquals(0L, command.expectedRevision)
         assertEquals(0L, command.positionMs)
     }
+}
