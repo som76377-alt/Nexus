@@ -1,3 +1,5 @@
+> **Implementation-status note (2026-11-06):** This document describes the current implementation at the PR #6 baseline. It is not the target architecture. The service-owned RoomController migration is still pending; see [ARCHITECTURE_TARGET.md](ARCHITECTURE_TARGET.md) and [FOUNDATION_STATUS.md](FOUNDATION_STATUS.md).
+
 # Nexus architecture
 
 ## Product direction

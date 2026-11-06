@@ -14,6 +14,7 @@ Versions are pinned; do not replace them with floating versions.
 | OkHttp | 4.12.0 | Extractor HTTP transport |
 | Kotlin coroutines | 1.10.2 | Off-main-thread extraction |
 | Coil | 3.5.0 | Thumbnail and artwork loading |
+| AndroidX WorkManager | 2.10.1 | Cancels persisted legacy background-update jobs during upgrade |
 
 AGP's built-in Kotlin compiler is disabled for this project and the explicit Kotlin Gradle Plugin is used. The first CI run exposed a mismatch between the compiler bundled with AGP and Kotlin 2.4 standard-library metadata. The external Kotlin plugin currently needs AGP's new DSL temporarily disabled (`android.newDsl=false`). Keep these compatibility switches documented and recheck them before upgrading AGP or Kotlin; do not remove them without a successful full CI run.
 
@@ -46,4 +47,10 @@ The private-room prototype uses a Supabase Postgres project, Supabase Auth REST 
 
 The current sign-in method is anonymous and device-local. It is not a durable account provider and does not enforce a global allowlist of the two intended people. Room chat is stored as plaintext in the database and is not end-to-end encrypted. Enable anonymous sign-ins in Supabase Auth before testing the prototype.
 
-No analytics SDK, ads SDK, local media database, persistent queue, or end-to-end encryption library is included.
+## Explicitly not included in v1
+
+- Firebase Cloud Messaging: remote room wake after Android has destroyed the app process is not a v1 requirement. Re-add FCM only if that becomes an explicit product requirement, with a dedicated authenticated room-wake design.
+- Supabase Kotlin SDK: continue using the existing OkHttp REST/Auth and Phoenix WebSocket implementation.
+- Additional audio engines, audio relay servers, or room daemons.
+
+WorkManager remains only to cancel unique background-update jobs persisted by older app versions. Its compatibility worker must remain until the legacy migration window is intentionally closed.

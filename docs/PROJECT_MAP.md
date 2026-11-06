@@ -1,3 +1,5 @@
+> **Status note (2026-11-06):** The current Activity-owned room jobs are the refactor target. The new `rooms/domain` contracts establish boundaries but do not implement the service-owned controller yet. See [ARCHITECTURE_TARGET.md](ARCHITECTURE_TARGET.md).
+
 # Nexus project map
 
 This document separates implemented source from features still planned or awaiting physical-device validation.
@@ -20,7 +22,7 @@ This document separates implemented source from features still planned or awaiti
 │       │   │   ├── CatalogFormatting.kt
 │       │   │   ├── catalog/
 │       │   │   ├── playback/
-│       │   │   ├── rooms/
+│       │   │   ├── rooms/ (domain/, data/, sync/)
 │       │   │   └── update/
 │       │   └── res/values/
 │       └── test/java/com/nexus/music/
@@ -57,8 +59,8 @@ This document separates implemented source from features still planned or awaiti
 ## Folder responsibilities
 
 - `catalog/`: provider integration, extraction transport, app-owned catalogue models, and stream selection. No Android UI code belongs here.
-- `playback/`: service-owned player/session and the controller bridge. Avoid putting player state in Activity fields.
-- `rooms/`: Supabase Auth/REST calls, encrypted local session storage, room UI, chat, heartbeat, and playback synchronisation.
+- `playback/`: service-owned player/session and the controller bridge; see its package README for ownership rules.
+- `rooms/`: current room UI/API plus the new `domain/` contracts; `data/` and `sync/` are documented adapter/policy boundaries awaiting implementation.
 - `update/`: stable GitHub release checks, APK integrity/signature validation, Android installer hand-off, and legacy background-worker shutdown.
 - `supabase/migrations/`: versioned room schema, RLS, RPCs, cleanup scheduling, and least-privilege grants.
 - `app/src/test/`: deterministic unit tests that do not require YouTube, plus one opt-in network smoke test.
