@@ -6,7 +6,11 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import com.nexus.music.BuildConfig
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -72,21 +76,52 @@ class RoomsApi(context: Context) {
     private val baseUrl = BuildConfig.SUPABASE_URL.trimEnd('/')
     private val apiKey = BuildConfig.SUPABASE_PUBLISHABLE_KEY
     @Volatile private var serverClockOffsetFromElapsedMs: Long? = null
+    @Volatile private var serverClockRoundTripMs: Long = 250L
 
     fun serverNowMillis(): Long = serverClockOffsetFromElapsedMs
         ?.let { SystemClock.elapsedRealtime() + it }
         ?: System.currentTimeMillis()
 
+    fun serverClockRoundTripMillis(): Long = serverClockRoundTripMs
+
+    /**
+     * Estimate the Supabase clock from several request/response samples.
+     *
+     * A single midpoint sample is easily biased by asymmetric mobile-network latency.
+     * Keep the three lowest-RTT samples and take their median offset so one slow or
+     * unusually routed request cannot move the room timeline.
+     */
     suspend fun calibrateServerClock() = withContext(Dispatchers.IO) {
-        val requestStarted = SystemClock.elapsedRealtime()
-        val response = apiRequest("POST", "/rest/v1/rpc/room_server_time", "{}")
-            .trim()
-            .removeSurrounding(34.toChar().toString())
-        val requestFinished = SystemClock.elapsedRealtime()
-        val serverTime = parseServerTimestampMillis(response)
-            ?: throw IOException("The server returned an invalid clock timestamp.")
-        val midpoint = requestStarted + (requestFinished - requestStarted) / 2L
-        serverClockOffsetFromElapsedMs = serverTime - midpoint
+        // Run the five tiny time probes concurrently. Sequential probes made room entry
+        // wait behind slow mobile-network round trips even though only the best samples matter.
+        val samples = coroutineScope {
+            (0 until 5).map {
+                async(Dispatchers.IO) {
+                    val requestStarted = SystemClock.elapsedRealtime()
+                    try {
+                        val response = apiRequest("POST", "/rest/v1/rpc/room_server_time", "{}")
+                            .trim()
+                            .removeSurrounding(34.toChar().toString())
+                        val requestFinished = SystemClock.elapsedRealtime()
+                        val serverTime = parseServerTimestampMillis(response)
+                            ?: throw IOException("The server returned an invalid clock timestamp.")
+                        val midpoint = requestStarted + (requestFinished - requestStarted) / 2L
+                        ClockOffsetSample(
+                            offsetMs = serverTime - midpoint,
+                            roundTripMs = (requestFinished - requestStarted).coerceAtLeast(0L)
+                        )
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+            }.awaitAll().filterNotNull()
+        }
+        val estimate = ServerClockEstimator.estimate(samples)
+            ?: throw IOException("Nexus could not obtain enough reliable server-clock samples.")
+        serverClockOffsetFromElapsedMs = estimate.offsetMs
+        serverClockRoundTripMs = estimate.medianRoundTripMs
     }
 
     private fun parseServerTimestampMillis(value: String): Long? {

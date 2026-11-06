@@ -78,6 +78,7 @@ class MainActivity : Activity() {
     private var updateCheckJob: Job? = null
     private var downloadJob: Job? = null
     private var pendingUpdate: NexusUpdate? = null
+    private var requiresCleanInstall = false
     private var pendingNotificationTrack: CatalogTrack? = null
     private var notificationPermissionRequested = false
     private var selectedScope = YoutubeSearchScope.EVERYTHING
@@ -85,6 +86,7 @@ class MainActivity : Activity() {
     private var searchGeneration = 0L
     private var isResolving = false
     private var isSeeking = false
+    private var isActivityStarted = false
     private var lastPlaybackSnapshot = PlaybackSnapshot(connected = false)
     private var backInvokedCallback: android.window.OnBackInvokedCallback? = null
 
@@ -97,8 +99,16 @@ class MainActivity : Activity() {
 
     private val progressTicker = object : Runnable {
         override fun run() {
+            if (!isActivityStarted || isFinishing || isDestroyed) return
             playbackConnection?.let { updatePlaybackUi(it.snapshot()) }
-            if (!isFinishing) progressHandler.postDelayed(this, 500L)
+        }
+    }
+
+    /** Position polling is needed only while audio is advancing and this screen is visible. */
+    private fun scheduleProgressTicker(snapshot: PlaybackSnapshot) {
+        progressHandler.removeCallbacks(progressTicker)
+        if (isActivityStarted && snapshot.isPlaying && !isFinishing && !isDestroyed) {
+            progressHandler.postDelayed(progressTicker, 500L)
         }
     }
 
@@ -155,7 +165,11 @@ class MainActivity : Activity() {
             visibility = View.GONE
             setOnClickListener {
                 val update = pendingUpdate
-                if (update != null) installUpdate(update) else checkForUpdates()
+                when {
+                    requiresCleanInstall -> showCleanInstallInstructions()
+                    update != null -> installUpdate(update)
+                    else -> checkForUpdates()
+                }
             }
         }
         updateRow.addView(updateButton, LinearLayout.LayoutParams(-2, dp(36)).apply {
@@ -369,7 +383,19 @@ class MainActivity : Activity() {
         updateCheckJob = activityScope.launch {
             try {
                 when (val result = updateChecker.checkForUpdate(this@MainActivity)) {
+                    is UpdateCheckResult.IncompatibleInstallation -> {
+                        pendingUpdate = null
+                        requiresCleanInstall = true
+                        updateStatusText.text =
+                            "This copy can't update in place · install the official signed build"
+                        updateStatusText.setTextColor(Color.rgb(255, 190, 130))
+                        updateButton.text = "Install official build"
+                        updateButton.isEnabled = true
+                        updateButton.visibility = View.VISIBLE
+                    }
+
                     is UpdateCheckResult.UpToDate -> {
+                        requiresCleanInstall = false
                         pendingUpdate = null
                         updateStatusText.text = "You're up to date · ${result.installedVersion}"
                         updateStatusText.setTextColor(accent)
@@ -377,12 +403,22 @@ class MainActivity : Activity() {
                     }
 
                     is UpdateCheckResult.Available -> {
+                        requiresCleanInstall = false
                         pendingUpdate = result.update
                         updateStatusText.text = "Update available · ${result.update.versionName}"
                         updateStatusText.setTextColor(primaryText)
                         updateButton.text = "Download"
                         updateButton.isEnabled = true
                         updateButton.visibility = View.VISIBLE
+                    }
+
+                    is UpdateCheckResult.InstalledBuildAhead -> {
+                        requiresCleanInstall = false
+                        pendingUpdate = null
+                        updateStatusText.text =
+                            "Preview build · ${result.installedVersion} · latest public release ${result.latestReleaseVersion}"
+                        updateStatusText.setTextColor(secondaryText)
+                        updateButton.visibility = View.GONE
                     }
                 }
             } catch (error: CancellationException) {
@@ -398,6 +434,27 @@ class MainActivity : Activity() {
                 if (!isFinishing && !isDestroyed) updateCheckJob = null
             }
         }
+    }
+
+    private fun showCleanInstallInstructions() {
+        AlertDialog.Builder(this)
+            .setTitle("Install the official Nexus build")
+            .setMessage(
+                "This copy was signed with a different key. Android blocks in-place updates " +
+                    "between different signing keys. Back up anything important, uninstall this " +
+                    "copy, then install Nexus from the official GitHub release page. " +
+                    "Uninstalling can erase this device's saved anonymous room identity."
+            )
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Open official release") { _, _ ->
+                startActivity(
+                    Intent(
+                        Intent.ACTION_VIEW,
+                        Uri.parse("https://github.com/som76377-alt/Nexus/releases/latest")
+                    )
+                )
+            }
+            .show()
     }
 
     private fun installUpdate(update: NexusUpdate) {
@@ -596,6 +653,7 @@ class MainActivity : Activity() {
 
     private fun updatePlaybackUi(snapshot: PlaybackSnapshot) {
         lastPlaybackSnapshot = snapshot
+        scheduleProgressTicker(snapshot)
         if (!snapshot.connected) {
             playerSubtitle.text = "Connecting to playback service…"
             playPauseButton.isEnabled = false
@@ -843,12 +901,13 @@ class MainActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
+        isActivityStarted = true
         if (::updateStatusText.isInitialized) checkForUpdates()
-        progressHandler.removeCallbacks(progressTicker)
-        progressHandler.post(progressTicker)
+        updatePlaybackUi(playbackConnection?.snapshot() ?: lastPlaybackSnapshot)
     }
 
     override fun onStop() {
+        isActivityStarted = false
         progressHandler.removeCallbacks(progressTicker)
         super.onStop()
     }

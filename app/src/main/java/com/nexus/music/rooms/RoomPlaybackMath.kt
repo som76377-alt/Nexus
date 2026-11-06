@@ -47,20 +47,48 @@ internal data class DriftCorrection(
  * A seek is rate-limited, and buffering samples never trigger recovery loops.
  */
 internal class DriftCorrectionController(
-    private val deadZoneMs: Long = 100L,
-    private val seekThresholdMs: Long = 900L,
-    private val seekCooldownMs: Long = 5_000L,
-    private val minimumSamples: Int = 3
+    private val deadZoneMs: Long = 160L,
+    private val seekThresholdMs: Long = 1_800L,
+    private val seekCooldownMs: Long = 12_000L,
+    private val minimumSamples: Int = 3,
+    private val emaAlpha: Double = 0.35,
+    private val speedGain: Double = 0.03
 ) {
     private var consecutiveDriftSamples = 0
     private var lastSeekAtMs = Long.MIN_VALUE
     private var currentSpeed = 1f
+    private var filteredDriftMs = 0.0
+    private var hasDriftSample = false
 
-    fun evaluate(driftMs: Long, isBuffering: Boolean, nowMs: Long): DriftCorrection {
+    fun evaluate(
+        driftMs: Long,
+        isBuffering: Boolean,
+        nowMs: Long,
+        roundTripMs: Long = 0L
+    ): DriftCorrection {
+        // Never interpret a buffering position as real playback drift.
         if (isBuffering) return DriftCorrection(DriftCorrectionType.NONE)
 
-        val magnitude = kotlin.math.abs(driftMs)
-        if (magnitude <= deadZoneMs) {
+        filteredDriftMs = if (hasDriftSample) {
+            emaAlpha * driftMs.toDouble() + (1.0 - emaAlpha) * filteredDriftMs
+        } else {
+            hasDriftSample = true
+            driftMs.toDouble()
+        }
+
+        val safeRttMs = roundTripMs.coerceIn(0L, 5_000L)
+        // Avoid chasing network jitter. Higher latency widens the ignore zone slightly.
+        val adaptiveDeadZoneMs = maxOf(
+            deadZoneMs,
+            (safeRttMs / 2L + 40L).coerceAtMost(350L)
+        )
+        val adaptiveSeekThresholdMs = maxOf(
+            seekThresholdMs,
+            safeRttMs * 2L + 500L
+        )
+        val magnitude = kotlin.math.abs(filteredDriftMs)
+
+        if (magnitude <= adaptiveDeadZoneMs) {
             consecutiveDriftSamples = 0
             if (currentSpeed != 1f) {
                 currentSpeed = 1f
@@ -70,7 +98,10 @@ internal class DriftCorrectionController(
         }
 
         consecutiveDriftSamples += 1
-        if (magnitude >= seekThresholdMs &&
+
+        // A seek requires sustained large drift and a cooldown. One noisy sample cannot
+        // interrupt playback or create a seek/buffer/seek loop.
+        if (magnitude >= adaptiveSeekThresholdMs &&
             consecutiveDriftSamples >= minimumSamples &&
             (lastSeekAtMs == Long.MIN_VALUE || nowMs - lastSeekAtMs >= seekCooldownMs)
         ) {
@@ -80,10 +111,13 @@ internal class DriftCorrectionController(
             return DriftCorrection(DriftCorrectionType.SEEK)
         }
 
-        if (consecutiveDriftSamples >= 2 && magnitude < seekThresholdMs) {
-            // Positive drift means this player is ahead and must slow down.
-            val speed = if (driftMs > 0L) 0.98f else 1.02f
-            if (currentSpeed != speed) {
+        // Moderate drift is corrected gradually, with pitch-preserving Media3 speed changes.
+        if (magnitude < adaptiveSeekThresholdMs && consecutiveDriftSamples >= 2) {
+            // Positive drift means this device is ahead, so it must slow down.
+            val adjustment = (filteredDriftMs / 1_000.0 * speedGain)
+                .coerceIn(-0.01, 0.01)
+            val speed = (1.0 - adjustment).toFloat().coerceIn(0.99f, 1.01f)
+            if (kotlin.math.abs(speed - currentSpeed) >= 0.001f) {
                 currentSpeed = speed
                 return DriftCorrection(DriftCorrectionType.SET_SPEED, speed)
             }
@@ -94,10 +128,68 @@ internal class DriftCorrectionController(
     fun reset() {
         consecutiveDriftSamples = 0
         currentSpeed = 1f
+        filteredDriftMs = 0.0
+        hasDriftSample = false
         lastSeekAtMs = Long.MIN_VALUE
     }
 }
 
+
+/**
+ * Prevents a second hard seek while the first one is still being applied by Media3.
+ *
+ * A successful seek can briefly put ExoPlayer into BUFFERING. Treating that temporary
+ * state as fresh drift caused the old controller to issue another seek as soon as the
+ * player became ready, creating a seek/buffer/seek loop.
+ */
+internal class DriftSeekGate(
+    private val completionToleranceMs: Long = 500L,
+    private val timeoutMs: Long = 8_000L
+) {
+    private var targetPositionMs: Long? = null
+    private var issuedAtElapsedMs: Long = 0L
+
+    fun begin(targetPositionMs: Long, nowElapsedMs: Long) {
+        this.targetPositionMs = targetPositionMs.coerceAtLeast(0L)
+        issuedAtElapsedMs = nowElapsedMs
+    }
+
+    fun shouldWait(
+        localPositionMs: Long,
+        isBuffering: Boolean,
+        isPlaying: Boolean,
+        remoteIsPlaying: Boolean,
+        nowElapsedMs: Long
+    ): Boolean {
+        val target = targetPositionMs ?: return false
+        if (isBuffering || !isPlaying) return true
+
+        val elapsed = (nowElapsedMs - issuedAtElapsedMs).coerceAtLeast(0L)
+        val projectedTarget = if (remoteIsPlaying) {
+            RoomPlaybackMath.expectedRemotePositionMs(
+                positionMs = target,
+                isPlaying = true,
+                elapsedSinceUpdateMs = elapsed,
+                durationMs = 0L
+            )
+        } else {
+            target
+        }
+        if (RoomPlaybackMath.distanceMs(localPositionMs, projectedTarget) <= completionToleranceMs) {
+            reset()
+            return false
+        }
+        if (elapsed < timeoutMs) return true
+
+        reset()
+        return false
+    }
+
+    fun reset() {
+        targetPositionMs = null
+        issuedAtElapsedMs = 0L
+    }
+}
 
 /**
  * Back off a failed remote-track application without delaying a newer room revision.
@@ -144,4 +236,40 @@ internal class RemoteApplyRetryPolicy(
         failureCount = 0
         retryAtElapsedMs = 0L
     }
+}
+
+
+/** One server-time probe measured against the device's monotonic clock. */
+internal data class ClockOffsetSample(
+    val offsetMs: Long,
+    val roundTripMs: Long
+)
+
+internal data class ClockOffsetEstimate(
+    val offsetMs: Long,
+    val medianRoundTripMs: Long
+)
+
+/**
+ * Selects the three lowest-latency valid probes, then uses their median offset and RTT.
+ * This makes one delayed mobile-network response much less influential on room timing.
+ */
+internal object ServerClockEstimator {
+    fun estimate(samples: List<ClockOffsetSample>): ClockOffsetEstimate? {
+        val best = samples
+            .filter { it.roundTripMs in 0L..10_000L }
+            .sortedBy { it.roundTripMs }
+            .take(3)
+        if (best.size < 3) return null
+
+        val offsets = best.map { it.offsetMs }.sorted()
+        val roundTrips = best.map { it.roundTripMs }.sorted()
+        return ClockOffsetEstimate(
+            offsetMs = offsets[offsets.size / 2],
+            medianRoundTripMs = roundTrips[roundTrips.size / 2]
+        )
+    }
+
+    fun estimateOffset(samples: List<ClockOffsetSample>): Long? =
+        estimate(samples)?.offsetMs
 }

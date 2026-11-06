@@ -37,6 +37,13 @@ class AppVersioningTest {
     }
 
     @Test
+    fun comparesAgainstInstalledAndroidVersionCodeEvenWhenVersionNameIsNotSemver() {
+        assertTrue(AppVersioning.isNewer(1_008, 1_007L))
+        assertFalse(AppVersioning.isNewer(1_007, 1_007L))
+        assertFalse(AppVersioning.isNewer(1_006, 1_007L))
+    }
+
+    @Test
     fun normalizesTagWithoutChangingVersion() {
         assertEquals("0.1.2", AppVersioning.normalize("v0.1.2"))
         assertEquals("0.1.2", AppVersioning.normalize("0.1.2"))
