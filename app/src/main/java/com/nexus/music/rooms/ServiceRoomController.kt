@@ -14,7 +14,6 @@ import com.nexus.music.rooms.domain.RoomRealtimeSignal
 import com.nexus.music.rooms.domain.RoomRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -240,6 +239,10 @@ internal class ServiceRoomController(
         lastRemoteRevision = 0L
         lastAppliedRevision = 0L
         lastPublishedSource = ""
+        lastPublishedPlaying = false
+        localActionGeneration = 0L
+        expectedRemoteStartSource = null
+        lastObservedIsPlaying = player.snapshot().isPlaying
         retryPolicy.reset()
         driftController.reset()
         driftSeekGate.reset()
@@ -263,6 +266,7 @@ internal class ServiceRoomController(
     fun close() {
         stopRoomSession()
         activeRoomId = null
+        lastPublishedPlaying = false
         player.resetPlaybackSpeed()
         controllerJob.cancel()
         mutableState.value = RoomControllerState()
