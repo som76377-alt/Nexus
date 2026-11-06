@@ -356,7 +356,7 @@ class ServiceRoomControllerTest {
 
             assertEquals(1, resolver.resolveCount)
             assertTrue(player.snapshot().isReady)
-            assertTrue(player.snapshot().isPlaying)
+            assertFalse(player.snapshot().playWhenReady)
             assertTrue(repository.published.isEmpty())
         } finally {
             controller.close()
@@ -511,7 +511,7 @@ class ServiceRoomControllerTest {
 
             assertEquals(2, resolver.resolveCount)
             assertTrue(player.snapshot().isReady)
-            assertTrue(player.snapshot().isPlaying)
+            assertFalse("successfully resolved track remains paused until the start barrier", player.snapshot().playWhenReady)
             assertTrue(repository.published.isEmpty())
         } finally {
             controller.close()
