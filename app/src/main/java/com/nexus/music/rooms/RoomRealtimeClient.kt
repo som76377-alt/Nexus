@@ -22,6 +22,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Authenticated Supabase Realtime Postgres Changes subscription for one room.
@@ -38,11 +39,10 @@ internal class RoomRealtimeClient(
     private val onChatSignal: () -> Unit,
     private val onConnectionChanged: (Boolean) -> Unit
 ) {
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(0, TimeUnit.MILLISECONDS)
-        .pingInterval(20, TimeUnit.SECONDS)
-        .build()
+    // Shared across room lifetimes. The Phoenix heartbeat loop below is the application
+    // heartbeat; a second OkHttp ping interval adds traffic without adding room semantics.
+    private val client = SHARED_CLIENT
+    private val connectionState = AtomicBoolean(false)
 
     private var job: Job? = null
     @Volatile private var activeSocket: WebSocket? = null
@@ -60,7 +60,7 @@ internal class RoomRealtimeClient(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
-                    onConnectionChanged(false)
+                    setConnectionState(false)
                 }
                 if (currentCoroutineContext().isActive) {
                     val wasStable = lastSuccessfulJoinElapsedMs > 0L &&
@@ -90,11 +90,6 @@ internal class RoomRealtimeClient(
 
         val listener = object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                val filter = JSONObject()
-                    .put("event", "*")
-                    .put("schema", "public")
-                    .put("table", "room_playback")
-                    .put("filter", "room_id=eq.$roomId")
                 val chatFilter = JSONObject()
                     .put("event", "INSERT")
                     .put("schema", "public")
@@ -103,8 +98,10 @@ internal class RoomRealtimeClient(
                 val config = JSONObject()
                     .put("broadcast", JSONObject().put("ack", false).put("self", false))
                     .put("presence", JSONObject().put("enabled", false))
-                    .put("postgres_changes", JSONArray().put(filter).put(chatFilter))
-                    .put("private", false)
+                    // Playback changes arrive only on the membership-authorized private topic.
+                    // Chat remains a Postgres Changes subscription protected by table RLS.
+                    .put("postgres_changes", JSONArray().put(chatFilter))
+                    .put("private", true)
                 val payload = JSONObject()
                     .put("config", config)
                     .put("access_token", accessToken)
@@ -144,8 +141,13 @@ internal class RoomRealtimeClient(
                             val data = message.optJSONObject("payload")
                                 ?.optJSONObject("data")
                             when (data?.optString("table")) {
-                                "room_playback" -> onPlaybackSignal()
                                 "room_messages" -> onChatSignal()
+                            }
+                        }
+                        "broadcast" -> {
+                            val payload = message.optJSONObject("payload")
+                            if (payload?.optString("event") == "playback_invalidated") {
+                                onPlaybackSignal()
                             }
                         }
                         "system" -> {
@@ -185,7 +187,7 @@ internal class RoomRealtimeClient(
                 throw rejection ?: IOException("Realtime subscription did not become ready.")
             }
             lastSuccessfulJoinElapsedMs = android.os.SystemClock.elapsedRealtime()
-            onConnectionChanged(true)
+            setConnectionState(true)
 
             var heartbeatRef = 2
             while (currentCoroutineContext().isActive) {
@@ -201,9 +203,15 @@ internal class RoomRealtimeClient(
                 }
             }
         } finally {
-            onConnectionChanged(false)
+            setConnectionState(false)
             if (activeSocket === socket) activeSocket = null
             socket.close(1000, "Room screen closed")
+        }
+    }
+
+    private fun setConnectionState(connected: Boolean) {
+        if (connectionState.getAndSet(connected) != connected) {
+            onConnectionChanged(connected)
         }
     }
 
@@ -212,6 +220,13 @@ internal class RoomRealtimeClient(
         job = null
         activeSocket?.close(1000, "Room screen closed")
         activeSocket = null
-        onConnectionChanged(false)
+        setConnectionState(false)
+    }
+
+    private companion object {
+        val SHARED_CLIENT: OkHttpClient = OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(0, TimeUnit.MILLISECONDS)
+            .build()
     }
 }
