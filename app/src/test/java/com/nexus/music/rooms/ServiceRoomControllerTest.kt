@@ -19,6 +19,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import java.io.IOException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -152,6 +153,214 @@ class ServiceRoomControllerTest {
     }
 
     @Test
+    fun sameCanonicalTrackWithIdleLocalPlayerResolvesFreshStream() = runTest {
+        val canonical = "https://www.youtube.com/watch?v=expired-local-stream"
+        val repository = FakeRoomRepository(
+            initialSnapshot = RoomPlaybackSnapshot(
+                roomId = "room-expired",
+                sourceId = canonical,
+                canonicalSourceUrl = canonical,
+                title = "Shared track",
+                artist = "Artist",
+                isPlaying = true,
+                positionMs = 4_000L,
+                durationMs = 120_000L,
+                revision = 3L,
+                updatedBy = "other-device",
+                updatedAt = "2026-11-06T00:00:00.000Z",
+                actionId = "remote-track",
+                actionType = RoomActionType.TRACK,
+                originDeviceId = "other-device",
+                commandAt = "2026-11-06T00:00:00.000Z"
+            )
+        )
+        val player = FakeRoomPlayer(
+            LocalPlaybackSnapshot(
+                sourceId = canonical,
+                canonicalSourceUrl = canonical,
+                title = "Shared track",
+                artist = "Artist",
+                isPlaying = false,
+                isBuffering = false,
+                isReady = false,
+                positionMs = 4_000L,
+                durationMs = 120_000L
+            )
+        )
+        val resolver = FakeRoomMediaResolver()
+        val controller = newController(repository, player, resolver)
+
+        try {
+            controller.attach("room-expired")
+            runCurrent()
+            advanceTimeBy(50L)
+            runCurrent()
+
+            assertEquals(1, resolver.resolveCount)
+            assertTrue(player.snapshot().isReady)
+            assertTrue(player.snapshot().isPlaying)
+            assertTrue(repository.published.isEmpty())
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
+    fun sameDeviceTrackWithIdleLocalPlayerResolvesFreshStream() = runTest {
+        val canonical = "https://www.youtube.com/watch?v=same-device-expired-stream"
+        val repository = FakeRoomRepository(
+            initialSnapshot = RoomPlaybackSnapshot(
+                roomId = "room-own-expired",
+                sourceId = canonical,
+                canonicalSourceUrl = canonical,
+                title = "Local shared track",
+                artist = "Artist",
+                isPlaying = false,
+                positionMs = 7_000L,
+                durationMs = 100_000L,
+                revision = 5L,
+                updatedBy = "device-1",
+                updatedAt = "2026-11-06T00:00:00.000Z",
+                actionId = "own-track-action",
+                actionType = RoomActionType.TRACK,
+                originDeviceId = "device-1",
+                commandAt = "2026-11-06T00:00:00.000Z"
+            )
+        )
+        val player = FakeRoomPlayer(
+            LocalPlaybackSnapshot(
+                sourceId = canonical,
+                canonicalSourceUrl = canonical,
+                title = "Local shared track",
+                artist = "Artist",
+                isPlaying = false,
+                isBuffering = false,
+                isReady = false,
+                positionMs = 7_000L,
+                durationMs = 100_000L
+            )
+        )
+        val resolver = FakeRoomMediaResolver()
+        val controller = newController(repository, player, resolver)
+
+        try {
+            controller.attach("room-own-expired")
+            runCurrent()
+            advanceTimeBy(50L)
+            runCurrent()
+
+            assertEquals(1, resolver.resolveCount)
+            assertTrue(player.snapshot().isReady)
+            assertFalse(player.snapshot().isPlaying)
+            assertTrue(repository.published.isEmpty())
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
+    fun sameDeviceTrackAlreadyBufferingIsNotRestarted() = runTest {
+        val canonical = "https://www.youtube.com/watch?v=same-device-buffering"
+        val repository = FakeRoomRepository(
+            initialSnapshot = RoomPlaybackSnapshot(
+                roomId = "room-own-buffering",
+                sourceId = canonical,
+                canonicalSourceUrl = canonical,
+                title = "Buffering track",
+                artist = "Artist",
+                isPlaying = true,
+                positionMs = 2_000L,
+                durationMs = 100_000L,
+                revision = 6L,
+                updatedBy = "device-1",
+                updatedAt = "2026-11-06T00:00:00.000Z",
+                actionId = "own-buffering-action",
+                actionType = RoomActionType.TRACK,
+                originDeviceId = "device-1",
+                commandAt = "2026-11-06T00:00:00.000Z"
+            )
+        )
+        val player = FakeRoomPlayer(
+            LocalPlaybackSnapshot(
+                sourceId = canonical,
+                canonicalSourceUrl = canonical,
+                title = "Buffering track",
+                artist = "Artist",
+                isPlaying = false,
+                isBuffering = true,
+                isReady = false,
+                positionMs = 2_000L,
+                durationMs = 100_000L
+            )
+        )
+        val resolver = FakeRoomMediaResolver()
+        val controller = newController(repository, player, resolver)
+
+        try {
+            controller.attach("room-own-buffering")
+            runCurrent()
+            advanceTimeBy(50L)
+            runCurrent()
+
+            assertEquals(0, resolver.resolveCount)
+            assertTrue(player.snapshot().isBuffering)
+            assertTrue(repository.published.isEmpty())
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
+    fun failedRemoteStreamResolutionWaitsForBackoffBeforeRetrying() = runTest {
+        val canonical = "https://www.youtube.com/watch?v=retry-after-failure"
+        val repository = FakeRoomRepository(
+            initialSnapshot = RoomPlaybackSnapshot(
+                roomId = "room-retry",
+                sourceId = canonical,
+                canonicalSourceUrl = canonical,
+                title = "Retry track",
+                artist = "Artist",
+                isPlaying = true,
+                positionMs = 1_000L,
+                durationMs = 90_000L,
+                revision = 8L,
+                updatedBy = "other-device",
+                updatedAt = "2026-11-06T00:00:00.000Z",
+                actionId = "retry-action",
+                actionType = RoomActionType.TRACK,
+                originDeviceId = "other-device",
+                commandAt = "2026-11-06T00:00:00.000Z"
+            )
+        )
+        val player = FakeRoomPlayer()
+        val resolver = FakeRoomMediaResolver(failuresBeforeSuccess = 1)
+        val clock = FakeRoomClock()
+        val controller = newController(repository, player, resolver, clock)
+
+        try {
+            controller.attach("room-retry")
+            runCurrent()
+            assertEquals(1, resolver.resolveCount)
+
+            clock.advance(999L)
+            repository.emit(RoomRealtimeSignal.PlaybackInvalidated)
+            runCurrent()
+            assertEquals(1, resolver.resolveCount)
+
+            clock.advance(1L)
+            repository.emit(RoomRealtimeSignal.PlaybackInvalidated)
+            runCurrent()
+
+            assertEquals(2, resolver.resolveCount)
+            assertTrue(player.snapshot().isReady)
+            assertTrue(player.snapshot().isPlaying)
+            assertTrue(repository.published.isEmpty())
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
     fun chatInvalidationUpdatesUiStateWithoutTouchingPlaybackRevision() = runTest {
         val repository = FakeRoomRepository()
         val player = FakeRoomPlayer()
@@ -193,13 +402,15 @@ class ServiceRoomControllerTest {
 
     private fun TestScope.newController(
         repository: FakeRoomRepository,
-        player: FakeRoomPlayer
+        player: FakeRoomPlayer,
+        mediaResolver: FakeRoomMediaResolver = FakeRoomMediaResolver(),
+        clock: FakeRoomClock = FakeRoomClock()
     ) = ServiceRoomController(
         parentScope = this,
         repository = repository,
         player = player,
-        clock = FakeRoomClock(),
-        mediaResolver = FakeRoomMediaResolver()
+        clock = clock,
+        mediaResolver = mediaResolver
     )
 
     private class FakeRoomRepository(
@@ -322,21 +533,35 @@ class ServiceRoomControllerTest {
         override suspend fun calibrate() {
             elapsedMs += 1L
         }
+
+        fun advance(milliseconds: Long) {
+            elapsedMs += milliseconds.coerceAtLeast(0L)
+        }
     }
 
-    private class FakeRoomMediaResolver : RoomMediaResolver {
+    private class FakeRoomMediaResolver(
+        private val failuresBeforeSuccess: Int = 0
+    ) : RoomMediaResolver {
+        var resolveCount = 0
+
         override suspend fun resolve(
             sourceId: String,
             canonicalSourceUrl: String
-        ) = ResolvedAudio(
-            sourceUrl = canonicalSourceUrl,
-            title = "Resolved track",
-            artist = "Resolved artist",
-            thumbnailUrl = null,
-            durationSeconds = 180L,
-            audioUrl = "https://stream.invalid/audio",
-            averageBitrate = 128_000,
-            mimeType = "audio/mp4"
-        )
+        ): ResolvedAudio {
+            resolveCount += 1
+            if (resolveCount <= failuresBeforeSuccess) {
+                throw IOException("Temporary stream resolution failure.")
+            }
+            return ResolvedAudio(
+                sourceUrl = canonicalSourceUrl,
+                title = "Resolved track",
+                artist = "Resolved artist",
+                thumbnailUrl = null,
+                durationSeconds = 180L,
+                audioUrl = "https://stream.invalid/audio",
+                averageBitrate = 128_000,
+                mimeType = "audio/mp4"
+            )
+        }
     }
 }

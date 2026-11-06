@@ -583,8 +583,14 @@ internal class ServiceRoomController(
                 return
             }
 
+            // A same-device snapshot is already reflected locally only while Media3
+            // still has a usable item. An idle/ended/error player may retain the same
+            // media ID while its extracted stream URL has expired; it must be resolved again.
+            val localNeedsStreamRecovery = local.sourceId == remote.canonicalSourceUrl &&
+                !local.isReady && !local.isBuffering
             val sameDeviceState = remote.updatedBy == userId &&
-                local.sourceId == remote.canonicalSourceUrl
+                local.sourceId == remote.canonicalSourceUrl &&
+                !localNeedsStreamRecovery
             if (sameDeviceState && pending == null) {
                 lastAppliedRevision = maxOf(lastAppliedRevision, remote.revision)
                 lastPublishedSource = remote.canonicalSourceUrl
@@ -596,12 +602,14 @@ internal class ServiceRoomController(
             val changed = remote.revision > lastAppliedRevision &&
                 (remote.actionType != RoomActionType.STATE ||
                     local.sourceId != remote.canonicalSourceUrl ||
-                    local.isPlaying != remote.isPlaying)
-            val shouldRetry = retryPolicy.shouldRetry(
-                remote.revision,
-                clock.elapsedRealtimeMs()
+                    local.isPlaying != remote.isPlaying ||
+                    localNeedsStreamRecovery)
+            val shouldAttemptApply = retryPolicy.shouldAttempt(
+                revision = remote.revision,
+                nowElapsedMs = clock.elapsedRealtimeMs(),
+                hasUnappliedChanges = changed
             )
-            if (changed || shouldRetry) {
+            if (shouldAttemptApply) {
                 try {
                     applyRemoteSnapshot(remote, roomId, generation)
                     retryPolicy.recordSuccess(remote.revision)
@@ -654,7 +662,12 @@ internal class ServiceRoomController(
         val startingSignal = signalSequence
         val before = player.snapshot()
         try {
-            if (before.sourceId != remote.canonicalSourceUrl) {
+            // A matching media ID does not prove that its extracted stream URL is still usable.
+            // If Media3 is idle/ended/failed (but not actively buffering), resolve a fresh
+            // per-device stream instead of retrying an expired URL forever.
+            val needsFreshStream = before.sourceId != remote.canonicalSourceUrl ||
+                (!before.isReady && !before.isBuffering)
+            if (needsFreshStream) {
                 val audio = mediaResolver.resolve(
                     remote.sourceId,
                     remote.canonicalSourceUrl

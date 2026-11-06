@@ -206,6 +206,20 @@ internal class RemoteApplyRetryPolicy(
     fun shouldRetry(revision: Long, nowElapsedMs: Long): Boolean =
         failedRevision == revision && nowElapsedMs >= retryAtElapsedMs
 
+    /**
+     * A failed revision must wait for its backoff even though it remains unapplied.
+     * A newer revision is still attempted immediately rather than inheriting old delay.
+     */
+    fun shouldAttempt(
+        revision: Long,
+        nowElapsedMs: Long,
+        hasUnappliedChanges: Boolean
+    ): Boolean = if (failedRevision == revision) {
+        nowElapsedMs >= retryAtElapsedMs
+    } else {
+        hasUnappliedChanges
+    }
+
     fun recordFailure(revision: Long, nowElapsedMs: Long): Long {
         if (failedRevision != revision) {
             failedRevision = revision
