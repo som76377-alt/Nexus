@@ -117,13 +117,12 @@ class RoomPlaybackMathTest {
             DriftCorrectionType.NONE,
             controller.evaluate(-400L, false, 2_000L).type
         )
-        assertEquals(
-            DriftCorrectionType.NONE,
-            controller.evaluate(-400L, false, 2_500L).type
-        )
+        val initialBehind = controller.evaluate(-400L, false, 2_500L)
+        assertEquals(DriftCorrectionType.SET_SPEED, initialBehind.type)
+        assertTrue(initialBehind.speed > 1f && initialBehind.speed <= 1.02f)
         val settledBehind = controller.evaluate(-400L, false, 3_000L)
         assertEquals(DriftCorrectionType.SET_SPEED, settledBehind.type)
-        assertTrue(settledBehind.speed > 1f && settledBehind.speed <= 1.02f)
+        assertTrue(settledBehind.speed > initialBehind.speed && settledBehind.speed <= 1.02f)
     }
 
     @Test
