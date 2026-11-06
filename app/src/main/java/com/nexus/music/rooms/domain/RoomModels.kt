@@ -21,6 +21,25 @@ enum class RoomActionType(val wireValue: String) {
 }
 
 /**
+ * Explicit local user intent captured at the player command boundary.
+ *
+ * The player adapter must emit these only for genuine local user commands.
+ * Applying a remote room command must never emit another local intent.
+ */
+sealed interface RoomPlayerIntent {
+    data object Play : RoomPlayerIntent
+    data object Pause : RoomPlayerIntent
+    data class SeekTo(val positionMs: Long) : RoomPlayerIntent
+    data class SelectTrack(
+        val sourceId: String,
+        val canonicalSourceUrl: String,
+        val title: String,
+        val artist: String?,
+        val durationMs: Long
+    ) : RoomPlayerIntent
+}
+
+/**
  * A user or recovery command against the authoritative room playback revision.
  *
  * expectedRevision is the database compare-and-swap version. It is deliberately
