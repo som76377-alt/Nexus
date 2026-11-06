@@ -12,7 +12,6 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.os.SystemClock
 import android.view.Gravity
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -23,13 +22,11 @@ import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
-import androidx.media3.common.Player
-import com.nexus.music.catalog.YoutubeCatalogRepository
 import com.nexus.music.MainActivity
 import com.nexus.music.playback.PlaybackConnection
+import com.nexus.music.playback.PlaybackService
 import com.nexus.music.rooms.domain.RoomConnectionState
 import com.nexus.music.rooms.domain.RoomController
-import com.nexus.music.playback.PlaybackService
 import com.nexus.music.playback.RoomPlayerAdapter
 import com.nexus.music.playback.PlaybackSnapshot
 import kotlinx.coroutines.CancellationException
@@ -49,10 +46,9 @@ import java.util.Locale
 /**
  * In-app prototype for private two-person listening rooms.
  *
- * Chat and playback are room-scoped. This Activity stays in the task back stack while the user
- * switches to Home, so its room sync loop continues to observe the shared MediaSession player.
- * Supabase Realtime delivers low-latency playback updates; authenticated REST polling remains
- * as a recovery path for missed events and temporary WebSocket outages.
+ * Chat presentation stays in this Activity. Playback synchronization is owned by PlaybackService,
+ * which observes the MediaSession's one ExoPlayer and reconciles the authoritative room snapshot.
+ * This Activity only observes room state and refreshes the room's chat history.
  */
 class ListeningRoomActivity : Activity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
