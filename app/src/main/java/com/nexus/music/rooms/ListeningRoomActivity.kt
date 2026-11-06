@@ -600,6 +600,27 @@ class ListeningRoomActivity : Activity() {
         Toast.makeText(this, "Invite code copied", Toast.LENGTH_SHORT).show()
     }
 
+    private fun parseTimestamp(value: String): Long? {
+        if (value.isBlank()) return null
+        // Postgres may return microseconds; SimpleDateFormat SSS expects milliseconds.
+        val normalized = Regex("(\\\\.\\\\d{3})\\\\d+(?=Z|[+-]\\\\d{2}:?\\\\d{2}$)")
+            .replace(value) { match -> match.groupValues[1] }
+        val patterns = listOf(
+            "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
+            "yyyy-MM-dd'T'HH:mm:ssXXX",
+            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss'Z'"
+        )
+        return patterns.firstNotNullOfOrNull { pattern ->
+            runCatching {
+                SimpleDateFormat(pattern, Locale.US).apply {
+                    isLenient = false
+                    timeZone = java.util.TimeZone.getTimeZone("UTC")
+                }.parse(normalized)?.time
+            }.getOrNull()
+        }
+    }
+
     private fun formatTime(raw: String): String = runCatching {
         val date = parseTimestamp(raw) ?: return@runCatching ""
         SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(date))
