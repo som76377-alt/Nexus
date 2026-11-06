@@ -13,6 +13,11 @@ interface RoomRepository {
     suspend fun currentUserId(): String
     suspend fun fetchPlaybackSnapshot(roomId: String): RoomPlaybackSnapshot?
     suspend fun publishPlayback(command: RoomCommand): RoomPublishResult
+    suspend fun markPlaybackReady(
+        roomId: String,
+        revision: Long,
+        sourceId: String
+    ): RoomPlaybackReadyResult
     fun observeRealtimeSignals(roomId: String): Flow<RoomRealtimeSignal>
     suspend fun touchRoom(roomId: String): Boolean
     suspend fun leaveRoom(roomId: String)
