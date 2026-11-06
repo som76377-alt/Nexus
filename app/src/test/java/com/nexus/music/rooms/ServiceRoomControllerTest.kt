@@ -188,6 +188,7 @@ class ServiceRoomControllerTest {
 
             assertEquals(second, repository.published.last().sourceId)
             assertEquals(RoomActionType.TRACK, repository.published.last().actionType)
+            assertTrue("skipping while playing must keep the new track playing", repository.published.last().isPlaying)
 
             player.setSnapshot(
                 player.snapshot().copy(
@@ -209,6 +210,7 @@ class ServiceRoomControllerTest {
 
             assertEquals(third, repository.published.last().sourceId)
             assertEquals(RoomActionType.TRACK, repository.published.last().actionType)
+            assertTrue("previous while playing must keep the selected track playing", repository.published.last().isPlaying)
             assertEquals(3, repository.published.size)
         } finally {
             controller.close()
@@ -314,6 +316,7 @@ class ServiceRoomControllerTest {
             assertTrue("PLAY intent must remain true even though the local player is held paused", repository.published.last().isPlaying)
             assertEquals(1, repository.readinessCalls)
             assertFalse(player.snapshot().playWhenReady)
+            assertEquals("PLAY must not rewind a paused item while both devices prepare", 25_000L, player.snapshot().positionMs)
         } finally {
             controller.close()
         }

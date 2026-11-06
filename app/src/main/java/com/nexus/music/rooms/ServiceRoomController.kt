@@ -350,6 +350,7 @@ internal class ServiceRoomController(
                     roomId,
                     intent.previousSourceId,
                     intent.previousPositionMs,
+                    shouldPlay = intent.shouldPlay,
                     next = true
                 )
                 return
@@ -359,6 +360,7 @@ internal class ServiceRoomController(
                     roomId,
                     intent.previousSourceId,
                     intent.previousPositionMs,
+                    shouldPlay = intent.shouldPlay,
                     next = false
                 )
                 return
@@ -428,6 +430,7 @@ internal class ServiceRoomController(
         roomId: String,
         previousSourceId: String,
         previousPositionMs: Long,
+        shouldPlay: Boolean,
         next: Boolean
     ) {
         val scope = roomScope ?: return
@@ -448,7 +451,8 @@ internal class ServiceRoomController(
                     sourceId = after.sourceId,
                     canonicalSourceUrl = after.canonicalSourceUrl.ifBlank { after.sourceId },
                     title = after.title,
-                    artist = after.artist
+                    artist = after.artist,
+                    shouldPlay = shouldPlay
                 )
             } else if (after.positionMs != previousPositionMs) {
                 RoomPlayerIntent.SeekTo(after.positionMs)
@@ -1083,7 +1087,10 @@ internal class ServiceRoomController(
         barrierRevision = revision
         barrierScheduledStartAt = null
         player.pause()
-        player.seekTo(0L)
+        val isNewTrackRevision = lastRemotePlayback?.let {
+            it.revision == revision && it.actionType == RoomActionType.TRACK
+        } == true
+        if (isNewTrackRevision) player.seekTo(0L)
         mutableState.value = mutableState.value.copy(
             lastError = null,
             statusMessage = "Preparing synchronized start…"

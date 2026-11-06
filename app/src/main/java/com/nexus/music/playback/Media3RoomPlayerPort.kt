@@ -250,40 +250,72 @@ internal class RoomIntentForwardingPlayer(
     override fun seekToNext() {
         val previousSourceId = delegate.currentMediaItem?.mediaId.orEmpty()
         val previousPositionMs = delegate.currentPosition.coerceAtLeast(0L)
+        val shouldPlay = delegate.playWhenReady
         super.seekToNext()
+        val changedTrack = delegate.currentMediaItem?.mediaId?.let { it != previousSourceId } == true
+        if (isRoomActive() && shouldPlay && changedTrack) {
+            // MediaSession skip methods act synchronously on the wrapped player. Stop the
+            // newly selected item before the next audio render; the room barrier owns resume.
+            delegate.pause()
+        }
         recordIntent(RoomPlayerIntent.SkipToNext(
             previousSourceId = previousSourceId,
-            previousPositionMs = previousPositionMs
+            previousPositionMs = previousPositionMs,
+            shouldPlay = shouldPlay
         ))
     }
 
     override fun seekToNextMediaItem() {
         val previousSourceId = delegate.currentMediaItem?.mediaId.orEmpty()
         val previousPositionMs = delegate.currentPosition.coerceAtLeast(0L)
+        val shouldPlay = delegate.playWhenReady
         super.seekToNextMediaItem()
+        val changedTrack = delegate.currentMediaItem?.mediaId?.let { it != previousSourceId } == true
+        if (isRoomActive() && shouldPlay && changedTrack) {
+            // MediaSession skip methods act synchronously on the wrapped player. Stop the
+            // newly selected item before the next audio render; the room barrier owns resume.
+            delegate.pause()
+        }
         recordIntent(RoomPlayerIntent.SkipToNext(
             previousSourceId = previousSourceId,
-            previousPositionMs = previousPositionMs
+            previousPositionMs = previousPositionMs,
+            shouldPlay = shouldPlay
         ))
     }
 
     override fun seekToPrevious() {
         val previousSourceId = delegate.currentMediaItem?.mediaId.orEmpty()
         val previousPositionMs = delegate.currentPosition.coerceAtLeast(0L)
+        val shouldPlay = delegate.playWhenReady
         super.seekToPrevious()
+        val changedTrack = delegate.currentMediaItem?.mediaId?.let { it != previousSourceId } == true
+        if (isRoomActive() && shouldPlay && changedTrack) {
+            // MediaSession skip methods act synchronously on the wrapped player. Stop the
+            // newly selected item before the next audio render; the room barrier owns resume.
+            delegate.pause()
+        }
         recordIntent(RoomPlayerIntent.SkipToPrevious(
             previousSourceId = previousSourceId,
-            previousPositionMs = previousPositionMs
+            previousPositionMs = previousPositionMs,
+            shouldPlay = shouldPlay
         ))
     }
 
     override fun seekToPreviousMediaItem() {
         val previousSourceId = delegate.currentMediaItem?.mediaId.orEmpty()
         val previousPositionMs = delegate.currentPosition.coerceAtLeast(0L)
+        val shouldPlay = delegate.playWhenReady
         super.seekToPreviousMediaItem()
+        val changedTrack = delegate.currentMediaItem?.mediaId?.let { it != previousSourceId } == true
+        if (isRoomActive() && shouldPlay && changedTrack) {
+            // MediaSession skip methods act synchronously on the wrapped player. Stop the
+            // newly selected item before the next audio render; the room barrier owns resume.
+            delegate.pause()
+        }
         recordIntent(RoomPlayerIntent.SkipToPrevious(
             previousSourceId = previousSourceId,
-            previousPositionMs = previousPositionMs
+            previousPositionMs = previousPositionMs,
+            shouldPlay = shouldPlay
         ))
     }
 
