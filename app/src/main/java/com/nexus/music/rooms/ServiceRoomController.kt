@@ -74,6 +74,8 @@ internal class ServiceRoomController(
     private var barrierRevision: Long? = null
     private var barrierScheduledStartAt: String? = null
     private var barrierCompletedRevision: Long = 0L
+    private var playbackAnchorRevision: Long? = null
+    private var playbackAnchorAt: String? = null
 
     @Volatile private var activeRoomId: String? = null
     private var sessionGeneration = 0L
@@ -126,6 +128,8 @@ internal class ServiceRoomController(
         signalSequence = 0L
         barrierRevision = null
         barrierCompletedRevision = 0L
+        playbackAnchorRevision = null
+        playbackAnchorAt = null
 
         val newUserId = repository.currentUserId()
         if (!isCurrent(roomId, generation)) return
@@ -643,6 +647,27 @@ internal class ServiceRoomController(
         if (pendingAction?.generation == pending.generation) {
             pendingAction = null
         }
+        lastRemotePlayback = RoomPlaybackSnapshot(
+            roomId = command.roomId,
+            sourceId = command.sourceId,
+            canonicalSourceUrl = command.canonicalSourceUrl,
+            title = command.title,
+            artist = command.artist,
+            isPlaying = command.isPlaying,
+            positionMs = command.positionMs,
+            durationMs = command.durationMs,
+            revision = revision,
+            updatedBy = userId.orEmpty(),
+            updatedAt = "",
+            actionId = command.actionId,
+            actionType = command.actionType,
+            originDeviceId = command.originDeviceId,
+            commandAt = ""
+        )
+        if (command.actionType != RoomActionType.TRACK) {
+            playbackAnchorRevision = null
+            playbackAnchorAt = null
+        }
         mutableState.value = mutableState.value.copy(
             connection = RoomConnectionState.CONNECTED,
             lastError = null
@@ -980,7 +1005,6 @@ internal class ServiceRoomController(
                 while (
                     isCurrent(roomId, generation) &&
                     barrierRevision == revision &&
-                    localActionGeneration >= 0L &&
                     clock.elapsedRealtimeMs() < expiresAt
                 ) {
                     val local = player.snapshot()
@@ -1060,6 +1084,8 @@ internal class ServiceRoomController(
         barrierJob?.cancel()
         barrierJob = null
         barrierScheduledStartAt = startAt
+        playbackAnchorRevision = revision
+        playbackAnchorAt = startAt
         val scope = roomScope ?: return
         barrierStartJob?.cancel()
         barrierStartJob = scope.launch {
@@ -1117,6 +1143,8 @@ internal class ServiceRoomController(
                 barrierCompletedRevision = revision
                 barrierRevision = null
                 barrierScheduledStartAt = null
+                playbackAnchorRevision = revision
+                playbackAnchorAt = startAt
                 mutableState.value = mutableState.value.copy(
                     connection = RoomConnectionState.CONNECTED,
                     lastError = null
@@ -1170,7 +1198,11 @@ internal class ServiceRoomController(
             )
         ) return
 
-        val anchorTime = parseTimestamp(remote.commandAt.ifBlank { remote.updatedAt })
+        val anchorTime = if (playbackAnchorRevision == remote.revision) {
+            playbackAnchorAt?.let(::parseTimestamp)
+        } else {
+            null
+        } ?: parseTimestamp(remote.commandAt.ifBlank { remote.updatedAt })
         val elapsed = anchorTime?.let {
             (clock.estimatedServerTimeMs() - it).coerceAtLeast(0L)
         } ?: 0L
