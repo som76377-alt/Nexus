@@ -78,6 +78,7 @@ internal class ServiceRoomController(
     private var barrierRevision: Long? = null
     private var barrierScheduledStartAt: String? = null
     private var barrierCompletedRevision: Long = 0L
+    private var barrierFallbackRevision: Long? = null
     private var playbackAnchorRevision: Long? = null
     private var playbackAnchorAt: String? = null
     private var playbackAnchorPositionMs: Long? = null
@@ -134,6 +135,7 @@ internal class ServiceRoomController(
         signalSequence = 0L
         barrierRevision = null
         barrierCompletedRevision = 0L
+        barrierFallbackRevision = null
         playbackAnchorRevision = null
         playbackAnchorAt = null
         playbackAnchorPositionMs = null
@@ -1228,6 +1230,7 @@ internal class ServiceRoomController(
                 player.resetPlaybackSpeed()
                 player.play()
                 barrierCompletedRevision = revision
+                barrierFallbackRevision = revision
                 barrierRevision = null
                 barrierScheduledStartAt = null
                 playbackAnchorRevision = revision
@@ -1267,6 +1270,10 @@ internal class ServiceRoomController(
         // A START may arrive after this device used its bounded no-peer fallback.
         // It is then a peer-join signal, not a command to rewind the already-running track.
         if (revision == barrierCompletedRevision) {
+            if (barrierFallbackRevision != revision) {
+                recordDiagnostic("barrier.duplicate_start_ignored", "revision=$revision")
+                return
+            }
             val local = player.snapshot()
             if (local.sourceId != sourceId || !local.isPlaying || remote == null) return
             val commandAt = parseTimestamp(remote.commandAt.ifBlank { remote.updatedAt })
@@ -1374,9 +1381,10 @@ internal class ServiceRoomController(
                     pendingAction != null
                 ) return@launch
                 player.play()
-                // Keep this revision eligible for a delayed START broadcast. If the
-                // peer becomes ready just before its server-side READY row expires,
-                // its scheduled anchor must still be able to realign this local player.
+                // Mark the scheduled start complete. A delayed duplicate START must not
+                // create a second start job; only a device that used the no-peer fallback
+                // remains eligible for a late peer's shared-anchor correction.
+                barrierCompletedRevision = revision
                 barrierScheduledStartAt = null
                 playbackAnchorRevision = revision
                 playbackAnchorAt = startAt

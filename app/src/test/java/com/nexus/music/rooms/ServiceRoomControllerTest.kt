@@ -263,6 +263,23 @@ class ServiceRoomControllerTest {
             assertEquals(1L, controller.state.value.playback?.revision)
             assertEquals(null, controller.state.value.statusMessage)
 
+            repository.emit(
+                RoomRealtimeSignal.StartScheduled(
+                    revision = 1L,
+                    sourceId = canonical,
+                    startAt = repository.scheduledStartAt.orEmpty()
+                )
+            )
+            runCurrent()
+            assertEquals(
+                "a duplicate scheduled START must not re-run the barrier or seek",
+                1_502L,
+                player.snapshot().positionMs
+            )
+            assertTrue(controller.diagnostics.value.events.any {
+                it.contains("barrier.duplicate_start_ignored")
+            })
+
             // Drift correction must project from the exact position at the scheduled
             // anchor, not combine the old command position with the new anchor time.
             clock.advance(1_000L)
