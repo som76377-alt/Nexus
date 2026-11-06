@@ -72,17 +72,15 @@ internal class ServiceRoomController(
     @Volatile private var activeRoomId: String? = null
     private var sessionGeneration = 0L
     private var localActionGeneration = 0L
-    private var lastPublishedGeneration = -1L
     private var userId: String? = null
     private var lastRemoteRevision = 0L
     private var lastAppliedRevision = 0L
     private var lastRemotePlayback: RoomPlaybackSnapshot? = null
     private var pendingAction: PendingLocalAction? = null
     private var lastPublishedSource = ""
-    private var applyingRemote = false
+    private var lastPublishedPlaying = false
     private var expectedRemoteStartSource: String? = null
     private var lastObservedIsPlaying = player.snapshot().isPlaying
-    private var lastLocalIntentElapsedMs = 0L
     private var signalSequence = 0L
 
     private data class PendingLocalAction(
@@ -118,7 +116,7 @@ internal class ServiceRoomController(
                 if (pendingAction == null &&
                     local.sourceId.isNotBlank() &&
                     local.sourceId == lastPublishedSource &&
-                    clock.elapsedRealtimeMs() - lastLocalIntentElapsedMs > 750L
+                    !lastPublishedPlaying
                 ) {
                     captureLocalIntent(RoomPlayerIntent.Play)
                     // Keep this observer service-scoped; it does not poll position.
@@ -142,10 +140,9 @@ internal class ServiceRoomController(
         lastAppliedRevision = 0L
         lastRemotePlayback = null
         lastPublishedSource = ""
-        lastPublishedGeneration = -1L
+        lastPublishedPlaying = false
         expectedRemoteStartSource = null
         lastObservedIsPlaying = player.snapshot().isPlaying
-        lastLocalIntentElapsedMs = 0L
         retryPolicy.reset()
         driftController.reset()
         driftSeekGate.reset()
@@ -243,7 +240,6 @@ internal class ServiceRoomController(
         lastRemoteRevision = 0L
         lastAppliedRevision = 0L
         lastPublishedSource = ""
-        lastPublishedGeneration = -1L
         retryPolicy.reset()
         driftController.reset()
         driftSeekGate.reset()
@@ -291,7 +287,6 @@ internal class ServiceRoomController(
     private fun captureLocalIntent(intent: RoomPlayerIntent) {
         val roomId = activeRoomId ?: return
         val elapsed = clock.elapsedRealtimeMs()
-        lastLocalIntentElapsedMs = elapsed
         expectedRemoteStartSource = null
         val current = player.snapshot()
         val previous = pendingAction
@@ -545,6 +540,7 @@ internal class ServiceRoomController(
         lastRemoteRevision = maxOf(lastRemoteRevision, revision)
         lastAppliedRevision = maxOf(lastAppliedRevision, revision)
         lastPublishedSource = command.canonicalSourceUrl
+        lastPublishedPlaying = command.isPlaying
         retryPolicy.recordSuccess(revision)
         if (pendingAction?.generation == pending.generation) {
             pendingAction = null
@@ -584,6 +580,7 @@ internal class ServiceRoomController(
             if (sameDeviceState && pending == null) {
                 lastAppliedRevision = maxOf(lastAppliedRevision, remote.revision)
                 lastPublishedSource = remote.canonicalSourceUrl
+                lastPublishedPlaying = remote.isPlaying
                 retryPolicy.recordSuccess(remote.revision)
                 return
             }
@@ -648,7 +645,6 @@ internal class ServiceRoomController(
         val localGeneration = localActionGeneration
         val startingSignal = signalSequence
         val before = player.snapshot()
-        applyingRemote = true
         try {
             if (before.sourceId != remote.canonicalSourceUrl) {
                 val audio = mediaResolver.resolve(
@@ -734,6 +730,7 @@ internal class ServiceRoomController(
             if (remote.isPlaying) player.play() else player.pause()
             lastAppliedRevision = maxOf(lastAppliedRevision, remote.revision)
             lastPublishedSource = remote.canonicalSourceUrl
+            lastPublishedPlaying = remote.isPlaying
             mutableState.value = mutableState.value.copy(
                 roomId = roomId,
                 connection = RoomConnectionState.CONNECTED,
@@ -741,7 +738,6 @@ internal class ServiceRoomController(
                 lastError = null
             )
         } finally {
-            applyingRemote = false
             if (isCurrent(roomId, generation) && pendingAction != null) {
                 requestPublishAfterApplyLock(roomId, generation)
             }
