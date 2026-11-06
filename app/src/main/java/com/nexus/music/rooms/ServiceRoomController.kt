@@ -654,7 +654,12 @@ internal class ServiceRoomController(
         val startingSignal = signalSequence
         val before = player.snapshot()
         try {
-            if (before.sourceId != remote.canonicalSourceUrl) {
+            // A matching media ID does not prove that its extracted stream URL is still usable.
+            // If Media3 is idle/ended/failed (but not actively buffering), resolve a fresh
+            // per-device stream instead of retrying an expired URL forever.
+            val needsFreshStream = before.sourceId != remote.canonicalSourceUrl ||
+                (!before.isReady && !before.isBuffering)
+            if (needsFreshStream) {
                 val audio = mediaResolver.resolve(
                     remote.sourceId,
                     remote.canonicalSourceUrl

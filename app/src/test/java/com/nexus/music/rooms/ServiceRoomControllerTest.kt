@@ -152,6 +152,59 @@ class ServiceRoomControllerTest {
     }
 
     @Test
+    fun sameCanonicalTrackWithIdleLocalPlayerResolvesFreshStream() = runTest {
+        val canonical = "https://www.youtube.com/watch?v=expired-local-stream"
+        val repository = FakeRoomRepository(
+            initialSnapshot = RoomPlaybackSnapshot(
+                roomId = "room-expired",
+                sourceId = canonical,
+                canonicalSourceUrl = canonical,
+                title = "Shared track",
+                artist = "Artist",
+                isPlaying = true,
+                positionMs = 4_000L,
+                durationMs = 120_000L,
+                revision = 3L,
+                updatedBy = "other-device",
+                updatedAt = "2026-11-06T00:00:00.000Z",
+                actionId = "remote-track",
+                actionType = RoomActionType.TRACK,
+                originDeviceId = "other-device",
+                commandAt = "2026-11-06T00:00:00.000Z"
+            )
+        )
+        val player = FakeRoomPlayer(
+            LocalPlaybackSnapshot(
+                sourceId = canonical,
+                canonicalSourceUrl = canonical,
+                title = "Shared track",
+                artist = "Artist",
+                isPlaying = false,
+                isBuffering = false,
+                isReady = false,
+                positionMs = 4_000L,
+                durationMs = 120_000L
+            )
+        )
+        val resolver = FakeRoomMediaResolver()
+        val controller = newController(repository, player, resolver)
+
+        try {
+            controller.attach("room-expired")
+            runCurrent()
+            advanceTimeBy(50L)
+            runCurrent()
+
+            assertEquals(1, resolver.resolveCount)
+            assertTrue(player.snapshot().isReady)
+            assertTrue(player.snapshot().isPlaying)
+            assertTrue(repository.published.isEmpty())
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
     fun chatInvalidationUpdatesUiStateWithoutTouchingPlaybackRevision() = runTest {
         val repository = FakeRoomRepository()
         val player = FakeRoomPlayer()
@@ -193,13 +246,14 @@ class ServiceRoomControllerTest {
 
     private fun TestScope.newController(
         repository: FakeRoomRepository,
-        player: FakeRoomPlayer
+        player: FakeRoomPlayer,
+        mediaResolver: FakeRoomMediaResolver = FakeRoomMediaResolver()
     ) = ServiceRoomController(
         parentScope = this,
         repository = repository,
         player = player,
         clock = FakeRoomClock(),
-        mediaResolver = FakeRoomMediaResolver()
+        mediaResolver = mediaResolver
     )
 
     private class FakeRoomRepository(
@@ -325,18 +379,23 @@ class ServiceRoomControllerTest {
     }
 
     private class FakeRoomMediaResolver : RoomMediaResolver {
+        var resolveCount = 0
+
         override suspend fun resolve(
             sourceId: String,
             canonicalSourceUrl: String
-        ) = ResolvedAudio(
-            sourceUrl = canonicalSourceUrl,
-            title = "Resolved track",
-            artist = "Resolved artist",
-            thumbnailUrl = null,
-            durationSeconds = 180L,
-            audioUrl = "https://stream.invalid/audio",
-            averageBitrate = 128_000,
-            mimeType = "audio/mp4"
-        )
+        ): ResolvedAudio {
+            resolveCount += 1
+            return ResolvedAudio(
+                sourceUrl = canonicalSourceUrl,
+                title = "Resolved track",
+                artist = "Resolved artist",
+                thumbnailUrl = null,
+                durationSeconds = 180L,
+                audioUrl = "https://stream.invalid/audio",
+                averageBitrate = 128_000,
+                mimeType = "audio/mp4"
+            )
+        }
     }
 }
