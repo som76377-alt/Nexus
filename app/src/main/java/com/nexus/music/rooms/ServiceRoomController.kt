@@ -1,6 +1,5 @@
 package com.nexus.music.rooms
 
-import androidx.media3.common.Player
 import com.nexus.music.rooms.domain.RoomActionType
 import com.nexus.music.rooms.domain.RoomClock
 import com.nexus.music.rooms.domain.RoomCommand
@@ -53,7 +52,7 @@ internal class ServiceRoomController(
 
     private val controllerJob = SupervisorJob(parentScope.coroutineContext[Job])
     private val controllerScope = CoroutineScope(
-        parentScope.coroutineContext + controllerJob + Dispatchers.Main.immediate
+        parentScope.coroutineContext + controllerJob
     )
     private val mutableState = MutableStateFlow(RoomControllerState())
     override val state: StateFlow<RoomControllerState> = mutableState.asStateFlow()
@@ -460,11 +459,25 @@ internal class ServiceRoomController(
             val pending = pendingAction ?: return
             val deviceId = userId ?: return
             val local = player.snapshot()
-            val sourceId = local.sourceId.ifBlank { pending.sourceId }
-            val canonicalUrl = local.canonicalSourceUrl
-                .ifBlank { pending.canonicalSourceUrl }
-                .ifBlank { sourceId }
-            val title = local.title.ifBlank { pending.title }
+            // Never let a delayed MediaSession callback publish the previous item under a
+            // newly selected TRACK action. Wait for ExoPlayer to expose the selected media ID.
+            if (pending.actionType == RoomActionType.TRACK &&
+                local.sourceId.isNotBlank() &&
+                local.sourceId != pending.sourceId
+            ) return
+            val sourceId = if (pending.actionType == RoomActionType.TRACK) {
+                pending.sourceId
+            } else {
+                local.sourceId.ifBlank { pending.sourceId }
+            }
+            val canonicalUrl = pending.canonicalSourceUrl.ifBlank {
+                local.canonicalSourceUrl.ifBlank { sourceId }
+            }
+            val title = if (pending.actionType == RoomActionType.TRACK) {
+                pending.title
+            } else {
+                local.title.ifBlank { pending.title }
+            }
             if (sourceId.isBlank() || canonicalUrl.isBlank() || title.isBlank()) return
 
             val command = RoomCommand(
