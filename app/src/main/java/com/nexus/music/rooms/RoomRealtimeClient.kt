@@ -190,6 +190,8 @@ internal class RoomRealtimeClient(
             setConnectionState(true)
 
             var heartbeatRef = 2
+            var nextTokenRefreshAt = android.os.SystemClock.elapsedRealtime() +
+                TOKEN_REFRESH_INTERVAL_MS
             while (currentCoroutineContext().isActive) {
                 val endError = withTimeoutOrNull(20_000L) { ended.await() }
                 if (endError != null) throw endError
@@ -200,6 +202,23 @@ internal class RoomRealtimeClient(
                     .put("ref", (heartbeatRef++).toString())
                 if (!socket.send(heartbeat.toString())) {
                     throw IOException("Realtime heartbeat could not be sent.")
+                }
+
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (now >= nextTokenRefreshAt) {
+                    // Supabase closes private channels when their JWT expires unless an
+                    // access_token event updates the channel's authorization cache.
+                    val refreshedToken = api.refreshRealtimeAccessToken()
+                    val tokenUpdate = JSONObject()
+                        .put("topic", topic)
+                        .put("event", "access_token")
+                        .put("payload", JSONObject().put("access_token", refreshedToken))
+                        .put("ref", (heartbeatRef++).toString())
+                        .put("join_ref", joinRef)
+                    if (!socket.send(tokenUpdate.toString())) {
+                        throw IOException("Realtime authentication token could not be refreshed.")
+                    }
+                    nextTokenRefreshAt = now + TOKEN_REFRESH_INTERVAL_MS
                 }
             }
         } finally {
@@ -224,6 +243,9 @@ internal class RoomRealtimeClient(
     }
 
     private companion object {
+        // Supabase JWTs default to a one-hour lifetime. Refresh with a 15-minute safety
+        // margin, then repeat using the newly rotated refresh token.
+        const val TOKEN_REFRESH_INTERVAL_MS = 45L * 60L * 1_000L
         val SHARED_CLIENT: OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
