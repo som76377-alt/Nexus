@@ -164,6 +164,6 @@ data class RoomDiagnosticsSnapshot(
         appendLine("Nexus room synchronization diagnostics")
         appendLine(summary)
         appendLine("Events are device-local monotonic observations; compare timestamps across phones only through server-anchored measurements.")
-        events.forEach(::appendLine)
+        events.forEach { appendLine(it) }
     }
 }
