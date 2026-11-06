@@ -98,6 +98,7 @@ data class LocalPlaybackSnapshot(
     val artist: String? = null,
     val isPlaying: Boolean = false,
     val isBuffering: Boolean = false,
+    val isReady: Boolean = false,
     val positionMs: Long = 0L,
     val durationMs: Long = 0L
 )
