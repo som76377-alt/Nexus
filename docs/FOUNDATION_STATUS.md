@@ -5,11 +5,11 @@ Last updated: 2026-11-06
 ## Baseline used for this foundation branch
 
 - Repository: `som76377-alt/Nexus`
-- Foundation branch starts from PR #6 head: `ff4c80644ba38551d7c735906b55b84a4843b3ec`
-- PR #6: open draft, based on `main`; do not assume it is merged.
-- Main at audit: `c29cb050ca04725129cdacbbc99c59f468badb61`.
+- Foundation branch starts from PR #6 head: `ff4c80644ba38551d7c735906b55b84a4843b3ec`.
+- PR #6 (room playback reliability and updater baseline) was merged into `main` on 2026-11-06 as merge commit `36bfa816f694426d1a10c35a5e7b0ecbd03ecab9`.
+- Main at this foundation review: `36bfa816f694426d1a10c35a5e7b0ecbd03ecab9`.
 - Current release at audit: v0.1.7.
-- Live Supabase project: active/healthy; migrations through `20261105164854` are recorded as applied.
+- Live Supabase project: active/healthy; migrations through `20261105164854` are recorded as applied. Merging repository code does not apply database migrations.
 
 ## Foundation added by this branch
 
