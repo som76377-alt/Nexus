@@ -168,8 +168,9 @@ internal class RoomIntentForwardingPlayer(
     }
 
     private fun recordTrack(mediaItem: MediaItem) {
-        val canonicalUrl = mediaItem.mediaId.takeIf(String::isNotBlank)
-            ?: mediaItem.localConfiguration?.uri?.toString().orEmpty()
+        // The media ID is the canonical shared identity. Never fall back to the
+        // local playback URI: it is an expiring extracted stream URL, not room state.
+        val canonicalUrl = mediaItem.mediaId.takeIf(String::isNotBlank) ?: return
         val title = mediaItem.mediaMetadata.title?.toString().orEmpty()
         if (canonicalUrl.isBlank() || title.isBlank()) return
         recordIntent(
