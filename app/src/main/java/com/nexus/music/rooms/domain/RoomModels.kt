@@ -31,6 +31,14 @@ sealed interface RoomPlayerIntent {
         val title: String,
         val artist: String?
     ) : RoomPlayerIntent
+    data class SkipToNext(
+        val previousSourceId: String,
+        val previousPositionMs: Long
+    ) : RoomPlayerIntent
+    data class SkipToPrevious(
+        val previousSourceId: String,
+        val previousPositionMs: Long
+    ) : RoomPlayerIntent
 }
 
 /**
