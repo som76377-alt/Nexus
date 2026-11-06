@@ -140,6 +140,80 @@ class ServiceRoomControllerTest {
     }
 
     @Test
+    fun explicitNextAndPreviousCommandsPublishTheSelectedCanonicalTrack() = runTest {
+        val first = "https://www.youtube.com/watch?v=first-track"
+        val second = "https://www.youtube.com/watch?v=second-track"
+        val third = "https://www.youtube.com/watch?v=third-track"
+        val repository = FakeRoomRepository()
+        val player = FakeRoomPlayer(
+            LocalPlaybackSnapshot(
+                sourceId = first,
+                canonicalSourceUrl = first,
+                title = "First track",
+                playWhenReady = true,
+                isPlaying = true,
+                isReady = true,
+                positionMs = 12_000L,
+                durationMs = 120_000L
+            )
+        )
+        val controller = newController(repository, player)
+
+        try {
+            controller.attach("room-skip")
+            runCurrent()
+            advanceTimeBy(150L)
+            runCurrent()
+            assertEquals(first, repository.published.last().sourceId)
+
+            player.setSnapshot(
+                player.snapshot().copy(
+                    sourceId = second,
+                    canonicalSourceUrl = second,
+                    title = "Second track",
+                    positionMs = 0L
+                )
+            )
+            player.emitIntent(
+                RoomPlayerIntent.SkipToNext(
+                    previousSourceId = first,
+                    previousPositionMs = 12_000L
+                )
+            )
+            runCurrent()
+            advanceTimeBy(250L)
+            runCurrent()
+
+            assertEquals(second, repository.published.last().sourceId)
+            assertEquals(RoomActionType.TRACK, repository.published.last().actionType)
+
+            player.setSnapshot(
+                player.snapshot().copy(
+                    sourceId = third,
+                    canonicalSourceUrl = third,
+                    title = "Third track",
+                    positionMs = 0L
+                )
+            )
+            player.emitIntent(
+                RoomPlayerIntent.SkipToPrevious(
+                    previousSourceId = second,
+                    previousPositionMs = 0L
+                )
+            )
+            runCurrent()
+            advanceTimeBy(250L)
+            runCurrent()
+
+            assertEquals(third, repository.published.last().sourceId)
+            assertEquals(RoomActionType.TRACK, repository.published.last().actionType)
+            assertEquals(3, repository.published.size)
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
     fun remoteTrackAndPlayAreAppliedWithoutEchoingAnotherRoomCommand() = runTest {
         val canonical = "https://www.youtube.com/watch?v=remote-track"
         val repository = FakeRoomRepository(
