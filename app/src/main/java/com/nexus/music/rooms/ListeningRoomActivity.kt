@@ -67,6 +67,8 @@ class ListeningRoomActivity : Activity() {
     private lateinit var nowPlaying: TextView
     private lateinit var playButton: Button
     private lateinit var seekBar: SeekBar
+    private lateinit var diagnosticsText: TextView
+    private lateinit var copyDiagnosticsButton: Button
 
     private var playback: RoomPlayerAdapter? = null
     private var roomId: String? = null
@@ -79,6 +81,7 @@ class ListeningRoomActivity : Activity() {
     private var syncJob: Job? = null
     private var roomController: RoomController? = null
     private var roomStateJob: Job? = null
+    private var diagnosticsJob: Job? = null
     private var lastChatSignalVersion = 0L
     private var isSeeking = false
     private var lastSnapshot = PlaybackSnapshot(connected = false)
@@ -202,6 +205,19 @@ class ListeningRoomActivity : Activity() {
             setOnClickListener { playback?.togglePlayback() }
         }
         roomPanel.addView(playButton, params(4))
+
+        val diagnosticsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        diagnosticsText = label("Sync diagnostics · waiting for measurements", 10f, muted)
+        diagnosticsRow.addView(diagnosticsText, LinearLayout.LayoutParams(0, -2, 1f))
+        copyDiagnosticsButton = actionButton("Copy log", false).apply {
+            setOnClickListener { copyDiagnostics() }
+            isEnabled = false
+        }
+        diagnosticsRow.addView(copyDiagnosticsButton, LinearLayout.LayoutParams(-2, dp(38)))
+        roomPanel.addView(diagnosticsRow, params(5))
 
         roomPanel.addView(label("Room chat", 15f, foreground, true), params(16))
         val chatScroll = ScrollView(this).apply {
@@ -368,6 +384,13 @@ class ListeningRoomActivity : Activity() {
             }
             if (roomId != id || roomSessionGeneration != sessionGeneration) return
 
+            diagnosticsJob?.cancel()
+            diagnosticsJob = scope.launch {
+                controller.diagnostics.collect { diagnostics ->
+                    diagnosticsText.text = diagnostics.summary
+                    copyDiagnosticsButton.isEnabled = diagnostics.events.isNotEmpty()
+                }
+            }
             lastChatSignalVersion = controller.state.value.chatSignalVersion
             roomStateJob?.cancel()
             roomStateJob = scope.launch {
@@ -428,6 +451,15 @@ class ListeningRoomActivity : Activity() {
             if (roomId == id && roomSessionGeneration == sessionGeneration) exitRoom()
             throw error
         }
+    }
+
+    private fun copyDiagnostics() {
+        val diagnostics = roomController?.diagnostics?.value ?: return
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(
+            ClipData.newPlainText("Nexus room diagnostics", diagnostics.exportText())
+        )
+        Toast.makeText(this, "Synchronization log copied", Toast.LENGTH_SHORT).show()
     }
 
     private suspend fun refreshMessages() {
@@ -555,6 +587,8 @@ class ListeningRoomActivity : Activity() {
         syncJob = null
         roomStateJob?.cancel()
         roomStateJob = null
+        diagnosticsJob?.cancel()
+        diagnosticsJob = null
         val controller = roomController
         roomController = null
         if (controller != null) {
@@ -718,6 +752,7 @@ class ListeningRoomActivity : Activity() {
         // Activity navigation/recreation while PlaybackService remains alive.
         syncJob?.cancel()
         roomStateJob?.cancel()
+        diagnosticsJob?.cancel()
         handler.removeCallbacks(playerTicker)
         playback?.close()
         playback = null
