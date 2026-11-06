@@ -5,6 +5,7 @@ import com.nexus.music.rooms.RoomsApi
 import com.nexus.music.rooms.domain.RoomActionType
 import com.nexus.music.rooms.domain.RoomCommand
 import com.nexus.music.rooms.domain.RoomPlaybackSnapshot
+import com.nexus.music.rooms.domain.RoomPlaybackReadyResult
 import com.nexus.music.rooms.domain.RoomPublishResult
 import com.nexus.music.rooms.domain.RoomRealtimeSignal
 import com.nexus.music.rooms.domain.RoomRepository
@@ -62,6 +63,19 @@ internal class SupabaseRoomRepository(
         return RoomPublishResult(result.applied, result.revision)
     }
 
+    override suspend fun markPlaybackReady(
+        roomId: String,
+        revision: Long,
+        sourceId: String
+    ): RoomPlaybackReadyResult {
+        val result = api.markPlaybackReady(roomId, revision, sourceId)
+        return RoomPlaybackReadyResult(
+            startAt = result.startAt,
+            activeMembers = result.activeMembers,
+            readyMembers = result.readyMembers
+        )
+    }
+
     override fun observeRealtimeSignals(roomId: String): Flow<RoomRealtimeSignal> =
         callbackFlow {
             val client = RoomRealtimeClient(
@@ -73,6 +87,15 @@ internal class SupabaseRoomRepository(
                 },
                 onChatSignal = {
                     trySend(RoomRealtimeSignal.ChatInvalidated)
+                },
+                onStartScheduled = { revision, sourceId, startAt ->
+                    trySend(
+                        RoomRealtimeSignal.StartScheduled(
+                            revision = revision,
+                            sourceId = sourceId,
+                            startAt = startAt
+                        )
+                    )
                 },
                 onConnectionChanged = { connected ->
                     trySend(RoomRealtimeSignal.ConnectionChanged(connected))
