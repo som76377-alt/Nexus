@@ -47,13 +47,15 @@ The existing source files are not all moved in this foundation commit. Move them
 ## Room command and state path (v1)
 
 1. Local user intent is applied to the local player immediately.
-2. A command is created with a unique action UUID, origin device ID and the snapshot revision the user acted against.
-3. The client publishes through the membership-checked RPC using revision compare-and-swap.
-4. The database is authoritative. If the revision conflicts, fetch the newest snapshot and reconcile without overwriting a newer local action.
-5. Realtime Postgres Changes are wake-up/invalidation signals, not the command payload or source of truth.
-6. A notification causes a fresh snapshot read; only a newer revision is considered.
-7. REST polling remains a bounded fallback for missed events and reconnect.
-8. Chat updates never cause playback reloads or seeks.
+2. Capture local commands explicitly at the player command boundary (MediaSession/ForwardingPlayer or an equivalent command adapter). Do not infer user actions from time windows, position discontinuities or generic state callbacks.
+3. Applying a remote command must bypass the local-intent emitter so it cannot echo back as a new user command.
+4. A command is created with a unique action UUID, origin device ID and the snapshot revision the user acted against.
+5. The client publishes through the membership-checked RPC using revision compare-and-swap.
+6. The database is authoritative. If the revision conflicts, fetch the newest snapshot and reconcile without overwriting a newer local action.
+7. Realtime Postgres Changes are wake-up/invalidation signals, not the command payload or source of truth.
+8. A notification causes a fresh snapshot read; only a newer revision is considered.
+9. REST polling remains a bounded fallback for missed events and reconnect.
+10. Chat updates never cause playback reloads or seeks.
 
 ## Track identity
 
