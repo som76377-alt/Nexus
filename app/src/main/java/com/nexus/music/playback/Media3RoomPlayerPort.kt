@@ -134,9 +134,9 @@ internal class Media3RoomPlayerPort(
  */
 @OptIn(UnstableApi::class)
 internal class RoomIntentForwardingPlayer(
-    player: Player,
+    private val delegate: Player,
     private val recordIntent: (RoomPlayerIntent) -> Unit
-) : androidx.media3.common.ForwardingPlayer(player) {
+) : androidx.media3.common.ForwardingPlayer(delegate) {
 
     override fun play() {
         recordIntent(RoomPlayerIntent.Play)
@@ -174,7 +174,7 @@ internal class RoomIntentForwardingPlayer(
     }
 
     override fun setMediaItems(mediaItems: List<MediaItem>, resetPosition: Boolean) {
-        val selectedIndex = if (resetPosition) 0 else player.currentMediaItemIndex
+        val selectedIndex = if (resetPosition) 0 else delegate.currentMediaItemIndex
         recordPlaylistSelection(mediaItems, selectedIndex)
         super.setMediaItems(mediaItems, resetPosition)
     }
@@ -185,7 +185,7 @@ internal class RoomIntentForwardingPlayer(
         startPositionMs: Long
     ) {
         val selectedIndex = if (startIndex == C.INDEX_UNSET) {
-            player.currentMediaItemIndex
+            delegate.currentMediaItemIndex
         } else {
             startIndex
         }
@@ -200,32 +200,32 @@ internal class RoomIntentForwardingPlayer(
 
     override fun seekToNext() {
         recordIntent(RoomPlayerIntent.SkipToNext(
-            previousSourceId = player.currentMediaItem?.mediaId.orEmpty(),
-            previousPositionMs = player.currentPosition.coerceAtLeast(0L)
+            previousSourceId = delegate.currentMediaItem?.mediaId.orEmpty(),
+            previousPositionMs = delegate.currentPosition.coerceAtLeast(0L)
         ))
         super.seekToNext()
     }
 
     override fun seekToNextMediaItem() {
         recordIntent(RoomPlayerIntent.SkipToNext(
-            previousSourceId = player.currentMediaItem?.mediaId.orEmpty(),
-            previousPositionMs = player.currentPosition.coerceAtLeast(0L)
+            previousSourceId = delegate.currentMediaItem?.mediaId.orEmpty(),
+            previousPositionMs = delegate.currentPosition.coerceAtLeast(0L)
         ))
         super.seekToNextMediaItem()
     }
 
     override fun seekToPrevious() {
         recordIntent(RoomPlayerIntent.SkipToPrevious(
-            previousSourceId = player.currentMediaItem?.mediaId.orEmpty(),
-            previousPositionMs = player.currentPosition.coerceAtLeast(0L)
+            previousSourceId = delegate.currentMediaItem?.mediaId.orEmpty(),
+            previousPositionMs = delegate.currentPosition.coerceAtLeast(0L)
         ))
         super.seekToPrevious()
     }
 
     override fun seekToPreviousMediaItem() {
         recordIntent(RoomPlayerIntent.SkipToPrevious(
-            previousSourceId = player.currentMediaItem?.mediaId.orEmpty(),
-            previousPositionMs = player.currentPosition.coerceAtLeast(0L)
+            previousSourceId = delegate.currentMediaItem?.mediaId.orEmpty(),
+            previousPositionMs = delegate.currentPosition.coerceAtLeast(0L)
         ))
         super.seekToPreviousMediaItem()
     }
