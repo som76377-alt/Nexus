@@ -65,6 +65,52 @@ class ServiceRoomControllerTest {
     }
 
     @Test
+    fun localPlaybackStartAfterBufferingPublishesFollowUpPlayCommand() = runTest {
+        val canonical = "https://www.youtube.com/watch?v=buffered-track"
+        val repository = FakeRoomRepository()
+        val player = FakeRoomPlayer(
+            LocalPlaybackSnapshot(
+                sourceId = canonical,
+                canonicalSourceUrl = canonical,
+                title = "Buffered track",
+                artist = "Artist",
+                isPlaying = false,
+                isBuffering = true,
+                isReady = false,
+                positionMs = 0L,
+                durationMs = 90_000L
+            )
+        )
+        val controller = newController(repository, player)
+
+        try {
+            controller.attach("room-buffering")
+            runCurrent()
+            advanceTimeBy(150L)
+            runCurrent()
+            assertEquals(RoomActionType.TRACK, repository.published.single().actionType)
+            assertFalse(repository.published.single().isPlaying)
+
+            player.setSnapshot(
+                player.snapshot().copy(
+                    isPlaying = true,
+                    isBuffering = false,
+                    isReady = true
+                )
+            )
+            runCurrent()
+            advanceTimeBy(150L)
+            runCurrent()
+
+            assertEquals(2, repository.published.size)
+            assertEquals(RoomActionType.PLAY, repository.published.last().actionType)
+            assertTrue(repository.published.last().isPlaying)
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
     fun remoteTrackAndPlayAreAppliedWithoutEchoingAnotherRoomCommand() = runTest {
         val canonical = "https://www.youtube.com/watch?v=remote-track"
         val repository = FakeRoomRepository(
@@ -261,6 +307,10 @@ class ServiceRoomControllerTest {
 
         fun emitIntent(intent: RoomPlayerIntent) {
             mutableIntents.tryEmit(intent)
+        }
+
+        fun setSnapshot(snapshot: LocalPlaybackSnapshot) {
+            mutablePlayback.value = snapshot
         }
     }
 
