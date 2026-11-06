@@ -296,6 +296,7 @@ class ListeningRoomActivity : Activity() {
         setBusy(true, "Joining room…")
         scope.launch {
             try {
+                val api = PlaybackService.awaitRoomsApi()
                 val identity = api.identity()
                 userId = identity.userId
                 val joinedId = api.joinRoom(normalizedCode)
