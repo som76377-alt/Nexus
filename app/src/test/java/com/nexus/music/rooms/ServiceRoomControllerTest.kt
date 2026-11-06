@@ -66,7 +66,7 @@ class ServiceRoomControllerTest {
     }
 
     @Test
-    fun localPlaybackStartAfterBufferingPublishesFollowUpPlayCommand() = runTest {
+    fun bufferedTrackPublishesExplicitPlayIntentWithoutWaitingForAudioAdvancement() = runTest {
         val canonical = "https://www.youtube.com/watch?v=buffered-track"
         val repository = FakeRoomRepository()
         val player = FakeRoomPlayer(
@@ -75,6 +75,7 @@ class ServiceRoomControllerTest {
                 canonicalSourceUrl = canonical,
                 title = "Buffered track",
                 artist = "Artist",
+                playWhenReady = true,
                 isPlaying = false,
                 isBuffering = true,
                 isReady = false,
@@ -89,23 +90,50 @@ class ServiceRoomControllerTest {
             runCurrent()
             advanceTimeBy(150L)
             runCurrent()
-            assertEquals(RoomActionType.TRACK, repository.published.single().actionType)
-            assertFalse(repository.published.single().isPlaying)
 
-            player.setSnapshot(
-                player.snapshot().copy(
-                    isPlaying = true,
-                    isBuffering = false,
-                    isReady = true
-                )
+            assertEquals(1, repository.published.size)
+            assertEquals(RoomActionType.TRACK, repository.published.single().actionType)
+            assertTrue("play intent must survive buffering", repository.published.single().isPlaying)
+            assertFalse("audio has not advanced yet", player.snapshot().isPlaying)
+            assertTrue(player.snapshot().playWhenReady)
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
+    fun explicitPauseDuringBufferingPublishesPausedIntent() = runTest {
+        val canonical = "https://www.youtube.com/watch?v=pause-buffering"
+        val repository = FakeRoomRepository()
+        val player = FakeRoomPlayer(
+            LocalPlaybackSnapshot(
+                sourceId = canonical,
+                canonicalSourceUrl = canonical,
+                title = "Pause while buffering",
+                playWhenReady = true,
+                isPlaying = false,
+                isBuffering = true,
+                durationMs = 90_000L
             )
+        )
+        val controller = newController(repository, player)
+
+        try {
+            controller.attach("room-pause-buffering")
+            runCurrent()
+            advanceTimeBy(150L)
+            runCurrent()
+            assertTrue(repository.published.single().isPlaying)
+
+            player.setSnapshot(player.snapshot().copy(playWhenReady = false))
+            player.emitIntent(RoomPlayerIntent.Pause)
             runCurrent()
             advanceTimeBy(150L)
             runCurrent()
 
             assertEquals(2, repository.published.size)
-            assertEquals(RoomActionType.PLAY, repository.published.last().actionType)
-            assertTrue(repository.published.last().isPlaying)
+            assertEquals(RoomActionType.PAUSE, repository.published.last().actionType)
+            assertFalse(repository.published.last().isPlaying)
         } finally {
             controller.close()
         }
@@ -180,6 +208,7 @@ class ServiceRoomControllerTest {
                 canonicalSourceUrl = canonical,
                 title = "Shared track",
                 artist = "Artist",
+                playWhenReady = false,
                 isPlaying = false,
                 isBuffering = false,
                 isReady = false,
@@ -489,6 +518,7 @@ class ServiceRoomControllerTest {
                 artist = artist,
                 isReady = true,
                 isBuffering = false,
+                playWhenReady = false,
                 isPlaying = false,
                 positionMs = 0L
             )
@@ -496,6 +526,7 @@ class ServiceRoomControllerTest {
 
         override fun play() {
             mutablePlayback.value = mutablePlayback.value.copy(
+                playWhenReady = true,
                 isPlaying = true,
                 isBuffering = false,
                 isReady = true
@@ -503,7 +534,7 @@ class ServiceRoomControllerTest {
         }
 
         override fun pause() {
-            mutablePlayback.value = mutablePlayback.value.copy(isPlaying = false)
+            mutablePlayback.value = mutablePlayback.value.copy(playWhenReady = false, isPlaying = false)
         }
 
         override fun seekTo(positionMs: Long) {
