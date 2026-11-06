@@ -55,6 +55,11 @@ data class RoomPlayback(
 )
 
 data class PlaybackPublishResult(val applied: Boolean, val revision: Long)
+data class PlaybackReadyResult(
+    val startAt: String?,
+    val activeMembers: Int,
+    val readyMembers: Int
+)
 
 /**
  * Small REST client for the two-person room prototype.
@@ -323,6 +328,29 @@ class RoomsApi(context: Context) {
         PlaybackPublishResult(
             applied = row.optBoolean("applied"),
             revision = row.optLong("revision")
+        )
+    }
+
+    suspend fun markPlaybackReady(
+        roomId: String,
+        revision: Long,
+        sourceId: String
+    ): PlaybackReadyResult = withContext(Dispatchers.IO) {
+        val payload = JSONObject()
+            .put("p_room_id", roomId)
+            .put("p_revision", revision)
+            .put("p_source_id", sourceId)
+        val rows = JSONArray(
+            apiRequest("POST", "/rest/v1/rpc/mark_room_playback_ready", payload.toString())
+        )
+        if (rows.length() == 0) {
+            throw IOException("The server did not confirm playback readiness.")
+        }
+        val row = rows.getJSONObject(0)
+        PlaybackReadyResult(
+            startAt = row.optString("start_at").takeIf(String::isNotBlank),
+            activeMembers = row.optInt("active_members"),
+            readyMembers = row.optInt("ready_members")
         )
     }
 
