@@ -61,6 +61,7 @@ internal class ServiceRoomController(
 
     private val publishMutex = Mutex()
     private val applyMutex = Mutex()
+    private val applyingRevisions = mutableSetOf<Long>()
     private val driftController = DriftCorrectionController()
     private val driftSeekGate = DriftSeekGate()
     private val retryPolicy = RemoteApplyRetryPolicy()
@@ -561,13 +562,25 @@ internal class ServiceRoomController(
     }
 
     private suspend fun refreshRemotePlayback(roomId: String, generation: Long) {
+        if (!isCurrent(roomId, generation)) return
+        // Network IO is deliberately outside applyMutex. A slow REST fetch must not block
+        // a newer pause/seek or another reconciliation from entering the decision path.
+        val snapshotStarted = clock.elapsedRealtimeMs()
+        val remote = repository.fetchPlaybackSnapshot(roomId) ?: return
+        val snapshotLatency = (clock.elapsedRealtimeMs() - snapshotStarted).coerceAtLeast(0L)
+        recordDiagnostic(
+            "rest.snapshot",
+            "revision=${remote.revision}",
+            snapshotLatencyMs = snapshotLatency
+        )
+        if (!isCurrent(roomId, generation)) return
+
+        var shouldApply = false
+        var shouldPublishLocal = false
         applyMutex.withLock {
-            if (!isCurrent(roomId, generation)) return
-            val snapshotStarted = clock.elapsedRealtimeMs()
-            val remote = repository.fetchPlaybackSnapshot(roomId) ?: return
-            val snapshotLatency = (clock.elapsedRealtimeMs() - snapshotStarted).coerceAtLeast(0L)
-            recordDiagnostic("rest.snapshot", "revision=${remote.revision}", snapshotLatencyMs = snapshotLatency)
-            if (!isCurrent(roomId, generation) || remote.revision < lastRemoteRevision) return
+            if (!isCurrent(roomId, generation) || remote.revision < lastRemoteRevision) {
+                return@withLock
+            }
             lastRemotePlayback = remote
             lastRemoteRevision = maxOf(lastRemoteRevision, remote.revision)
             mutableState.value = mutableState.value.copy(
@@ -583,13 +596,12 @@ internal class ServiceRoomController(
             val local = player.snapshot()
             val pending = pendingAction
             if (pending != null && localActionIsNewer(pending, remote)) {
-                requestPublishAfterApplyLock(roomId, generation)
-                return
+                shouldPublishLocal = true
+                return@withLock
             }
 
-            // A same-device snapshot is already reflected locally only while Media3
-            // still has a usable item. An idle/ended/error player may retain the same
-            // media ID while its extracted stream URL has expired; it must be resolved again.
+            // An idle/ended/error player may retain the same media ID after its extracted
+            // stream URL expires. Resolve a new local stream instead of reusing it.
             val localNeedsStreamRecovery = local.sourceId == remote.canonicalSourceUrl &&
                 !local.isReady && !local.isBuffering
             val sameDeviceState = remote.updatedBy == userId &&
@@ -599,7 +611,7 @@ internal class ServiceRoomController(
             if (sameDeviceState && pending == null) {
                 lastAppliedRevision = maxOf(lastAppliedRevision, remote.revision)
                 retryPolicy.recordSuccess(remote.revision)
-                return
+                return@withLock
             }
 
             val changed = remote.revision > lastAppliedRevision &&
@@ -607,31 +619,40 @@ internal class ServiceRoomController(
                     local.sourceId != remote.canonicalSourceUrl ||
                     local.playWhenReady != remote.isPlaying ||
                     localNeedsStreamRecovery)
-            val shouldAttemptApply = retryPolicy.shouldAttempt(
+            shouldApply = retryPolicy.shouldAttempt(
                 revision = remote.revision,
                 nowElapsedMs = clock.elapsedRealtimeMs(),
                 hasUnappliedChanges = changed
             )
-            if (shouldAttemptApply) {
-                try {
-                    applyRemoteSnapshot(remote, roomId, generation)
-                    retryPolicy.recordSuccess(remote.revision)
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (error: Exception) {
-                    val retryIn = retryPolicy.recordFailure(
-                        remote.revision,
-                        clock.elapsedRealtimeMs()
-                    )
-                    setError(
-                        IOException(
-                            "Shared track is not ready yet; retrying in ${retryIn / 1000L}s.",
-                            error
-                        ),
-                        "Room playback is reconnecting"
-                    )
-                }
+            if (!changed && remote.revision > lastAppliedRevision) {
+                lastAppliedRevision = remote.revision
+                retryPolicy.recordSuccess(remote.revision)
             }
+        }
+
+        if (shouldPublishLocal) {
+            requestPublishAfterApplyLock(roomId, generation)
+            return
+        }
+        if (!shouldApply || !isCurrent(roomId, generation)) return
+
+        try {
+            applyRemoteSnapshot(remote, roomId, generation)
+            retryPolicy.recordSuccess(remote.revision)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            val retryIn = retryPolicy.recordFailure(
+                remote.revision,
+                clock.elapsedRealtimeMs()
+            )
+            setError(
+                IOException(
+                    "Shared track is not ready yet; retrying in ${retryIn / 1000L}s.",
+                    error
+                ),
+                "Room playback is reconnecting"
+            )
         }
     }
 
@@ -661,15 +682,21 @@ internal class ServiceRoomController(
         generation: Long
     ) {
         if (!isCurrent(roomId, generation)) return
+        // Duplicate poll/realtime wakes for the same revision share one in-flight resolution.
+        if (!applyingRevisions.add(remote.revision)) return
+
         val applyStarted = clock.elapsedRealtimeMs()
-        recordDiagnostic("player.apply_start", "revision=${remote.revision} action=${remote.actionType}")
+        recordDiagnostic(
+            "player.apply_start",
+            "revision=${remote.revision} action=${remote.actionType}"
+        )
         val localGeneration = localActionGeneration
         val startingSignal = signalSequence
-        val before = player.snapshot()
+        var shouldReconcileAgain = false
+        var shouldPublishLocal = false
         try {
-            // A matching media ID does not prove that its extracted stream URL is still usable.
-            // If Media3 is idle/ended/failed (but not actively buffering), resolve a fresh
-            // per-device stream instead of retrying an expired URL forever.
+            val before = player.snapshot()
+            // Never hold applyMutex across NewPipe, stream preparation or readiness waits.
             val needsFreshStream = before.sourceId != remote.canonicalSourceUrl ||
                 (!before.isReady && !before.isBuffering)
             if (needsFreshStream) {
@@ -681,7 +708,7 @@ internal class ServiceRoomController(
                     localActionGeneration != localGeneration ||
                     signalSequence != startingSignal
                 ) {
-                    requestReconciliation(roomId, generation)
+                    shouldReconcileAgain = true
                     return
                 }
                 player.prepareCanonicalSource(
@@ -712,58 +739,88 @@ internal class ServiceRoomController(
                 localActionGeneration != localGeneration ||
                 signalSequence != startingSignal
             ) {
-                requestReconciliation(roomId, generation)
+                shouldReconcileAgain = true
                 return
             }
 
+            // Re-read after potentially slow resolution. A newer revision always wins.
             val newest = repository.fetchPlaybackSnapshot(roomId)
             if (!isCurrent(roomId, generation)) return
-            if (signalSequence != startingSignal ||
-                (newest != null && newest.revision > remote.revision)
-            ) {
-                if (newest != null) {
-                    lastRemotePlayback = newest
-                    lastRemoteRevision = maxOf(lastRemoteRevision, newest.revision)
+            if (newest != null && newest.revision > remote.revision) {
+                applyMutex.withLock {
+                    if (newest.revision >= lastRemoteRevision) {
+                        lastRemotePlayback = newest
+                        lastRemoteRevision = newest.revision
+                        mutableState.value = mutableState.value.copy(playback = newest)
+                    }
                 }
-                requestReconciliation(roomId, generation)
+                shouldReconcileAgain = true
                 return
             }
 
-            val anchorTime = parseTimestamp(remote.commandAt.ifBlank { remote.updatedAt })
-            val elapsed = anchorTime?.let {
-                (clock.estimatedServerTimeMs() - it).coerceAtLeast(0L)
-            } ?: 0L
-            val expected = RoomPlaybackMath.expectedRemotePositionMs(
-                positionMs = remote.positionMs,
-                isPlaying = remote.isPlaying,
-                elapsedSinceUpdateMs = elapsed,
-                durationMs = remote.durationMs
-            )
-            val current = player.snapshot()
-            if (RoomPlaybackMath.needsSeek(current.positionMs, expected) ||
-                (!remote.isPlaying && current.playWhenReady && current.positionMs != expected)
-            ) {
-                player.seekTo(expected)
+            applyMutex.withLock {
+                if (!isCurrent(roomId, generation) ||
+                    localActionGeneration != localGeneration ||
+                    signalSequence != startingSignal ||
+                    remote.revision < lastRemoteRevision ||
+                    remote.revision < lastAppliedRevision
+                ) {
+                    shouldReconcileAgain = true
+                    return@withLock
+                }
+
+                val latestIntent = pendingAction
+                val authoritative = newest ?: remote
+                if (latestIntent != null && localActionIsNewer(latestIntent, authoritative)) {
+                    shouldPublishLocal = true
+                    return@withLock
+                }
+
+                val anchorTime = parseTimestamp(
+                    authoritative.commandAt.ifBlank { authoritative.updatedAt }
+                )
+                val elapsed = anchorTime?.let {
+                    (clock.estimatedServerTimeMs() - it).coerceAtLeast(0L)
+                } ?: 0L
+                val expected = RoomPlaybackMath.expectedRemotePositionMs(
+                    positionMs = authoritative.positionMs,
+                    isPlaying = authoritative.isPlaying,
+                    elapsedSinceUpdateMs = elapsed,
+                    durationMs = authoritative.durationMs
+                )
+                val current = player.snapshot()
+                if (RoomPlaybackMath.needsSeek(current.positionMs, expected) ||
+                    (!authoritative.isPlaying &&
+                        current.playWhenReady &&
+                        current.positionMs != expected)
+                ) {
+                    player.seekTo(expected)
+                }
+                player.resetPlaybackSpeed()
+                driftController.reset()
+                driftSeekGate.reset()
+                if (authoritative.isPlaying) player.play() else player.pause()
+                lastAppliedRevision = maxOf(lastAppliedRevision, authoritative.revision)
+                lastRemotePlayback = authoritative
+                mutableState.value = mutableState.value.copy(
+                    roomId = roomId,
+                    connection = RoomConnectionState.CONNECTED,
+                    playback = authoritative,
+                    lastError = null
+                )
             }
-            player.resetPlaybackSpeed()
-            driftController.reset()
-            driftSeekGate.reset()
-            if (remote.isPlaying) player.play() else player.pause()
-            lastAppliedRevision = maxOf(lastAppliedRevision, remote.revision)
-            mutableState.value = mutableState.value.copy(
-                roomId = roomId,
-                connection = RoomConnectionState.CONNECTED,
-                playback = remote,
-                lastError = null
-            )
         } finally {
+            applyingRevisions.remove(remote.revision)
             recordDiagnostic(
                 "player.apply_end",
                 "revision=${remote.revision}",
                 applyLatencyMs = (clock.elapsedRealtimeMs() - applyStarted).coerceAtLeast(0L)
             )
-            if (isCurrent(roomId, generation) && pendingAction != null) {
+            if (shouldPublishLocal && isCurrent(roomId, generation)) {
                 requestPublishAfterApplyLock(roomId, generation)
+            }
+            if (shouldReconcileAgain && isCurrent(roomId, generation)) {
+                requestReconciliation(roomId, generation)
             }
         }
     }
