@@ -46,6 +46,38 @@ jobs:
       - name: Run unit tests
         run: ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest
 
+      - name: Print unit-test failure details
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          reports = sorted(Path("app/build/test-results/testDebugUnitTest").glob("TEST-*.xml"))
+          if not reports:
+              print("No unit-test XML reports were produced.")
+          for report in reports:
+              root = ET.parse(report).getroot()
+              for case in root.iter("testcase"):
+                  problems = [node for node in case if node.tag in ("failure", "error")]
+                  for problem in problems:
+                      print(f"FAILED: {case.get('classname')}.{case.get('name')}")
+                      print(problem.get("message", ""))
+                      print((problem.text or "").strip())
+          PY
+
+      - name: Upload unit-test reports
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: nexus-unit-test-reports
+          path: |
+            app/build/test-results/testDebugUnitTest/**/*.xml
+            app/build/reports/tests/testDebugUnitTest/**
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Assemble debug APK
         run: ./gradlew --no-daemon --stacktrace :app:assembleDebug
 
