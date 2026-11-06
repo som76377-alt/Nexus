@@ -81,6 +81,9 @@ internal class ServiceRoomController(
     private var pendingAction: PendingLocalAction? = null
     private var lastPublishedSource = ""
     private var applyingRemote = false
+    private var expectedRemoteStartSource: String? = null
+    private var lastObservedIsPlaying = player.snapshot().isPlaying
+    private var lastLocalIntentElapsedMs = 0L
     private var signalSequence = 0L
 
     private data class PendingLocalAction(
@@ -101,16 +104,26 @@ internal class ServiceRoomController(
             }
         }
         controllerScope.launch {
-            player.playback.collect {
-                // Position is intentionally read on demand from snapshot(); this state flow
-                // only keeps UI-observable metadata and buffering changes fresh.
-                val current = mutableState.value
-                if (current.roomId != null) {
-                    current.playback?.let { snapshot ->
-                        if (snapshot.revision == lastRemoteRevision) {
-                            mutableState.value = current.copy(playback = snapshot)
-                        }
+            player.playback.collect { local ->
+                // If remote PLAY had to wait for buffering, consume that expected transition
+                // rather than publishing it back as a fresh local action.
+                val started = local.isPlaying && !lastObservedIsPlaying
+                lastObservedIsPlaying = local.isPlaying
+                if (!started || expectedRemoteStartSource == local.sourceId) {
+                    if (expectedRemoteStartSource == local.sourceId && started) {
+                        expectedRemoteStartSource = null
                     }
+                    return@collect
+                }
+                val activeId = activeRoomId ?: return@collect
+                if (pendingAction == null &&
+                    local.sourceId.isNotBlank() &&
+                    local.sourceId == lastPublishedSource &&
+                    clock.elapsedRealtimeMs() - lastLocalIntentElapsedMs > 750L
+                ) {
+                    captureLocalIntent(RoomPlayerIntent.Play)
+                    // Keep this observer service-scoped; it does not poll position.
+                    requestReconciliation(activeId, sessionGeneration)
                 }
             }
         }
@@ -131,6 +144,9 @@ internal class ServiceRoomController(
         lastRemotePlayback = null
         lastPublishedSource = ""
         lastPublishedGeneration = -1L
+        expectedRemoteStartSource = null
+        lastObservedIsPlaying = player.snapshot().isPlaying
+        lastLocalIntentElapsedMs = 0L
         retryPolicy.reset()
         driftController.reset()
         driftSeekGate.reset()
@@ -275,8 +291,9 @@ internal class ServiceRoomController(
 
     private fun captureLocalIntent(intent: RoomPlayerIntent) {
         val roomId = activeRoomId ?: return
-        if (applyingRemote) return
         val elapsed = clock.elapsedRealtimeMs()
+        lastLocalIntentElapsedMs = elapsed
+        expectedRemoteStartSource = null
         val current = player.snapshot()
         val previous = pendingAction
         val preserveTrack = previous?.actionType == RoomActionType.TRACK &&
@@ -696,6 +713,11 @@ internal class ServiceRoomController(
             player.resetPlaybackSpeed()
             driftController.reset()
             driftSeekGate.reset()
+            expectedRemoteStartSource = if (remote.isPlaying) {
+                remote.canonicalSourceUrl
+            } else {
+                null
+            }
             if (remote.isPlaying) player.play() else player.pause()
             lastAppliedRevision = maxOf(lastAppliedRevision, remote.revision)
             lastPublishedSource = remote.canonicalSourceUrl
