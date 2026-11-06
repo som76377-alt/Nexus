@@ -6,6 +6,7 @@ import com.nexus.music.rooms.domain.RoomActionType
 import com.nexus.music.rooms.domain.RoomClock
 import com.nexus.music.rooms.domain.RoomCommand
 import com.nexus.music.rooms.domain.RoomPlaybackSnapshot
+import com.nexus.music.rooms.domain.RoomPlaybackReadyResult
 import com.nexus.music.rooms.domain.RoomPlayerIntent
 import com.nexus.music.rooms.domain.RoomPlayerPort
 import com.nexus.music.rooms.domain.RoomPublishResult
@@ -94,8 +95,9 @@ class ServiceRoomControllerTest {
             assertEquals(1, repository.published.size)
             assertEquals(RoomActionType.TRACK, repository.published.single().actionType)
             assertTrue("play intent must survive buffering", repository.published.single().isPlaying)
-            assertFalse("audio has not advanced yet", player.snapshot().isPlaying)
-            assertTrue(player.snapshot().playWhenReady)
+            assertFalse("the new track remains paused until the room barrier completes", player.snapshot().playWhenReady)
+            assertFalse(player.snapshot().isPlaying)
+            assertTrue(repository.readinessCalls >= 1)
         } finally {
             controller.close()
         }
@@ -214,6 +216,50 @@ class ServiceRoomControllerTest {
     }
 
     @Test
+    fun localTrackStartsOnlyAfterTheServerIssuesTheSharedReadyBarrier() = runTest {
+        val canonical = "https://www.youtube.com/watch?v=barrier-local-track"
+        val repository = FakeRoomRepository()
+        repository.scheduledStartAt = "1970-01-01T00:00:11.501Z"
+        val player = FakeRoomPlayer(
+            LocalPlaybackSnapshot(
+                sourceId = canonical,
+                canonicalSourceUrl = canonical,
+                title = "Barrier track",
+                artist = "Artist",
+                playWhenReady = true,
+                isPlaying = true,
+                isReady = true,
+                positionMs = 0L,
+                durationMs = 90_000L
+            )
+        )
+        val clock = FakeRoomClock()
+        val controller = newController(repository, player, clock = clock)
+
+        try {
+            controller.attach("room-barrier-local")
+            runCurrent()
+            advanceTimeBy(150L)
+            runCurrent()
+
+            assertEquals(1, repository.published.size)
+            assertTrue(repository.published.single().isPlaying)
+            assertTrue(repository.readinessCalls >= 1)
+            assertFalse("track must wait for the scheduled start", player.snapshot().playWhenReady)
+
+            advanceTimeBy(1_500L)
+            clock.advance(1_500L)
+            runCurrent()
+
+            assertTrue(player.snapshot().playWhenReady)
+            assertTrue(player.snapshot().isPlaying)
+            assertEquals(1L, controller.state.value.playback?.revision)
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
     fun remoteTrackAndPlayAreAppliedWithoutEchoingAnotherRoomCommand() = runTest {
         val canonical = "https://www.youtube.com/watch?v=remote-track"
         val repository = FakeRoomRepository(
@@ -235,8 +281,10 @@ class ServiceRoomControllerTest {
                 commandAt = "2026-11-06T00:00:00.000Z"
             )
         )
+        repository.scheduledStartAt = "1970-01-01T00:00:11.501Z"
         val player = FakeRoomPlayer()
-        val controller = newController(repository, player)
+        val clock = FakeRoomClock()
+        val controller = newController(repository, player, clock = clock)
 
         try {
             controller.attach("room-2")
@@ -246,9 +294,16 @@ class ServiceRoomControllerTest {
 
             assertEquals(canonical, player.snapshot().canonicalSourceUrl)
             assertTrue(player.snapshot().isReady)
-            assertTrue(player.snapshot().isPlaying)
-            assertEquals(0, repository.published.size)
+            assertFalse("remote track must remain paused before the common start", player.snapshot().playWhenReady)
+            assertTrue(repository.published.isEmpty())
             assertEquals(7L, controller.state.value.playback?.revision)
+
+            advanceTimeBy(1_500L)
+            clock.advance(1_500L)
+            runCurrent()
+
+            assertTrue(player.snapshot().playWhenReady)
+            assertTrue(player.snapshot().isPlaying)
         } finally {
             controller.close()
         }
@@ -523,6 +578,8 @@ class ServiceRoomControllerTest {
         val signals = MutableSharedFlow<RoomRealtimeSignal>(extraBufferCapacity = 16)
         var snapshot: RoomPlaybackSnapshot? = initialSnapshot
         var leaveCount = 0
+        var scheduledStartAt: String? = null
+        var readinessCalls = 0
 
         override suspend fun currentUserId(): String = "device-1"
 
@@ -550,6 +607,19 @@ class ServiceRoomControllerTest {
                 commandAt = "2026-11-06T00:00:00.000Z"
             )
             return RoomPublishResult(applied = true, revision = revision)
+        }
+
+        override suspend fun markPlaybackReady(
+            roomId: String,
+            revision: Long,
+            sourceId: String
+        ): RoomPlaybackReadyResult {
+            readinessCalls += 1
+            return RoomPlaybackReadyResult(
+                startAt = scheduledStartAt,
+                activeMembers = 2,
+                readyMembers = if (scheduledStartAt == null) 1 else 2
+            )
         }
 
         override fun observeRealtimeSignals(roomId: String): SharedFlow<RoomRealtimeSignal> =
