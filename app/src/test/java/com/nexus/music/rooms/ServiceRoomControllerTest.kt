@@ -364,6 +364,46 @@ class ServiceRoomControllerTest {
     }
 
     @Test
+    fun seekPublishesRequestedPositionBeforePlayerSnapshotAdvances() = runTest {
+        val canonical = "https://www.youtube.com/watch?v=seek-intent"
+        val repository = FakeRoomRepository()
+        val player = FakeRoomPlayer(
+            LocalPlaybackSnapshot(
+                sourceId = canonical,
+                canonicalSourceUrl = canonical,
+                title = "Seek intent",
+                playWhenReady = false,
+                isPlaying = false,
+                isReady = true,
+                positionMs = 25_000L,
+                durationMs = 120_000L
+            )
+        )
+        val controller = newController(repository, player)
+
+        try {
+            controller.attach("room-seek-intent")
+            runCurrent()
+            advanceTimeBy(150L)
+            runCurrent()
+            assertEquals(RoomActionType.TRACK, repository.published.single().actionType)
+
+            // The MediaSession wrapper records SeekTo before delegating to ExoPlayer,
+            // so the fresh snapshot can still contain the old position here.
+            player.emitIntent(RoomPlayerIntent.SeekTo(45_000L))
+            runCurrent()
+            advanceTimeBy(150L)
+            runCurrent()
+
+            assertEquals(RoomActionType.SEEK, repository.published.last().actionType)
+            assertEquals(45_000L, repository.published.last().positionMs)
+        } finally {
+            controller.close()
+        }
+    }
+
+
+    @Test
     fun playImmediatelyAfterPausedTrackSelectionKeepsTrackBarrier() = runTest {
         val canonical = "https://www.youtube.com/watch?v=paused-selection-play"
         val repository = FakeRoomRepository()
