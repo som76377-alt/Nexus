@@ -12,9 +12,8 @@ internal fun resolveSkipIntent(
     currentArtist: String?,
     currentPositionMs: Long
 ): RoomPlayerIntent? {
-    if (currentSourceId.isNotBlank() && currentTitle.isNotBlank() &&
-        currentSourceId != previousSourceId
-    ) {
+    if (currentSourceId != previousSourceId) {
+        if (currentSourceId.isBlank() || currentTitle.isBlank()) return null
         return RoomPlayerIntent.SelectTrack(
             sourceId = currentSourceId,
             canonicalSourceUrl = currentSourceId,
