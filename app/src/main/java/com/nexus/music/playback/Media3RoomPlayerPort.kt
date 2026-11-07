@@ -32,6 +32,24 @@ internal class Media3RoomPlayerPort(
 
     private var onRoomPlaybackStarted: (() -> Unit)? = null
 
+    private val interruptionListener = object : Player.Listener {
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            if (!playWhenReady && (
+                    reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS ||
+                        reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY
+                    )
+            ) {
+                // ExoPlayer changes its own playWhenReady for platform interruptions.
+                // This listener distinguishes those changes from MediaSession user commands.
+                recordUserIntent(RoomPlayerIntent.SystemPause)
+            }
+        }
+    }
+
+    init {
+        player.addListener(interruptionListener)
+    }
+
     fun setRoomPlaybackStartedListener(listener: () -> Unit) {
         onRoomPlaybackStarted = listener
     }
