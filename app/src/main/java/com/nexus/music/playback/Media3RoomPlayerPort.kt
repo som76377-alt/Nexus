@@ -136,7 +136,7 @@ internal class RoomIntentForwardingPlayer(
 
     override fun play() {
         recordIntent(RoomPlayerIntent.Play)
-        if (isRoomActive() && (pendingRoomTrackStart || shouldHoldRoomPlay())) {
+        if (isRoomActive() && shouldHoldRoomStart()) {
             // A newly selected track or an active shared-start barrier must stay staged.
             delegate.pause()
         } else {
@@ -201,12 +201,23 @@ internal class RoomIntentForwardingPlayer(
         recordIntent(if (playWhenReady) RoomPlayerIntent.Play else RoomPlayerIntent.Pause)
         if (!playWhenReady) pendingRoomTrackStart = false
         if (playWhenReady && isRoomActive() &&
-            (pendingRoomTrackStart || shouldHoldRoomPlay())
+            shouldHoldRoomStart()
         ) {
             delegate.pause()
         } else {
             super.setPlayWhenReady(playWhenReady)
         }
+    }
+
+    private fun shouldHoldRoomStart(): Boolean {
+        if (!isRoomActive()) {
+            pendingRoomTrackStart = false
+            return false
+        }
+        if (pendingRoomTrackStart && !shouldRoomBePlaying()) {
+            pendingRoomTrackStart = false
+        }
+        return pendingRoomTrackStart || shouldHoldRoomPlay()
     }
 
     private data class SkipState(
