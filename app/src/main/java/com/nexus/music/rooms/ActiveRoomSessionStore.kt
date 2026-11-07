@@ -17,7 +17,7 @@ internal object ActiveRoomSessionStore {
             .getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
             .edit()
             .putString(ROOM_ID, roomId)
-            .apply()
+            .commit()
     }
 
     fun read(context: Context): String? =

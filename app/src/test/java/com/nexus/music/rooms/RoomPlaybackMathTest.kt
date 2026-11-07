@@ -2,13 +2,14 @@ package com.nexus.music.rooms
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RoomPlaybackMathTest {
     @Test
     fun serverClockEstimatorUsesMedianOfThreeFastestSamples() {
-        val estimate = ServerClockEstimator.estimateOffset(
+        val estimate = ServerClockEstimator.estimate(
             listOf(
                 ClockOffsetSample(offsetMs = 1_000L, roundTripMs = 20L),
                 ClockOffsetSample(offsetMs = 1_040L, roundTripMs = 30L),
@@ -17,19 +18,19 @@ class RoomPlaybackMathTest {
                 ClockOffsetSample(offsetMs = -8_000L, roundTripMs = 1_200L)
             )
         )
-        assertEquals(1_020L, estimate)
+        assertEquals(1_020L, estimate?.offsetMs)
     }
 
     @Test
     fun serverClockEstimatorRejectsInsufficientSamples() {
         assertEquals(
             null,
-            ServerClockEstimator.estimateOffset(
+            ServerClockEstimator.estimate(
                 listOf(
                     ClockOffsetSample(offsetMs = 1_000L, roundTripMs = 20L),
                     ClockOffsetSample(offsetMs = 1_020L, roundTripMs = 30L)
                 )
-            )
+            )?.offsetMs
         )
     }
 
@@ -200,6 +201,7 @@ class RoomPlaybackMathTest {
         assertTrue(RoomPlaybackMath.needsSeek(10_000L, 10_700L))
     }
 
+
     @Test
     fun driftSeekGateWaitsForTheFirstSeekInsteadOfAllowingAnother() {
         val gate = DriftSeekGate()
@@ -222,31 +224,23 @@ class RoomPlaybackMathTest {
     @Test
     fun failedRemoteApplyUsesBoundedBackoff() {
         val policy = RemoteApplyRetryPolicy()
-        assertFalse(policy.shouldRetry(4L, 0L))
-        assertEquals(1_000L, policy.recordFailure(4L, 0L))
-        assertFalse(policy.shouldRetry(4L, 999L))
-        assertTrue(policy.shouldRetry(4L, 1_000L))
-        assertEquals(2_000L, policy.recordFailure(4L, 1_000L))
-        assertFalse(policy.shouldRetry(4L, 2_999L))
-        assertTrue(policy.shouldRetry(4L, 3_000L))
-    }
-
-    @Test
-    fun stillUnappliedRevisionCannotBypassItsRetryBackoff() {
-        val policy = RemoteApplyRetryPolicy()
         assertTrue(policy.shouldAttempt(4L, 0L, hasUnappliedChanges = true))
         assertEquals(1_000L, policy.recordFailure(4L, 0L))
         assertFalse(policy.shouldAttempt(4L, 999L, hasUnappliedChanges = true))
         assertTrue(policy.shouldAttempt(4L, 1_000L, hasUnappliedChanges = true))
+        assertEquals(2_000L, policy.recordFailure(4L, 1_000L))
+        assertFalse(policy.shouldAttempt(4L, 2_999L, hasUnappliedChanges = true))
+        assertTrue(policy.shouldAttempt(4L, 3_000L, hasUnappliedChanges = true))
     }
 
     @Test
     fun newerRevisionIsNeverBlockedByOlderRetry() {
         val policy = RemoteApplyRetryPolicy()
         policy.recordFailure(4L, 0L)
-        assertFalse(policy.shouldRetry(5L, 100L))
+        assertTrue(policy.shouldAttempt(5L, 100L, hasUnappliedChanges = true))
         assertEquals(1_000L, policy.recordFailure(5L, 100L))
-        assertTrue(policy.shouldRetry(5L, 1_100L))
+        assertFalse(policy.shouldAttempt(5L, 1_099L, hasUnappliedChanges = true))
+        assertTrue(policy.shouldAttempt(5L, 1_100L, hasUnappliedChanges = true))
     }
 
     @Test
@@ -254,7 +248,7 @@ class RoomPlaybackMathTest {
         val policy = RemoteApplyRetryPolicy()
         policy.recordFailure(4L, 0L)
         policy.recordSuccess(4L)
-        assertFalse(policy.shouldRetry(4L, 10_000L))
+        assertTrue(policy.shouldAttempt(4L, 10_000L, hasUnappliedChanges = true))
         assertEquals(1_000L, policy.recordFailure(4L, 10_000L))
     }
     @Test
@@ -264,6 +258,21 @@ class RoomPlaybackMathTest {
         val correction = controller.evaluate(500L, false, 1_000L)
         assertEquals(DriftCorrectionType.SET_SPEED, correction.type)
         assertTrue(correction.speed <= 0.98f)
+    }
+
+    @Test
+    fun roomTimestampParserRejectsTrailingGarbage() {
+        assertNull(RoomTimestampParser.parse("2026-11-06T12:30:00.123456Zgarbage"))
+        assertNull(RoomTimestampParser.parse("2026-11-06T12:30:00Zjunk"))
+    }
+
+    @Test
+    fun bufferingBreaksConsecutiveDriftSamples() {
+        val controller = DriftCorrectionController()
+        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_000L, false, 0L).type)
+        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_000L, true, 500L).type)
+        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_000L, false, 1_000L).type)
+        assertEquals(DriftCorrectionType.SEEK, controller.evaluate(1_000L, false, 1_500L).type)
     }
 
     @Test

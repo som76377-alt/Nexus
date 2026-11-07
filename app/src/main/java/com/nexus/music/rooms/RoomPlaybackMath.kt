@@ -1,6 +1,7 @@
 package com.nexus.music.rooms
 
 import java.text.SimpleDateFormat
+import java.text.ParsePosition
 import java.util.Locale
 import java.util.TimeZone
 
@@ -71,7 +72,11 @@ internal class DriftCorrectionController(
         roundTripMs: Long = 0L
     ): DriftCorrection {
         // Never interpret a buffering position as real playback drift.
-        if (isBuffering) return DriftCorrection(DriftCorrectionType.NONE)
+        if (isBuffering) {
+            consecutiveDriftSamples = 0
+            hasDriftSample = false
+            return DriftCorrection(DriftCorrectionType.NONE)
+        }
 
         filteredDriftMs = if (hasDriftSample) {
             emaAlpha * driftMs.toDouble() + (1.0 - emaAlpha) * filteredDriftMs
@@ -207,9 +212,6 @@ internal class RemoteApplyRetryPolicy(
     private var failureCount = 0
     private var retryAtElapsedMs = 0L
 
-    fun shouldRetry(revision: Long, nowElapsedMs: Long): Boolean =
-        failedRevision == revision && nowElapsedMs >= retryAtElapsedMs
-
     /**
      * A failed revision must wait for its backoff even though it remains unapplied.
      * A newer revision is still attempted immediately rather than inheriting old delay.
@@ -288,8 +290,6 @@ internal object ServerClockEstimator {
         )
     }
 
-    fun estimateOffset(samples: List<ClockOffsetSample>): Long? =
-        estimate(samples)?.offsetMs
 }
 
 
@@ -322,7 +322,9 @@ internal object RoomTimestampParser {
             match.groupValues[1]
         }
         return formatters.get().firstNotNullOfOrNull { formatter ->
-            runCatching { formatter.parse(normalized)?.time }.getOrNull()
+            val position = ParsePosition(0)
+            val parsed = formatter.parse(normalized, position)
+            parsed?.time?.takeIf { position.index == normalized.length && position.errorIndex < 0 }
         }
     }
 }

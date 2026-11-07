@@ -73,7 +73,7 @@ class OkHttpDownloader(
                 .writeTimeout(30, TimeUnit.SECONDS)
                 .callTimeout(45, TimeUnit.SECONDS)
                 .followRedirects(true)
-                .followSslRedirects(true)
+                .followSslRedirects(false)
                 .build()
     }
 }

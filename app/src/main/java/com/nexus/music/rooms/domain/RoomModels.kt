@@ -55,6 +55,7 @@ data class RoomCommand(
     val expectedRevision: Long,
     val originDeviceId: String,
     val actionType: RoomActionType,
+    /** Database source_id; it may be a video ID rather than the canonical URL. */
     val sourceId: String,
     val canonicalSourceUrl: String,
     val title: String,
@@ -79,6 +80,7 @@ data class RoomCommand(
 /** Authoritative playback row read from the room backend. */
 data class RoomPlaybackSnapshot(
     val roomId: String,
+    /** Database source_id; it may be a video ID rather than the canonical URL. */
     val sourceId: String,
     val canonicalSourceUrl: String,
     val title: String,

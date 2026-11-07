@@ -33,7 +33,6 @@ import java.io.IOException
 class PlaybackService : MediaSessionService() {
     private var player: ExoPlayer? = null
     private var mediaSession: MediaSession? = null
-    private var roomPlayerPort: Media3RoomPlayerPort? = null
     private var roomController: ServiceRoomController? = null
     private var roomsApi: RoomsApi? = null
     private lateinit var serviceScope: CoroutineScope
@@ -93,7 +92,6 @@ class PlaybackService : MediaSessionService() {
 
         player = exoPlayer
         val playerPort = Media3RoomPlayerPort(exoPlayer)
-        roomPlayerPort = playerPort
 
         val roomsApi = RoomsApi(this)
         this.roomsApi = roomsApi
@@ -114,7 +112,9 @@ class PlaybackService : MediaSessionService() {
         val sessionPlayer = RoomIntentForwardingPlayer(
             delegate = exoPlayer,
             recordIntent = playerPort::recordUserIntent,
-            isRoomActive = { controller.state.value.roomId != null }
+            isRoomActive = { controller.state.value.roomId != null },
+            shouldHoldRoomPlay = controller::shouldHoldUserPlay,
+            shouldRoomBePlaying = controller::shouldRoomBePlaying
         )
         playerPort.setRoomPlaybackStartedListener(sessionPlayer::clearPendingRoomTrackStart)
         mediaSession = MediaSession.Builder(this, sessionPlayer).build()
@@ -140,10 +140,8 @@ class PlaybackService : MediaSessionService() {
         roomController = null
         serviceScope.cancel()
         mediaSession?.release()
-        roomPlayerPort?.close()
         player?.release()
         mediaSession = null
-        roomPlayerPort = null
         player = null
         super.onDestroy()
     }

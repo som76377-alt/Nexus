@@ -8,18 +8,14 @@ import com.nexus.music.catalog.YoutubeCatalogRepository
  * Provider-specific resolvers can be replaced without changing room synchronization.
  */
 internal interface RoomMediaResolver {
-    suspend fun resolve(sourceId: String, canonicalSourceUrl: String): ResolvedAudio
+    suspend fun resolve(canonicalSourceUrl: String): ResolvedAudio
 }
 
 /** Current provider adapter: every device resolves the canonical YouTube URL locally. */
 internal class YoutubeRoomMediaResolver(
     private val catalog: YoutubeCatalogRepository
 ) : RoomMediaResolver {
-    override suspend fun resolve(
-        sourceId: String,
-        canonicalSourceUrl: String
-    ): ResolvedAudio {
-        require(sourceId.isNotBlank()) { "The shared track has no canonical source ID." }
+    override suspend fun resolve(canonicalSourceUrl: String): ResolvedAudio {
         require(canonicalSourceUrl.isNotBlank()) { "The shared track has no canonical source URL." }
         return catalog.resolveAudio(canonicalSourceUrl)
     }
