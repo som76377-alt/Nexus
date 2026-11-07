@@ -239,6 +239,8 @@ internal class RoomIntentForwardingPlayer(
 
     private fun finishSkip(previous: SkipState) {
         val item = delegate.currentMediaItem ?: return
+        val changedTrack = item.mediaId.isNotBlank() && item.mediaId != previous.sourceId
+        if (changedTrack && playbackPhase(null).isRoomActive) delegate.pause()
         val intent = resolveSkipIntent(
             previousSourceId = previous.sourceId,
             previousPositionMs = previous.positionMs,
@@ -248,9 +250,6 @@ internal class RoomIntentForwardingPlayer(
             currentArtist = item.mediaMetadata.artist?.toString(),
             currentPositionMs = delegate.currentPosition
         ) ?: return
-        if (intent is RoomPlayerIntent.SelectTrack && playbackPhase(null).isRoomActive) {
-            delegate.pause()
-        }
         emitIntent(intent)
     }
 
