@@ -20,7 +20,7 @@ enum class RoomActionType(val wireValue: String) {
     }
 }
 
-/** Explicit local user intent captured at the MediaSession command boundary. */
+/** User command or OS playback interruption captured at the player boundary. */
 sealed interface RoomPlayerIntent {
     data object Play : RoomPlayerIntent
     data object Pause : RoomPlayerIntent
