@@ -30,12 +30,11 @@ interface RoomRepository {
 interface RoomPlayerPort {
     val userIntents: Flow<RoomPlayerIntent>
 
-    /** Read a fresh position/state; StateFlow is for observation, not a clock. */
+    /** Read a fresh player position/state; it is not a clock. */
     fun snapshot(): LocalPlaybackSnapshot
 
     /** Resolve externally, then replace the item in the one local player. */
     suspend fun prepareCanonicalSource(
-        sourceId: String,
         canonicalSourceUrl: String,
         streamUrl: String,
         title: String,
