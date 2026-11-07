@@ -20,10 +20,14 @@ enum class RoomActionType(val wireValue: String) {
     }
 }
 
-/** Explicit local user intent captured at the MediaSession command boundary. */
+/** User command or OS playback interruption captured at the player boundary. */
 sealed interface RoomPlayerIntent {
     data object Play : RoomPlayerIntent
     data object Pause : RoomPlayerIntent
+    /** Android paused playback for audio focus loss or becoming-noisy; never publish this as a room command. */
+    data object SystemPause : RoomPlayerIntent
+    /** Android resumed playback after transient audio focus was regained. */
+    data object SystemResume : RoomPlayerIntent
     data class SeekTo(val positionMs: Long) : RoomPlayerIntent
     data class SelectTrack(
         val sourceId: String,

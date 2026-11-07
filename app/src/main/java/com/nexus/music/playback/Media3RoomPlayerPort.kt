@@ -32,11 +32,41 @@ internal class Media3RoomPlayerPort(
 
     private var onRoomPlaybackStarted: (() -> Unit)? = null
 
+    private val interruptionListener = object : Player.Listener {
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            if (!playWhenReady && (
+                    reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS ||
+                        reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY
+                    )
+            ) {
+                // ExoPlayer changes its own playWhenReady for permanent focus loss and
+                // becoming-noisy events; neither is an explicit room Pause command.
+                recordUserIntent(RoomPlayerIntent.SystemPause)
+            }
+        }
+
+        override fun onPlaybackSuppressionReasonChanged(playbackSuppressionReason: Int) {
+            when (playbackSuppressionReason) {
+                Player.PLAYBACK_SUPPRESSION_REASON_TRANSIENT_AUDIO_FOCUS_LOSS -> {
+                    recordUserIntent(RoomPlayerIntent.SystemPause)
+                }
+                Player.PLAYBACK_SUPPRESSION_REASON_NONE -> {
+                    // Transient focus regain resumes automatically without a MediaSession command.
+                    recordUserIntent(RoomPlayerIntent.SystemResume)
+                }
+            }
+        }
+    }
+
+    init {
+        player.addListener(interruptionListener)
+    }
+
     fun setRoomPlaybackStartedListener(listener: () -> Unit) {
         onRoomPlaybackStarted = listener
     }
 
-    /** Called by the MediaSession-facing ForwardingPlayer for a genuine controller action. */
+    /** Emit a user command or platform interruption observed at the player boundary. */
     fun recordUserIntent(intent: RoomPlayerIntent) {
         mutableUserIntents.tryEmit(intent)
     }

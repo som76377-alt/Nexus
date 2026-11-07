@@ -1098,6 +1098,190 @@ class ServiceRoomControllerTest {
     }
 
     @Test
+    fun s5SystemPauseIsLocalOnlyAndDriftCorrectionStaysSuspended() = runTest {
+        val canonical = "https://www.youtube.com/watch?v=system-pause-local"
+        val remote = RoomPlaybackSnapshot(
+            roomId = "room-system-pause",
+            sourceId = canonical,
+            canonicalSourceUrl = canonical,
+            title = "System pause",
+            artist = "Artist",
+            isPlaying = true,
+            positionMs = 10_000L,
+            durationMs = 90_000L,
+            revision = 4L,
+            updatedBy = "other-device",
+            updatedAt = "1970-01-01T00:00:10.000Z",
+            actionId = "remote-play",
+            actionType = RoomActionType.PLAY,
+            originDeviceId = "other-device",
+            commandAt = "1970-01-01T00:00:10.000Z"
+        )
+        val repository = FakeRoomRepository(initialSnapshot = remote)
+        val player = FakeRoomPlayer(
+            LocalPlaybackSnapshot(
+                sourceId = canonical,
+                canonicalSourceUrl = canonical,
+                title = "System pause",
+                artist = "Artist",
+                playWhenReady = true,
+                isPlaying = true,
+                isReady = true,
+                positionMs = 10_000L,
+                durationMs = 90_000L
+            )
+        )
+        val clock = FakeRoomClock()
+        val controller = newController(repository, player, clock = clock)
+
+        try {
+            controller.attach("room-system-pause")
+            runCurrent()
+            assertTrue(repository.published.isEmpty())
+
+            player.emitIntent(RoomPlayerIntent.SystemPause)
+            runCurrent()
+            val seeksBeforeInterruption = player.seekCalls
+            val speedChangesBeforeInterruption = player.speedChanges
+            // Model transient focus suppression: desired play remains true, and an
+            // out-of-date player callback must not trigger room drift correction.
+            player.setSnapshot(
+                player.snapshot().copy(
+                    playWhenReady = true,
+                    isPlaying = true,
+                    positionMs = 50_000L
+                )
+            )
+            clock.advance(5_000L)
+            advanceTimeBy(5_000L)
+            runCurrent()
+
+            assertTrue("Android system pause must not publish a room PAUSE", repository.published.isEmpty())
+            assertEquals("system-paused drift must not seek", seeksBeforeInterruption, player.seekCalls)
+            assertEquals("system-paused drift must not change playback speed", speedChangesBeforeInterruption, player.speedChanges)
+            assertEquals("system-paused local timeline is left untouched", 50_000L, player.snapshot().positionMs)
+            assertTrue(controller.diagnostics.value.events.any { it.contains("local.system_pause") })
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
+    fun s5ExplicitPlayAfterSystemPauseRejoinsPlayingRoomTimelineWithoutPublishing() = runTest {
+        val canonical = "https://www.youtube.com/watch?v=system-pause-rejoin"
+        val remote = RoomPlaybackSnapshot(
+            roomId = "room-system-rejoin",
+            sourceId = canonical,
+            canonicalSourceUrl = canonical,
+            title = "Rejoin track",
+            artist = "Artist",
+            isPlaying = true,
+            positionMs = 10_000L,
+            durationMs = 90_000L,
+            revision = 7L,
+            updatedBy = "other-device",
+            updatedAt = "1970-01-01T00:00:10.000Z",
+            actionId = "remote-play",
+            actionType = RoomActionType.PLAY,
+            originDeviceId = "other-device",
+            commandAt = "1970-01-01T00:00:10.000Z"
+        )
+        val repository = FakeRoomRepository(initialSnapshot = remote)
+        val player = FakeRoomPlayer(
+            LocalPlaybackSnapshot(
+                sourceId = canonical,
+                canonicalSourceUrl = canonical,
+                title = "Rejoin track",
+                artist = "Artist",
+                playWhenReady = true,
+                isPlaying = true,
+                isReady = true,
+                positionMs = 10_000L,
+                durationMs = 90_000L
+            )
+        )
+        val clock = FakeRoomClock()
+        val controller = newController(repository, player, clock = clock)
+
+        try {
+            controller.attach("room-system-rejoin")
+            runCurrent()
+            player.pause()
+            player.emitIntent(RoomPlayerIntent.SystemPause)
+            runCurrent()
+
+            clock.advance(1_500L)
+            player.emitIntent(RoomPlayerIntent.Play)
+            runCurrent()
+
+            assertTrue("explicit Play rejoins the room timeline locally", player.snapshot().playWhenReady)
+            assertTrue(player.snapshot().isPlaying)
+            assertEquals("resume seeks to the current shared position including attach calibration", 11_501L, player.snapshot().positionMs)
+            assertTrue("rejoining must not publish a room PLAY", repository.published.isEmpty())
+            assertTrue(controller.diagnostics.value.events.any {
+                it.contains("local.system_pause_rejoined")
+            })
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
+    fun s5TransientAudioFocusReleaseRejoinsRoomTimelineWithoutPublishing() = runTest {
+        val canonical = "https://www.youtube.com/watch?v=focus-release-rejoin"
+        val remote = RoomPlaybackSnapshot(
+            roomId = "room-focus-release",
+            sourceId = canonical,
+            canonicalSourceUrl = canonical,
+            title = "Focus release",
+            artist = "Artist",
+            isPlaying = true,
+            positionMs = 20_000L,
+            durationMs = 90_000L,
+            revision = 9L,
+            updatedBy = "other-device",
+            updatedAt = "1970-01-01T00:00:10.000Z",
+            actionId = "remote-play",
+            actionType = RoomActionType.PLAY,
+            originDeviceId = "other-device",
+            commandAt = "1970-01-01T00:00:10.000Z"
+        )
+        val repository = FakeRoomRepository(initialSnapshot = remote)
+        val player = FakeRoomPlayer(
+            LocalPlaybackSnapshot(
+                sourceId = canonical,
+                canonicalSourceUrl = canonical,
+                title = "Focus release",
+                artist = "Artist",
+                playWhenReady = true,
+                isPlaying = true,
+                isReady = true,
+                positionMs = 20_000L,
+                durationMs = 90_000L
+            )
+        )
+        val clock = FakeRoomClock()
+        val controller = newController(repository, player, clock = clock)
+
+        try {
+            controller.attach("room-focus-release")
+            runCurrent()
+            player.emitIntent(RoomPlayerIntent.SystemPause)
+            runCurrent()
+            clock.advance(2_000L)
+            player.emitIntent(RoomPlayerIntent.SystemResume)
+            runCurrent()
+
+            assertTrue("transient focus regain resumes local playback", player.snapshot().playWhenReady)
+            assertTrue(player.snapshot().isPlaying)
+            assertEquals("automatic release rejoins the current room position including attach calibration", 22_001L, player.snapshot().positionMs)
+            assertTrue("automatic interruption release must not publish", repository.published.isEmpty())
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
     fun chatInvalidationUpdatesUiStateWithoutTouchingPlaybackRevision() = runTest {
         val repository = FakeRoomRepository()
         val player = FakeRoomPlayer()
@@ -1240,6 +1424,10 @@ class ServiceRoomControllerTest {
     ) : RoomPlayerPort {
         private val mutablePlayback = MutableStateFlow(initial)
         private val mutableIntents = MutableSharedFlow<RoomPlayerIntent>(extraBufferCapacity = 16)
+        var seekCalls = 0
+            private set
+        var speedChanges = 0
+            private set
 
         override val userIntents: SharedFlow<RoomPlayerIntent> = mutableIntents
 
@@ -1279,12 +1467,15 @@ class ServiceRoomControllerTest {
         }
 
         override fun seekTo(positionMs: Long) {
+            seekCalls += 1
             mutablePlayback.value = mutablePlayback.value.copy(
                 positionMs = positionMs.coerceAtLeast(0L)
             )
         }
 
-        override fun setPlaybackSpeed(speed: Float) = Unit
+        override fun setPlaybackSpeed(speed: Float) {
+            speedChanges += 1
+        }
 
         override fun resetPlaybackSpeed() = Unit
 
