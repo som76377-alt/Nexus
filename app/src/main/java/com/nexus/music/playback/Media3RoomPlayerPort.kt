@@ -150,8 +150,9 @@ internal class RoomIntentForwardingPlayer(
     }
 
     override fun seekTo(positionMs: Long) {
-        recordIntent(RoomPlayerIntent.SeekTo(positionMs.coerceAtLeast(0L)))
-        super.seekTo(positionMs)
+        val targetPositionMs = positionMs.coerceAtLeast(0L)
+        recordIntent(RoomPlayerIntent.SeekTo(targetPositionMs))
+        super.seekTo(targetPositionMs)
     }
 
     override fun setMediaItem(mediaItem: MediaItem) {
