@@ -834,7 +834,7 @@ internal class ServiceRoomController(
                 roomId = command.roomId,
                 generation = sessionGeneration,
                 revision = revision,
-                sourceId = command.canonicalSourceUrl
+                sourceId = command.sourceId
             )
         } else if (newerPending) {
             requestPublishAfterApplyLock(command.roomId, sessionGeneration)
@@ -1154,7 +1154,7 @@ internal class ServiceRoomController(
                     roomId = roomId,
                     generation = generation,
                     revision = remote.revision,
-                    sourceId = remote.canonicalSourceUrl
+                    sourceId = remote.sourceId
                 )
             }
             if (shouldReconcileAgain && isCurrent(roomId, generation)) {
