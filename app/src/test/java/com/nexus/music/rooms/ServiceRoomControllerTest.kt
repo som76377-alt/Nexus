@@ -391,11 +391,15 @@ class ServiceRoomControllerTest {
 
             // The MediaSession wrapper records SeekTo before delegating to ExoPlayer,
             // so the fresh snapshot can still contain the old position here.
-            player.emitIntent(RoomPlayerIntent.SeekTo(45_000L))
+            listOf(30_000L, 35_000L, 45_000L).forEach {
+                player.emitIntent(RoomPlayerIntent.SeekTo(it))
+            }
             runCurrent()
             advanceTimeBy(150L)
             runCurrent()
 
+            assertEquals(2, repository.published.size)
+            assertEquals(1, repository.published.count { it.actionType == RoomActionType.SEEK })
             assertEquals(RoomActionType.SEEK, repository.published.last().actionType)
             assertEquals(45_000L, repository.published.last().positionMs)
         } finally {
@@ -403,6 +407,35 @@ class ServiceRoomControllerTest {
         }
     }
 
+
+    @Test
+    fun failedPublishRetriesWithBackoffFromTheSinglePublishJob() = runTest {
+        val canonical = "https://www.youtube.com/watch?v=publish-retry"
+        val repository = FakeRoomRepository().apply {
+            publishGate = CompletableDeferred<Unit>().apply {
+                completeExceptionally(IOException("Temporary publish failure"))
+            }
+        }
+        val player = FakeRoomPlayer(LocalPlaybackSnapshot(
+            sourceId = canonical, canonicalSourceUrl = canonical, title = "Retry", isReady = true
+        ))
+        val controller = newController(repository, player)
+        try {
+            controller.attach("room-publish-retry")
+            runCurrent()
+            advanceTimeBy(100L)
+            runCurrent()
+            assertTrue(repository.published.isEmpty())
+            advanceTimeBy(499L)
+            runCurrent()
+            assertTrue(repository.published.isEmpty())
+            advanceTimeBy(1L)
+            runCurrent()
+            assertEquals(1, repository.published.size)
+        } finally {
+            controller.close()
+        }
+    }
 
     @Test
     fun playDuringInFlightPausedTrackPublishIsRepublishedAsTrackPlay() = runTest {
