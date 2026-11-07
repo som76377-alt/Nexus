@@ -345,27 +345,37 @@ class ServiceRoomControllerTest {
     fun playImmediatelyAfterPausedTrackSelectionDoesNotReenterTrackBarrier() = runTest {
         val canonical = "https://www.youtube.com/watch?v=paused-selection-play"
         val repository = FakeRoomRepository()
-        val player = FakeRoomPlayer(
-            LocalPlaybackSnapshot(
-                sourceId = canonical,
-                canonicalSourceUrl = canonical,
-                title = "Paused selection",
-                artist = "Artist",
-                playWhenReady = false,
-                isPlaying = false,
-                isReady = true,
-                positionMs = 0L,
-                durationMs = 90_000L
-            )
-        )
+        val player = FakeRoomPlayer()
         val controller = newController(repository, player)
 
         try {
             controller.attach("room-paused-selection")
             runCurrent()
 
-            // The track selection is still queued for publication. The user's Play
-            // starts the already-prepared local item and publishes PLAY, not TRACK.
+            // Select a prepared track, then press Play before the debounce can publish
+            // the TRACK command. The queued intent should collapse to one PLAY command.
+            player.setSnapshot(
+                LocalPlaybackSnapshot(
+                    sourceId = canonical,
+                    canonicalSourceUrl = canonical,
+                    title = "Paused selection",
+                    artist = "Artist",
+                    playWhenReady = false,
+                    isPlaying = false,
+                    isReady = true,
+                    positionMs = 0L,
+                    durationMs = 90_000L
+                )
+            )
+            player.emitIntent(
+                RoomPlayerIntent.SelectTrack(
+                    sourceId = canonical,
+                    canonicalSourceUrl = canonical,
+                    title = "Paused selection",
+                    artist = "Artist",
+                    shouldPlay = false
+                )
+            )
             player.setSnapshot(player.snapshot().copy(playWhenReady = true, isPlaying = true))
             player.emitIntent(RoomPlayerIntent.Play)
             runCurrent()
