@@ -98,8 +98,8 @@ class RoomsApi(context: Context) {
         // Run the five tiny time probes concurrently. Sequential probes made room entry
         // wait behind slow mobile-network round trips even though only the best samples matter.
         val samples = (0 until 5).map {
-                async {
-                    val requestStarted = SystemClock.elapsedRealtime()
+            async {
+                val requestStarted = SystemClock.elapsedRealtime()
                     try {
                         val response = apiRequest("POST", "/rest/v1/rpc/room_server_time", "{}")
                             .trim()
@@ -117,8 +117,8 @@ class RoomsApi(context: Context) {
                     } catch (_: Exception) {
                         null
                     }
-                }
-            }.awaitAll().filterNotNull()
+            }
+        }.awaitAll().filterNotNull()
         val estimate = ServerClockEstimator.estimate(samples)
             ?: throw IOException("Nexus could not obtain enough reliable server-clock samples.")
         serverClockOffsetFromElapsedMs = estimate.offsetMs

@@ -164,7 +164,7 @@ function startRealtime() {
       scheduleSafetyPoll();
       $("realtime-pill").textContent = connected ? "REALTIME LIVE" : "REALTIME " + status;
       $("realtime-pill").style.color = connected ? "var(--lime)" : "#d6b17c";
-      $("fallback-value").textContent = connected ? "5s safety poll" : "5s polling fallback";
+      $("fallback-value").textContent = connected ? "30s safety poll" : "5s polling fallback";
       $("room-status").textContent = connected ? "Connected · live updates" : "Connected · restoring live updates";
       if (connected) logEvent("Realtime subscription active");
       else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") logEvent("Realtime reconnecting" + (error?.message ? ": " + error.message : ""));
