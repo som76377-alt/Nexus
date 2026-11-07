@@ -702,13 +702,18 @@ class ServiceRoomControllerTest {
             runCurrent()
             assertFalse("do not start before the S2 deadline", player.snapshot().playWhenReady)
 
-            clock.advance(101L)
+            clock.advance(1L)
             repository.serverNowMs = clock.estimatedServerTimeMs()
-            advanceTimeBy(101L)
+            advanceTimeBy(1L)
             runCurrent()
 
-            assertTrue("ready local audio must not wait for a peer beyond three seconds", player.snapshot().playWhenReady)
+            assertTrue("ready local audio must start by the three-second S2 deadline", player.snapshot().playWhenReady)
             assertTrue(player.snapshot().isPlaying)
+
+            // Allow the barrier's final readiness check to observe the already-published RECOVERY.
+            clock.advance(200L)
+            advanceTimeBy(200L)
+            runCurrent()
             assertEquals("fallback starts from the new track's base position", 0L, player.snapshot().positionMs)
             assertEquals(2, repository.readinessCalls)
             assertEquals(RoomActionType.RECOVERY, repository.published.last().actionType)
