@@ -1098,7 +1098,7 @@ class ServiceRoomControllerTest {
     }
 
     @Test
-    fun systemPauseIsLocalOnlyAndDriftCorrectionStaysSuspended() = runTest {
+    fun s5SystemPauseIsLocalOnlyAndDriftCorrectionStaysSuspended() = runTest {
         val canonical = "https://www.youtube.com/watch?v=system-pause-local"
         val remote = RoomPlaybackSnapshot(
             roomId = "room-system-pause",
@@ -1167,7 +1167,7 @@ class ServiceRoomControllerTest {
     }
 
     @Test
-    fun explicitPlayAfterSystemPauseRejoinsPlayingRoomTimelineWithoutPublishing() = runTest {
+    fun s5ExplicitPlayAfterSystemPauseRejoinsPlayingRoomTimelineWithoutPublishing() = runTest {
         val canonical = "https://www.youtube.com/watch?v=system-pause-rejoin"
         val remote = RoomPlaybackSnapshot(
             roomId = "room-system-rejoin",
@@ -1227,7 +1227,7 @@ class ServiceRoomControllerTest {
     }
 
     @Test
-    fun transientAudioFocusReleaseRejoinsRoomTimelineWithoutPublishing() = runTest {
+    fun s5TransientAudioFocusReleaseRejoinsRoomTimelineWithoutPublishing() = runTest {
         val canonical = "https://www.youtube.com/watch?v=focus-release-rejoin"
         val remote = RoomPlaybackSnapshot(
             roomId = "room-focus-release",
