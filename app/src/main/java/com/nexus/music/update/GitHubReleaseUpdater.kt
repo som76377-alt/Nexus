@@ -47,11 +47,13 @@ class GitHubReleaseUpdater(
     private val downloadClient: OkHttpClient = DOWNLOAD_CLIENT
 ) {
     suspend fun checkForUpdate(context: Context): UpdateCheckResult = withContext(Dispatchers.IO) {
-        val installedVersion = installedVersionName(context)
-        if (!hasOfficialInstalledSigner(context)) {
+        val installedInfo = getInstalledPackageInfo(context, signingPackageFlags())
+        val installedVersion = installedInfo.versionName
+            ?: throw IOException("Android could not read the installed Nexus version.")
+        if (!hasOfficialInstalledSigner(installedInfo)) {
             return@withContext UpdateCheckResult.IncompatibleInstallation(installedVersion)
         }
-        val installedVersionCode = installedVersionCode(context)
+        val installedVersionCode = installedVersionCode(installedInfo)
         val apiUrl = "https://api.github.com/repos/" +
             "${BuildConfig.UPDATE_REPOSITORY_OWNER}/${BuildConfig.UPDATE_REPOSITORY_NAME}/releases/latest"
         val request = Request.Builder()
@@ -323,14 +325,15 @@ class GitHubReleaseUpdater(
      * shared a versionCode with public releases, so version comparison alone could label an
      * incompatible debug-signed installation as current.
      */
-    private fun hasOfficialInstalledSigner(context: Context): Boolean {
-        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+    private fun signingPackageFlags(): Int =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             PackageManager.GET_SIGNING_CERTIFICATES
         } else {
             @Suppress("DEPRECATION")
             PackageManager.GET_SIGNATURES
         }
-        val packageInfo = getInstalledPackageInfo(context, flags)
+
+    private fun hasOfficialInstalledSigner(packageInfo: PackageInfo): Boolean {
         val fingerprints = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             val signingInfo = packageInfo.signingInfo ?: return false
             signerFingerprints(signingInfo.apkContentsSigners)
@@ -341,21 +344,10 @@ class GitHubReleaseUpdater(
         return isOfficialNexusSigner(fingerprints)
     }
 
-    private fun installedVersionCode(context: Context): Long {
-        @Suppress("DEPRECATION")
-        val packageInfo = if (Build.VERSION.SDK_INT >= 33) {
-            context.packageManager.getPackageInfo(
-                context.packageName,
-                PackageManager.PackageInfoFlags.of(0)
-            )
-        } else {
-            context.packageManager.getPackageInfo(context.packageName, 0)
-        }
-        return if (Build.VERSION.SDK_INT >= 28) packageInfo.longVersionCode else {
-            @Suppress("DEPRECATION")
-            packageInfo.versionCode.toLong()
-        }
-    }
+    @Suppress("DEPRECATION")
+    private fun installedVersionCode(packageInfo: PackageInfo): Long =
+        if (Build.VERSION.SDK_INT >= 28) packageInfo.longVersionCode
+        else packageInfo.versionCode.toLong()
 
     private fun installedVersionName(context: Context): String {
         @Suppress("DEPRECATION")
