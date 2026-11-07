@@ -432,6 +432,7 @@ class ServiceRoomControllerTest {
                     sourceId = canonical,
                     canonicalSourceUrl = canonical,
                     title = "In-flight track",
+                    artist = null,
                     shouldPlay = false
                 )
             )
@@ -541,6 +542,7 @@ class ServiceRoomControllerTest {
                     sourceId = first,
                     canonicalSourceUrl = first,
                     title = "First track",
+                    artist = null,
                     shouldPlay = true
                 )
             )
