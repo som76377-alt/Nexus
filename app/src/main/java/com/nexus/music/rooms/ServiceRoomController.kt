@@ -360,11 +360,15 @@ internal class ServiceRoomController(
             if (localInterruptionState == LocalInterruptionState.SYSTEM_PAUSED) {
                 localInterruptionState = LocalInterruptionState.NONE
                 val remote = lastRemotePlayback
-                if (remote?.isPlaying == true) {
+                if (remote?.isPlaying == true && player.snapshot().playWhenReady) {
                     rejoinRoomTimelineLocally(roomId, remote, "system_resume")
                 } else {
+                    // A focus-release callback must not undo an explicit user Pause.
                     player.pause()
-                    recordDiagnostic("local.system_resume_held", "room is not playing; no room publish")
+                    recordDiagnostic(
+                        "local.system_resume_held",
+                        "room is paused or local play intent was cleared; no room publish"
+                    )
                 }
             }
             return
