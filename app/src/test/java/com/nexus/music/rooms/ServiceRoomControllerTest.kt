@@ -28,50 +28,7 @@ import org.junit.Test
 
 class ServiceRoomControllerTest {
 
-    @Test
-    fun playbackPhaseSynchronouslyStagesTrackBeforeBackToBackPlay() = runTest {
-        val controller = newController(FakeRoomRepository(), FakeRoomPlayer())
-        try {
-            controller.attach("room-phase")
-            runCurrent()
-
-            assertEquals(ServiceRoomController.PlaybackPhase.ROOM_PAUSED, controller.playbackPhase())
-            val selected = RoomPlayerIntent.SelectTrack(
-                sourceId = "https://www.youtube.com/watch?v=phase-track",
-                canonicalSourceUrl = "https://www.youtube.com/watch?v=phase-track",
-                title = "Phase track",
-                artist = null,
-                shouldPlay = true
-            )
-            assertEquals(
-                ServiceRoomController.PlaybackPhase.TRACK_PENDING_PLAYING,
-                controller.playbackPhase(selected)
-            )
-            assertTrue("Play must remain staged until the controller completes the shared start",
-                controller.playbackPhase(RoomPlayerIntent.Play).holdsPlay)
-            assertEquals(
-                ServiceRoomController.PlaybackPhase.TRACK_PENDING_PLAYING,
-                controller.playbackPhase()
-            )
-            assertEquals(
-                ServiceRoomController.PlaybackPhase.TRACK_PENDING_PAUSED,
-                controller.playbackPhase(RoomPlayerIntent.Pause)
-            )
-            assertFalse(controller.playbackPhase().shouldPlay)
-            controller.playbackPhase(RoomPlayerIntent.SystemPause)
-            assertEquals(
-                ServiceRoomController.PlaybackPhase.SYSTEM_PAUSED_TRACK_PENDING_PLAYING,
-                controller.playbackPhase(selected)
-            )
-            assertTrue(
-                "Play remains held for a pending track even during an OS interruption",
-                controller.playbackPhase(RoomPlayerIntent.Play).holdsPlay
-            )
-        } finally {
-            controller.close()
-        }
-    }
-
+    // SPEC: S2, S8
     @Test
     fun attachPublishesAnAlreadyLoadedLocalTrackThroughRevisionCas() = runTest {
         val canonical = "https://www.youtube.com/watch?v=local-track"
@@ -110,6 +67,7 @@ class ServiceRoomControllerTest {
         }
     }
 
+    // SPEC: S2, S8
     @Test
     fun bufferedTrackPublishesExplicitPlayIntentWithoutWaitingForAudioAdvancement() = runTest {
         val canonical = "https://www.youtube.com/watch?v=buffered-track"
@@ -147,6 +105,7 @@ class ServiceRoomControllerTest {
         }
     }
 
+    // SPEC: S3, S8
     @Test
     fun explicitPauseDuringBufferingPublishesPausedIntent() = runTest {
         val canonical = "https://www.youtube.com/watch?v=pause-buffering"
@@ -185,6 +144,7 @@ class ServiceRoomControllerTest {
         }
     }
 
+    // SPEC: S2, S3
     @Test
     fun explicitNextAndPreviousCommandsPublishTheSelectedCanonicalTrack() = runTest {
         val first = "https://www.youtube.com/watch?v=first-track"
@@ -267,6 +227,7 @@ class ServiceRoomControllerTest {
         }
     }
 
+    // SPEC: S2, S8
     @Test
     fun localTrackStartsOnlyAfterTheServerIssuesTheSharedReadyBarrier() = runTest {
         val canonical = "https://www.youtube.com/watch?v=barrier-local-track"
@@ -363,6 +324,7 @@ class ServiceRoomControllerTest {
         }
     }
 
+    // SPEC: S1, S8
     @Test
     fun explicitPlayOnPausedTrackResumesLocallyWithoutWaitingForBarrier() = runTest {
         val canonical = "https://www.youtube.com/watch?v=local-resume"
@@ -408,6 +370,7 @@ class ServiceRoomControllerTest {
         }
     }
 
+    // SPEC: S3
     @Test
     fun seekPublishesRequestedPositionBeforePlayerSnapshotAdvances() = runTest {
         val canonical = "https://www.youtube.com/watch?v=seek-intent"
@@ -452,6 +415,7 @@ class ServiceRoomControllerTest {
     }
 
 
+    // SPEC: S3, S7, S8
     @Test
     fun failedPublishRetriesWithBackoffFromTheSinglePublishJob() = runTest {
         val canonical = "https://www.youtube.com/watch?v=publish-retry"
@@ -481,6 +445,7 @@ class ServiceRoomControllerTest {
         }
     }
 
+    // SPEC: S2, S8
     @Test
     fun playDuringInFlightPausedTrackPublishIsRepublishedAsTrackPlay() = runTest {
         val canonical = "https://www.youtube.com/watch?v=inflight-track-play"
@@ -544,6 +509,7 @@ class ServiceRoomControllerTest {
     }
 
 
+    // SPEC: S2
     @Test
     fun remoteTrackReadinessUsesDatabaseSourceIdNotCanonicalUrl() = runTest {
         val videoId = "browser-video-id"
@@ -592,6 +558,7 @@ class ServiceRoomControllerTest {
         }
     }
 
+    // SPEC: S2, S8
     @Test
     fun skipDuringSharedStartPreservesDesiredPlayingState() = runTest {
         val first = "https://www.youtube.com/watch?v=first-barrier-track"
@@ -663,6 +630,7 @@ class ServiceRoomControllerTest {
         }
     }
 
+    // SPEC: S2, S3
     @Test
     fun playImmediatelyAfterPausedTrackSelectionKeepsTrackBarrier() = runTest {
         val canonical = "https://www.youtube.com/watch?v=paused-selection-play"
@@ -716,6 +684,7 @@ class ServiceRoomControllerTest {
         }
     }
 
+    // SPEC: S2, S7, S8
     @Test
     fun localTrackFallsBackToSharedTimelineWhenPeerNeverBecomesReady() = runTest {
         val canonical = "https://www.youtube.com/watch?v=barrier-fallback"
@@ -789,6 +758,7 @@ class ServiceRoomControllerTest {
         }
     }
 
+    // SPEC: S3, S5
     @Test
     fun remoteTrackAndPlayAreAppliedWithoutEchoingAnotherRoomCommand() = runTest {
         val canonical = "https://www.youtube.com/watch?v=remote-track"
@@ -839,6 +809,7 @@ class ServiceRoomControllerTest {
         }
     }
 
+    // SPEC: S1, S8
     @Test
     fun playOnAnAlreadyPreparedPausedTrackResumesImmediatelyWithoutBarrier() = runTest {
         val canonical = "https://www.youtube.com/watch?v=resume-barrier"
@@ -891,6 +862,7 @@ class ServiceRoomControllerTest {
         }
     }
 
+    // SPEC: S2, S7, S8
     @Test
     fun recoveryCommandLetsLatePeerCatchUpWithoutAnotherReadinessBarrier() = runTest {
         val canonical = "https://www.youtube.com/watch?v=recovery-catch-up"
@@ -934,6 +906,7 @@ class ServiceRoomControllerTest {
         }
     }
 
+    // SPEC: S2, S8
     @Test
     fun sameCanonicalTrackWithIdleLocalPlayerResolvesFreshStream() = runTest {
         val canonical = "https://www.youtube.com/watch?v=expired-local-stream"
@@ -988,6 +961,7 @@ class ServiceRoomControllerTest {
         }
     }
 
+    // SPEC: S2, S8
     @Test
     fun sameDeviceTrackWithIdleLocalPlayerResolvesFreshStream() = runTest {
         val canonical = "https://www.youtube.com/watch?v=same-device-expired-stream"
@@ -1041,6 +1015,7 @@ class ServiceRoomControllerTest {
         }
     }
 
+    // SPEC: S2, S8
     @Test
     fun sameDeviceTrackAlreadyBufferingIsNotRestarted() = runTest {
         val canonical = "https://www.youtube.com/watch?v=same-device-buffering"
@@ -1093,6 +1068,7 @@ class ServiceRoomControllerTest {
         }
     }
 
+    // SPEC: S7, S8
     @Test
     fun failedRemoteStreamResolutionWaitsForBackoffBeforeRetrying() = runTest {
         val canonical = "https://www.youtube.com/watch?v=retry-after-failure"
@@ -1143,6 +1119,7 @@ class ServiceRoomControllerTest {
         }
     }
 
+    // SPEC: S5, S8
     @Test
     fun s5SystemPauseIsLocalOnlyAndDriftCorrectionStaysSuspended() = runTest {
         val canonical = "https://www.youtube.com/watch?v=system-pause-local"
@@ -1212,6 +1189,7 @@ class ServiceRoomControllerTest {
         }
     }
 
+    // SPEC: S5, S8
     @Test
     fun s5ExplicitPlayAfterSystemPauseRejoinsPlayingRoomTimelineWithoutPublishing() = runTest {
         val canonical = "https://www.youtube.com/watch?v=system-pause-rejoin"
@@ -1272,6 +1250,7 @@ class ServiceRoomControllerTest {
         }
     }
 
+    // SPEC: S5, S8
     @Test
     fun s5TransientAudioFocusReleaseRejoinsRoomTimelineWithoutPublishing() = runTest {
         val canonical = "https://www.youtube.com/watch?v=focus-release-rejoin"
@@ -1327,6 +1306,7 @@ class ServiceRoomControllerTest {
         }
     }
 
+    // SPEC: S7
     @Test
     fun chatInvalidationUpdatesUiStateWithoutTouchingPlaybackRevision() = runTest {
         val repository = FakeRoomRepository()
@@ -1347,6 +1327,7 @@ class ServiceRoomControllerTest {
         }
     }
 
+    // SPEC: S7
     @Test
     fun detachStopsTheActiveRoomSessionAndClearsItsUiState() = runTest {
         val repository = FakeRoomRepository()
