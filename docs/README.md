@@ -3,7 +3,7 @@
 Read these first when continuing work:
 
 1. [Current project status](FOUNDATION_STATUS.md)
-2. [Target architecture and package boundaries](ARCHITECTURE_TARGET.md)
+2. [Architecture constraints and package boundaries](ARCHITECTURE_TARGET.md)
 3. [Architecture decisions](decisions/README.md)
 4. [Room synchronization reliability plan](ROOM_SYNC_RELIABILITY_PLAN.md)
 
