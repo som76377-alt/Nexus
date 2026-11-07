@@ -750,7 +750,13 @@ class ListeningRoomActivity : Activity() {
         startChatFallbackSync()
         if (roomId != null) {
             scope.launch {
-                runCatching { refreshMessages() }
+                try {
+                    refreshMessages()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    status.text = "Chat reconnecting · ${error.message ?: "retrying"}"
+                }
             }
         }
         val snapshot = playback?.snapshot() ?: PlaybackSnapshot(connected = false)
