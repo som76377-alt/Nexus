@@ -29,6 +29,50 @@ import org.junit.Test
 class ServiceRoomControllerTest {
 
     @Test
+    fun playbackPhaseSynchronouslyStagesTrackBeforeBackToBackPlay() = runTest {
+        val controller = newController(FakeRoomRepository(), FakeRoomPlayer())
+        try {
+            controller.attach("room-phase")
+            runCurrent()
+
+            assertEquals(ServiceRoomController.PlaybackPhase.ROOM_PAUSED, controller.playbackPhase())
+            val selected = RoomPlayerIntent.SelectTrack(
+                sourceId = "https://www.youtube.com/watch?v=phase-track",
+                canonicalSourceUrl = "https://www.youtube.com/watch?v=phase-track",
+                title = "Phase track",
+                artist = null,
+                shouldPlay = true
+            )
+            assertEquals(
+                ServiceRoomController.PlaybackPhase.TRACK_PENDING_PLAYING,
+                controller.playbackPhase(selected)
+            )
+            assertTrue("Play must remain staged until the controller completes the shared start",
+                controller.playbackPhase(RoomPlayerIntent.Play).holdsPlay)
+            assertEquals(
+                ServiceRoomController.PlaybackPhase.TRACK_PENDING_PLAYING,
+                controller.playbackPhase()
+            )
+            assertEquals(
+                ServiceRoomController.PlaybackPhase.TRACK_PENDING_PAUSED,
+                controller.playbackPhase(RoomPlayerIntent.Pause)
+            )
+            assertFalse(controller.playbackPhase().shouldPlay)
+            controller.playbackPhase(RoomPlayerIntent.SystemPause)
+            assertEquals(
+                ServiceRoomController.PlaybackPhase.SYSTEM_PAUSED_TRACK_PENDING_PLAYING,
+                controller.playbackPhase(selected)
+            )
+            assertTrue(
+                "Play remains held for a pending track even during an OS interruption",
+                controller.playbackPhase(RoomPlayerIntent.Play).holdsPlay
+            )
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
     fun attachPublishesAnAlreadyLoadedLocalTrackThroughRevisionCas() = runTest {
         val canonical = "https://www.youtube.com/watch?v=local-track"
         val repository = FakeRoomRepository()
@@ -177,9 +221,12 @@ class ServiceRoomControllerTest {
                 )
             )
             player.emitIntent(
-                RoomPlayerIntent.SkipToNext(
-                    previousSourceId = first,
-                    previousPositionMs = 12_000L
+                RoomPlayerIntent.SelectTrack(
+                    sourceId = second,
+                    canonicalSourceUrl = second,
+                    title = "Second track",
+                    artist = null,
+                    shouldPlay = true
                 )
             )
             runCurrent()
@@ -199,9 +246,12 @@ class ServiceRoomControllerTest {
                 )
             )
             player.emitIntent(
-                RoomPlayerIntent.SkipToPrevious(
-                    previousSourceId = second,
-                    previousPositionMs = 0L
+                RoomPlayerIntent.SelectTrack(
+                    sourceId = third,
+                    canonicalSourceUrl = third,
+                    title = "Third track",
+                    artist = null,
+                    shouldPlay = true
                 )
             )
             runCurrent()
@@ -264,13 +314,7 @@ class ServiceRoomControllerTest {
             assertEquals("Preparing synchronized start…", controller.state.value.statusMessage)
             assertFalse(player.snapshot().playWhenReady)
 
-            // A no-op Next command must not tear down the current shared start.
-            player.emitIntent(
-                RoomPlayerIntent.SkipToNext(
-                    previousSourceId = canonical,
-                    previousPositionMs = player.snapshot().positionMs
-                )
-            )
+            // No local track or seek change means the player wrapper emits no room intent.
             runCurrent()
             assertEquals(1, repository.published.size)
             assertEquals(1, repository.readinessCalls)
@@ -583,7 +627,7 @@ class ServiceRoomControllerTest {
             advanceTimeBy(150L)
             runCurrent()
             assertEquals(1, repository.readinessCalls)
-            assertTrue(controller.shouldRoomBePlaying())
+            assertTrue(controller.playbackPhase().shouldPlay)
 
             player.setSnapshot(
                 LocalPlaybackSnapshot(
@@ -597,10 +641,12 @@ class ServiceRoomControllerTest {
                 )
             )
             player.emitIntent(
-                RoomPlayerIntent.SkipToNext(
-                    previousSourceId = first,
-                    previousPositionMs = 0L,
-                    shouldPlay = controller.shouldRoomBePlaying()
+                RoomPlayerIntent.SelectTrack(
+                    sourceId = second,
+                    canonicalSourceUrl = second,
+                    title = "Second track",
+                    artist = null,
+                    shouldPlay = controller.playbackPhase().shouldPlay
                 )
             )
             runCurrent()

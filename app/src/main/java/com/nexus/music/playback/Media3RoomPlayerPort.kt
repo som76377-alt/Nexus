@@ -7,6 +7,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import com.nexus.music.rooms.ServiceRoomController
 import com.nexus.music.rooms.domain.LocalPlaybackSnapshot
 import com.nexus.music.rooms.domain.RoomPlayerIntent
 import com.nexus.music.rooms.domain.RoomPlayerPort
@@ -29,8 +30,6 @@ internal class Media3RoomPlayerPort(
     )
 
     override val userIntents: SharedFlow<RoomPlayerIntent> = mutableUserIntents
-
-    private var onRoomPlaybackStarted: (() -> Unit)? = null
 
     private val interruptionListener = object : Player.Listener {
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
@@ -60,10 +59,6 @@ internal class Media3RoomPlayerPort(
 
     init {
         player.addListener(interruptionListener)
-    }
-
-    fun setRoomPlaybackStartedListener(listener: () -> Unit) {
-        onRoomPlaybackStarted = listener
     }
 
     /** Emit a user command or platform interruption observed at the player boundary. */
@@ -117,7 +112,6 @@ internal class Media3RoomPlayerPort(
     }
 
     override fun play() {
-        onRoomPlaybackStarted?.invoke()
         when (player.playbackState) {
             Player.STATE_IDLE -> player.prepare()
             Player.STATE_ENDED -> {
@@ -154,19 +148,16 @@ internal class Media3RoomPlayerPort(
 internal class RoomIntentForwardingPlayer(
     private val delegate: Player,
     private val recordIntent: (RoomPlayerIntent) -> Unit,
-    private val isRoomActive: () -> Boolean = { false },
-    private val shouldHoldRoomPlay: () -> Boolean = { false },
-    private val shouldRoomBePlaying: () -> Boolean = { delegate.playWhenReady }
+    private val playbackPhase: (RoomPlayerIntent?) -> ServiceRoomController.PlaybackPhase
 ) : androidx.media3.common.ForwardingPlayer(delegate) {
-    private var pendingRoomTrackStart = false
-
-    fun clearPendingRoomTrackStart() {
-        pendingRoomTrackStart = false
+    private fun emitIntent(intent: RoomPlayerIntent) {
+        playbackPhase(intent)
+        recordIntent(intent)
     }
 
     override fun play() {
-        recordIntent(RoomPlayerIntent.Play)
-        if (shouldHoldRoomStart()) {
+        emitIntent(RoomPlayerIntent.Play)
+        if (playbackPhase(null).holdsPlay) {
             // A newly selected track or an active shared-start barrier must stay staged.
             delegate.pause()
         } else {
@@ -175,15 +166,13 @@ internal class RoomIntentForwardingPlayer(
     }
 
     override fun pause() {
-        recordIntent(RoomPlayerIntent.Pause)
-        pendingRoomTrackStart = false
+        emitIntent(RoomPlayerIntent.Pause)
         super.pause()
     }
 
     override fun seekTo(positionMs: Long) {
         val targetPositionMs = positionMs.coerceAtLeast(0L)
-        recordIntent(RoomPlayerIntent.SeekTo(targetPositionMs))
-        pendingRoomTrackStart = false
+        emitIntent(RoomPlayerIntent.SeekTo(targetPositionMs))
         super.seekTo(targetPositionMs)
     }
 
@@ -228,24 +217,12 @@ internal class RoomIntentForwardingPlayer(
     }
 
     override fun setPlayWhenReady(playWhenReady: Boolean) {
-        recordIntent(if (playWhenReady) RoomPlayerIntent.Play else RoomPlayerIntent.Pause)
-        if (!playWhenReady) pendingRoomTrackStart = false
-        if (playWhenReady && shouldHoldRoomStart()) {
+        emitIntent(if (playWhenReady) RoomPlayerIntent.Play else RoomPlayerIntent.Pause)
+        if (playWhenReady && playbackPhase(null).holdsPlay) {
             delegate.pause()
         } else {
             super.setPlayWhenReady(playWhenReady)
         }
-    }
-
-    private fun shouldHoldRoomStart(): Boolean {
-        if (!isRoomActive()) {
-            pendingRoomTrackStart = false
-            return false
-        }
-        if (pendingRoomTrackStart && !shouldRoomBePlaying()) {
-            pendingRoomTrackStart = false
-        }
-        return pendingRoomTrackStart || shouldHoldRoomPlay()
     }
 
     private data class SkipState(
@@ -257,51 +234,38 @@ internal class RoomIntentForwardingPlayer(
     private fun captureSkipState() = SkipState(
         sourceId = delegate.currentMediaItem?.mediaId.orEmpty(),
         positionMs = delegate.currentPosition.coerceAtLeast(0L),
-        shouldPlay = if (isRoomActive()) shouldRoomBePlaying() else delegate.playWhenReady
+        shouldPlay = playbackPhase(null).let { if (it.isRoomActive) it.shouldPlay else delegate.playWhenReady }
     )
 
-    private fun finishSkip(previous: SkipState, next: Boolean) {
-        val changedTrack = delegate.currentMediaItem?.mediaId?.let { it != previous.sourceId } == true
-        if (isRoomActive() && changedTrack) {
-            pendingRoomTrackStart = previous.shouldPlay
-            delegate.pause()
-        }
-        recordIntent(
-            if (next) {
-                RoomPlayerIntent.SkipToNext(previous.sourceId, previous.positionMs, previous.shouldPlay)
-            } else {
-                RoomPlayerIntent.SkipToPrevious(previous.sourceId, previous.positionMs, previous.shouldPlay)
-            }
-        )
+    private fun finishSkip(previous: SkipState) {
+        val item = delegate.currentMediaItem ?: return
+        val changedTrack = item.mediaId.isNotBlank() && item.mediaId != previous.sourceId
+        if (changedTrack && playbackPhase(null).isRoomActive) delegate.pause()
+        val intent = resolveSkipIntent(
+            previousSourceId = previous.sourceId,
+            previousPositionMs = previous.positionMs,
+            shouldPlay = previous.shouldPlay,
+            currentSourceId = item.mediaId,
+            currentTitle = item.mediaMetadata.title?.toString().orEmpty(),
+            currentArtist = item.mediaMetadata.artist?.toString(),
+            currentPositionMs = delegate.currentPosition
+        ) ?: return
+        emitIntent(intent)
     }
 
-    override fun seekToNext() {
+    private inline fun skip(action: () -> Unit) {
         val previous = captureSkipState()
-        super.seekToNext()
-        finishSkip(previous, next = true)
+        action()
+        finishSkip(previous)
     }
 
-    override fun seekToNextMediaItem() {
-        val previous = captureSkipState()
-        super.seekToNextMediaItem()
-        finishSkip(previous, next = true)
-    }
-
-    override fun seekToPrevious() {
-        val previous = captureSkipState()
-        super.seekToPrevious()
-        finishSkip(previous, next = false)
-    }
-
-    override fun seekToPreviousMediaItem() {
-        val previous = captureSkipState()
-        super.seekToPreviousMediaItem()
-        finishSkip(previous, next = false)
-    }
+    override fun seekToNext() = skip { delegate.seekToNext() }
+    override fun seekToNextMediaItem() = skip { delegate.seekToNextMediaItem() }
+    override fun seekToPrevious() = skip { delegate.seekToPrevious() }
+    override fun seekToPreviousMediaItem() = skip { delegate.seekToPreviousMediaItem() }
 
     override fun stop() {
-        recordIntent(RoomPlayerIntent.Pause)
-        pendingRoomTrackStart = false
+        emitIntent(RoomPlayerIntent.Pause)
         super.stop()
     }
 
@@ -318,12 +282,12 @@ internal class RoomIntentForwardingPlayer(
         val canonicalUrl = mediaItem.mediaId.takeIf(String::isNotBlank) ?: return
         val title = mediaItem.mediaMetadata.title?.toString().orEmpty()
         if (canonicalUrl.isBlank() || title.isBlank()) return
-        val shouldPlay = if (isRoomActive()) shouldRoomBePlaying() else delegate.playWhenReady
-        pendingRoomTrackStart = isRoomActive() && shouldPlay
+        val phase = playbackPhase(null)
+        val shouldPlay = if (phase.isRoomActive) phase.shouldPlay else delegate.playWhenReady
         // Room playback is staged by the coordinator; outside a room, preserve normal
         // MediaSession auto-play behavior when a controller replaces the media item.
-        if (isRoomActive()) delegate.pause()
-        recordIntent(
+        if (phase.isRoomActive) delegate.pause()
+        emitIntent(
             RoomPlayerIntent.SelectTrack(
                 sourceId = canonicalUrl,
                 canonicalSourceUrl = canonicalUrl,
@@ -334,3 +298,4 @@ internal class RoomIntentForwardingPlayer(
         )
     }
 }
+
