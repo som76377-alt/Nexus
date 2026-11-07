@@ -540,7 +540,8 @@ internal class ServiceRoomController(
             localTrackFallbackJob = scope.launch {
                 delay(LOCAL_TRACK_FALLBACK_TIMEOUT_MS)
                 if (!isCurrent(roomId, expectedSession) ||
-                    pendingAction?.generation != next.generation
+                    pendingAction?.generation != next.generation ||
+                    localInterruptionState == LocalInterruptionState.SYSTEM_PAUSED
                 ) return@launch
                 val local = player.snapshot()
                 if (local.sourceId != next.canonicalSourceUrl || !local.isReady) return@launch
