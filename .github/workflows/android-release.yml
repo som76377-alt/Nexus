@@ -155,7 +155,7 @@ jobs:
           sha256sum --check nexus-release.apk.sha256
 
       - name: Upload validation APK artifact
-        if: github.ref_type != 'tag'
+        if: github.event_name != 'push' || github.ref_type != 'tag'
         uses: actions/upload-artifact@v7.0.2
         with:
           name: nexus-signed-release-validation
@@ -168,7 +168,7 @@ jobs:
       # Publish only the verified APK. gh release upload --clobber also
       # handles rebuilding an already-published tag without an action-side lookup.
       - name: Publish GitHub Release with verified APK
-        if: github.ref_type == 'tag'
+        if: github.event_name == 'push' && github.ref_type == 'tag'
         env:
           GH_TOKEN: "${{ github.token }}"
         run: |
@@ -191,7 +191,7 @@ jobs:
       # repo variable NEXUS_FIREBASE_PUSH_ENABLED=true and secrets
       # NEXUS_FIREBASE_SERVICE_ACCOUNT + NEXUS_FIREBASE_PROJECT_ID.
       - name: Authenticate Firebase release notifier
-        if: github.ref_type == 'tag' && vars.NEXUS_FIREBASE_PUSH_ENABLED == 'true'
+        if: github.event_name == 'push' && github.ref_type == 'tag' && vars.NEXUS_FIREBASE_PUSH_ENABLED == 'true'
         id: firebase-auth
         uses: google-github-actions/auth@v2
         with:
@@ -199,7 +199,7 @@ jobs:
           token_format: access_token
 
       - name: Notify Nexus devices about the new release
-        if: github.ref_type == 'tag' && vars.NEXUS_FIREBASE_PUSH_ENABLED == 'true'
+        if: github.event_name == 'push' && github.ref_type == 'tag' && vars.NEXUS_FIREBASE_PUSH_ENABLED == 'true'
         env:
           ACCESS_TOKEN: ${{ steps.firebase-auth.outputs.access_token }}
           FIREBASE_PROJECT_ID: ${{ secrets.NEXUS_FIREBASE_PROJECT_ID }}
