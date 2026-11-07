@@ -102,7 +102,8 @@ internal class ServiceRoomController(
         val canonicalSourceUrl: String,
         val title: String,
         val artist: String?,
-        val shouldPlay: Boolean = false
+        val shouldPlay: Boolean = false,
+        val requestedPositionMs: Long? = null
     )
 
     init {
@@ -451,7 +452,7 @@ internal class ServiceRoomController(
                 val local = player.snapshot()
                 if (local.sourceId != next.canonicalSourceUrl || !local.isReady) return@launch
 
-                player.seekTo(0L)
+                player.seekTo(next.requestedPositionMs ?: 0L)
                 player.resetPlaybackSpeed()
                 player.play()
                 val fallback = next.copy(
@@ -521,7 +522,8 @@ internal class ServiceRoomController(
     private fun pendingFromSnapshot(
         type: RoomActionType,
         snapshot: com.nexus.music.rooms.domain.LocalPlaybackSnapshot,
-        elapsed: Long
+        elapsed: Long,
+        requestedPositionMs: Long? = null
     ): PendingLocalAction? {
         val source = snapshot.sourceId.takeIf(String::isNotBlank) ?: return null
         val canonical = snapshot.canonicalSourceUrl.ifBlank { source }
@@ -539,7 +541,8 @@ internal class ServiceRoomController(
                 RoomActionType.PLAY -> true
                 RoomActionType.PAUSE -> false
                 else -> snapshot.playWhenReady
-            }
+            },
+            requestedPositionMs = requestedPositionMs?.coerceAtLeast(0L)
         )
     }
 
@@ -706,11 +709,11 @@ internal class ServiceRoomController(
                     RoomActionType.PAUSE -> false
                     else -> local.playWhenReady
                 },
-                positionMs = if (pending.actionType == RoomActionType.TRACK) {
+                positionMs = (pending.requestedPositionMs ?: if (pending.actionType == RoomActionType.TRACK) {
                     0L
                 } else {
-                    local.positionMs.coerceAtLeast(0L)
-                },
+                    local.positionMs
+                }).coerceAtLeast(0L),
                 durationMs = local.durationMs.coerceAtLeast(0L)
             )
 
@@ -1107,7 +1110,7 @@ internal class ServiceRoomController(
                 val current = player.snapshot()
                 if (shouldUseSharedStart) {
                     player.pause()
-                    if (isNewTrackStart) player.seekTo(0L)
+                    if (isNewTrackStart) player.seekTo(authoritative.positionMs)
                     shouldStartBarrier = true
                 } else {
                     if (RoomPlaybackMath.needsSeek(current.positionMs, expected) ||
@@ -1175,7 +1178,7 @@ internal class ServiceRoomController(
         val isNewTrackRevision = lastRemotePlayback?.let {
             it.revision == revision && it.actionType == RoomActionType.TRACK
         } == true
-        if (isNewTrackRevision) player.seekTo(0L)
+        if (isNewTrackRevision) player.seekTo(lastRemotePlayback?.positionMs ?: 0L)
         mutableState.value = mutableState.value.copy(
             lastError = null,
             statusMessage = "Preparing synchronized start…"
