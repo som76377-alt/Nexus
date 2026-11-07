@@ -67,8 +67,24 @@ internal class ServiceRoomController(
     private val driftSeekGate = DriftSeekGate()
     private val retryPolicy = RemoteApplyRetryPolicy()
 
-    private enum class LocalInterruptionState { NONE, SYSTEM_PAUSED }
-    private var localInterruptionState = LocalInterruptionState.NONE
+    internal enum class PlaybackPhase(
+        val isRoomActive: Boolean,
+        val shouldPlay: Boolean,
+        val holdsPlay: Boolean,
+        val isSystemPaused: Boolean
+    ) {
+        LOCAL(false, false, false, false),
+        ROOM_PAUSED(true, false, false, false),
+        ROOM_PLAYING(true, true, false, false),
+        TRACK_PENDING_PAUSED(true, false, false, false),
+        TRACK_PENDING_PLAYING(true, true, true, false),
+        START_PREPARING(true, true, true, false),
+        START_SCHEDULED(true, true, true, false),
+        SYSTEM_PAUSED_PLAYING(true, true, false, true),
+        SYSTEM_PAUSED_PAUSED(true, false, false, true)
+    }
+
+    @Volatile private var playbackPhase = PlaybackPhase.LOCAL
 
     private var roomJob: Job? = null
     private var roomScope: CoroutineScope? = null
@@ -123,18 +139,18 @@ internal class ServiceRoomController(
         val generation = ++sessionGeneration
         localActionGeneration = 0L
         activeRoomId = roomId
+        playbackPhase = PlaybackPhase.ROOM_PAUSED
         mutableDiagnostics.value = RoomDiagnosticsSnapshot()
         recordDiagnostic("room.attach", "room=$roomId")
         mutableState.value = RoomControllerState(
             roomId = roomId,
             connection = RoomConnectionState.CONNECTING
         )
-        pendingAction = null
+        setPendingAction(null)
         lastRemoteRevision = 0L
         lastAppliedRevision = 0L
         lastRemotePlayback = null
         retryPolicy.reset()
-        localInterruptionState = LocalInterruptionState.NONE
         driftController.reset()
         driftSeekGate.reset()
         signalSequence = 0L
@@ -162,7 +178,7 @@ internal class ServiceRoomController(
         val initial = repository.fetchPlaybackSnapshot(roomId)
         if (!isCurrent(roomId, generation)) return
         if (initial != null) {
-            lastRemotePlayback = initial
+            setRemotePlayback(initial)
             lastRemoteRevision = initial.revision
             lastAppliedRevision = 0L
             mutableState.value = mutableState.value.copy(playback = initial)
@@ -255,6 +271,7 @@ internal class ServiceRoomController(
     override suspend fun detach() {
         stopRoomSession()
         activeRoomId = null
+        playbackPhase = PlaybackPhase.LOCAL
         userId = null
         pendingAction = null
         mutableState.value = RoomControllerState()
@@ -272,6 +289,7 @@ internal class ServiceRoomController(
     fun close() {
         stopRoomSession()
         activeRoomId = null
+        playbackPhase = PlaybackPhase.LOCAL
         player.resetPlaybackSpeed()
         controllerJob.cancel()
         mutableState.value = RoomControllerState()
@@ -329,26 +347,91 @@ internal class ServiceRoomController(
         )
     }
 
-    /** Current room intent, including the temporary pause used while a shared start is pending. */
-    fun shouldRoomBePlaying(): Boolean {
-        pendingAction?.let { return it.shouldPlay }
-        return lastRemotePlayback?.isPlaying ?: player.snapshot().playWhenReady
+    /** The sole playback-state contract consumed by the MediaSession player wrapper. */
+    fun playbackPhase(intent: RoomPlayerIntent? = null): PlaybackPhase {
+        if (intent == null) return playbackPhase
+        if (playbackPhase.isSystemPaused &&
+            intent != RoomPlayerIntent.SystemPause &&
+            intent != RoomPlayerIntent.SystemResume
+        ) return playbackPhase
+
+        playbackPhase = when (intent) {
+            RoomPlayerIntent.SystemPause ->
+                if (playbackPhase.shouldPlay) PlaybackPhase.SYSTEM_PAUSED_PLAYING
+                else PlaybackPhase.SYSTEM_PAUSED_PAUSED
+            RoomPlayerIntent.SystemResume -> phaseFromRoomState()
+            is RoomPlayerIntent.SelectTrack ->
+                if (!playbackPhase.isRoomActive) PlaybackPhase.LOCAL
+                else if (intent.shouldPlay) PlaybackPhase.TRACK_PENDING_PLAYING
+                else PlaybackPhase.TRACK_PENDING_PAUSED
+            RoomPlayerIntent.Play -> when (playbackPhase) {
+                PlaybackPhase.TRACK_PENDING_PAUSED,
+                PlaybackPhase.TRACK_PENDING_PLAYING -> PlaybackPhase.TRACK_PENDING_PLAYING
+                PlaybackPhase.START_PREPARING,
+                PlaybackPhase.START_SCHEDULED -> playbackPhase
+                else -> if (playbackPhase.isRoomActive) PlaybackPhase.ROOM_PLAYING
+                else PlaybackPhase.LOCAL
+            }
+            RoomPlayerIntent.Pause -> when (playbackPhase) {
+                PlaybackPhase.TRACK_PENDING_PAUSED,
+                PlaybackPhase.TRACK_PENDING_PLAYING -> PlaybackPhase.TRACK_PENDING_PAUSED
+                else -> if (playbackPhase.isRoomActive) PlaybackPhase.ROOM_PAUSED
+                else PlaybackPhase.LOCAL
+            }
+            is RoomPlayerIntent.SeekTo -> when (playbackPhase) {
+                PlaybackPhase.TRACK_PENDING_PAUSED,
+                PlaybackPhase.TRACK_PENDING_PLAYING -> playbackPhase
+                else -> if (!playbackPhase.isRoomActive) PlaybackPhase.LOCAL
+                else if (playbackPhase.shouldPlay) PlaybackPhase.ROOM_PLAYING
+                else PlaybackPhase.ROOM_PAUSED
+            }
+            is RoomPlayerIntent.SkipToNext ->
+                if (!playbackPhase.isRoomActive) PlaybackPhase.LOCAL
+                else if (intent.shouldPlay) PlaybackPhase.TRACK_PENDING_PLAYING
+                else PlaybackPhase.TRACK_PENDING_PAUSED
+            is RoomPlayerIntent.SkipToPrevious ->
+                if (!playbackPhase.isRoomActive) PlaybackPhase.LOCAL
+                else if (intent.shouldPlay) PlaybackPhase.TRACK_PENDING_PLAYING
+                else PlaybackPhase.TRACK_PENDING_PAUSED
+        }
+        return playbackPhase
     }
 
-    /** MediaSession guard: never let a user Play escape a pending shared TRACK start. */
-    fun shouldHoldUserPlay(): Boolean {
-        if (barrierRevision != null || pendingAction?.actionType == RoomActionType.TRACK) return true
-        val remote = lastRemotePlayback ?: return false
-        return remote.actionType == RoomActionType.TRACK &&
-            remote.isPlaying &&
-            remote.revision > lastAppliedRevision
+    private fun phaseFromRoomState(): PlaybackPhase {
+        if (activeRoomId == null) return PlaybackPhase.LOCAL
+        pendingAction?.let {
+            return if (it.actionType == RoomActionType.TRACK) {
+                if (it.shouldPlay) PlaybackPhase.TRACK_PENDING_PLAYING
+                else PlaybackPhase.TRACK_PENDING_PAUSED
+            } else if (it.shouldPlay) PlaybackPhase.ROOM_PLAYING else PlaybackPhase.ROOM_PAUSED
+        }
+        if (barrierRevision != null) {
+            return if (barrierScheduledStartAt == null) PlaybackPhase.START_PREPARING
+            else PlaybackPhase.START_SCHEDULED
+        }
+        return if (lastRemotePlayback?.isPlaying == true) PlaybackPhase.ROOM_PLAYING
+        else PlaybackPhase.ROOM_PAUSED
+    }
+
+    private fun refreshPlaybackPhase() {
+        if (!playbackPhase.isSystemPaused) playbackPhase = phaseFromRoomState()
+    }
+
+    private fun setPendingAction(action: PendingLocalAction?) {
+        pendingAction = action
+        refreshPlaybackPhase()
+    }
+
+    private fun setRemotePlayback(snapshot: RoomPlaybackSnapshot) {
+        lastRemotePlayback = snapshot
+        refreshPlaybackPhase()
     }
 
     private fun captureLocalIntent(intent: RoomPlayerIntent) {
         val roomId = activeRoomId ?: return
 
         if (intent == RoomPlayerIntent.SystemPause) {
-            localInterruptionState = LocalInterruptionState.SYSTEM_PAUSED
+            playbackPhase = if (playbackPhase.shouldPlay || player.snapshot().playWhenReady) PlaybackPhase.SYSTEM_PAUSED_PLAYING else PlaybackPhase.SYSTEM_PAUSED_PAUSED
             barrierJob?.cancel()
             barrierJob = null
             barrierStartJob?.cancel()
@@ -364,8 +447,8 @@ internal class ServiceRoomController(
         }
 
         if (intent == RoomPlayerIntent.SystemResume) {
-            if (localInterruptionState == LocalInterruptionState.SYSTEM_PAUSED) {
-                localInterruptionState = LocalInterruptionState.NONE
+            if (playbackPhase.isSystemPaused) {
+                playbackPhase = phaseFromRoomState()
                 val remote = lastRemotePlayback
                 if (remote?.isPlaying == true && player.snapshot().playWhenReady) {
                     rejoinRoomTimelineLocally(roomId, remote, "system_resume")
@@ -392,12 +475,12 @@ internal class ServiceRoomController(
         }
 
         if (intent == RoomPlayerIntent.Play &&
-            localInterruptionState == LocalInterruptionState.SYSTEM_PAUSED
+            playbackPhase.isSystemPaused
         ) {
             val remote = lastRemotePlayback
             if (remote?.isPlaying == true) {
                 val local = player.snapshot()
-                localInterruptionState = LocalInterruptionState.NONE
+                playbackPhase = phaseFromRoomState()
                 if (local.sourceId == remote.canonicalSourceUrl) {
                     rejoinRoomTimelineLocally(roomId, remote, "explicit_play")
                 } else {
@@ -410,23 +493,23 @@ internal class ServiceRoomController(
                 }
                 return
             }
-            localInterruptionState = LocalInterruptionState.NONE
+            playbackPhase = phaseFromRoomState()
             recordDiagnostic("local.system_pause_released", "room is not playing; explicit Play may publish")
         }
 
         if (intent != RoomPlayerIntent.Play &&
-            localInterruptionState == LocalInterruptionState.SYSTEM_PAUSED
+            playbackPhase.isSystemPaused
         ) {
             // A later explicit Pause/Seek/track selection supersedes the interruption;
             // a delayed focus-gain callback must not undo that user decision.
-            localInterruptionState = LocalInterruptionState.NONE
+            playbackPhase = phaseFromRoomState()
             recordDiagnostic("local.system_pause_overridden", "explicit user intent=$intent")
         }
 
         val previousAction = pendingAction
         val isPendingTrackPlay = intent is RoomPlayerIntent.Play &&
             previousAction?.actionType == RoomActionType.TRACK
-        if (intent is RoomPlayerIntent.Play && !isPendingTrackPlay && shouldHoldUserPlay()) {
+        if (intent is RoomPlayerIntent.Play && !isPendingTrackPlay && playbackPhase.holdsPlay) {
             // The room already has a new-track start in progress. Keep the player staged;
             // a local Play button must not cancel the peer barrier or publish a plain PLAY.
             player.pause()
@@ -532,7 +615,7 @@ internal class ServiceRoomController(
             RoomPlayerIntent.SystemResume -> null
         } ?: return
 
-        pendingAction = next
+        setPendingAction(next)
         recordDiagnostic("local.intent", "type=${next.actionType} source=${next.sourceId} generation=${next.generation}")
         val scope = roomScope ?: return
         if (next.actionType == RoomActionType.TRACK && next.shouldPlay) {
@@ -543,7 +626,7 @@ internal class ServiceRoomController(
                 delay(LOCAL_TRACK_FALLBACK_TIMEOUT_MS)
                 if (!isCurrent(roomId, expectedSession) ||
                     pendingAction?.generation != next.generation ||
-                    localInterruptionState == LocalInterruptionState.SYSTEM_PAUSED
+                    playbackPhase.isSystemPaused
                 ) return@launch
                 val local = player.snapshot()
                 if (local.sourceId != next.canonicalSourceUrl || !local.isReady) return@launch
@@ -558,7 +641,7 @@ internal class ServiceRoomController(
                     actionType = RoomActionType.RECOVERY,
                     shouldPlay = true
                 )
-                pendingAction = fallback
+                setPendingAction(fallback)
                 recordDiagnostic("local.track_fallback", "source=${fallback.sourceId} reason=room_start_timeout")
                 schedulePendingPublish(roomId, expectedSession)
             }
@@ -860,7 +943,7 @@ internal class ServiceRoomController(
 
             val latest = repository.fetchPlaybackSnapshot(roomId) ?: return
             if (!isCurrent(roomId, generation)) return
-            lastRemotePlayback = latest
+            setRemotePlayback(latest)
             lastRemoteRevision = maxOf(lastRemoteRevision, latest.revision)
             val currentPending = pendingAction
             val newerPending = currentPending != null &&
@@ -877,7 +960,7 @@ internal class ServiceRoomController(
             if (newerPending) {
                 // Never retry the stale command captured before a newer local action.
                 // Let the newest intent compete against the refreshed revision instead.
-                if (!localWins) pendingAction = null
+                if (!localWins) setPendingAction(null)
                 requestReconciliation(roomId, generation)
                 if (localWins) requestPublishAfterApplyLock(roomId, generation)
                 return
@@ -901,7 +984,7 @@ internal class ServiceRoomController(
 
             val authoritative = repository.fetchPlaybackSnapshot(roomId) ?: latest
             if (!isCurrent(roomId, generation)) return
-            lastRemotePlayback = authoritative
+            setRemotePlayback(authoritative)
             lastRemoteRevision = maxOf(lastRemoteRevision, authoritative.revision)
             if (!localWins) {
                 pendingAction = null
@@ -941,7 +1024,7 @@ internal class ServiceRoomController(
             originDeviceId = command.originDeviceId,
             commandAt = serverTimestamp()
         )
-        lastRemotePlayback = publishedSnapshot
+        setRemotePlayback(publishedSnapshot)
         if (command.actionType == RoomActionType.RECOVERY && command.isPlaying) {
             barrierCompletedRevision = maxOf(barrierCompletedRevision, revision)
             playbackAnchorRevision = revision
@@ -1001,7 +1084,7 @@ internal class ServiceRoomController(
             if (!isCurrent(roomId, generation) || remote.revision < lastRemoteRevision) {
                 return@withLock
             }
-            lastRemotePlayback = remote
+            setRemotePlayback(remote)
             lastRemoteRevision = maxOf(lastRemoteRevision, remote.revision)
             mutableState.value = mutableState.value.copy(
                 connection = if (mutableState.value.realtimeConnected) {
@@ -1055,7 +1138,7 @@ internal class ServiceRoomController(
             return
         }
         if (!shouldApply || !isCurrent(roomId, generation)) return
-        if (localInterruptionState == LocalInterruptionState.SYSTEM_PAUSED) {
+        if (playbackPhase.isSystemPaused) {
             // Keep the authoritative row fresh but do not let a remote PLAY/START
             // override this device's active OS interruption. Resume reconciles it.
             recordDiagnostic(
@@ -1196,7 +1279,7 @@ internal class ServiceRoomController(
             if (newest != null && newest.revision > remote.revision) {
                 applyMutex.withLock {
                     if (newest.revision >= lastRemoteRevision) {
-                        lastRemotePlayback = newest
+                        setRemotePlayback(newest)
                         lastRemoteRevision = newest.revision
                         mutableState.value = mutableState.value.copy(playback = newest)
                     }
@@ -1321,6 +1404,7 @@ internal class ServiceRoomController(
         barrierStartJob = null
         barrierRevision = revision
         barrierScheduledStartAt = null
+        playbackPhase = PlaybackPhase.START_PREPARING
         player.pause()
         val isNewTrackRevision = lastRemotePlayback?.let {
             it.revision == revision && it.actionType == RoomActionType.TRACK
@@ -1532,6 +1616,7 @@ internal class ServiceRoomController(
         barrierCompletedRevision = maxOf(barrierCompletedRevision, revision)
         barrierRevision = null
         barrierScheduledStartAt = null
+        playbackPhase = PlaybackPhase.ROOM_PLAYING
         playbackAnchorRevision = revision
         playbackAnchorAt = serverTimestamp()
         playbackAnchorPositionMs = position
@@ -1603,6 +1688,7 @@ internal class ServiceRoomController(
         barrierJob?.cancel()
         barrierJob = null
         barrierScheduledStartAt = startAt
+        playbackPhase = PlaybackPhase.START_SCHEDULED
         playbackAnchorRevision = revision
         playbackAnchorAt = startAt
         val scope = roomScope ?: return
@@ -1671,6 +1757,7 @@ internal class ServiceRoomController(
                 // remains eligible for a late peer's shared-anchor correction.
                 barrierCompletedRevision = revision
                 barrierScheduledStartAt = null
+                playbackPhase = PlaybackPhase.ROOM_PLAYING
                 playbackAnchorRevision = revision
                 playbackAnchorAt = startAt
                 playbackAnchorPositionMs = positionAtStart
@@ -1720,6 +1807,7 @@ internal class ServiceRoomController(
         barrierStartJob = null
         barrierRevision = null
         barrierScheduledStartAt = null
+        refreshPlaybackPhase()
         mutableState.value = mutableState.value.copy(statusMessage = null)
     }
 
@@ -1745,6 +1833,7 @@ internal class ServiceRoomController(
         barrierRevision = null
         barrierScheduledStartAt = null
         barrierCompletedRevision = maxOf(barrierCompletedRevision, remote.revision)
+        playbackPhase = PlaybackPhase.ROOM_PLAYING
         lastAppliedRevision = maxOf(lastAppliedRevision, remote.revision)
         retryPolicy.recordSuccess(remote.revision)
         mutableState.value = mutableState.value.copy(
