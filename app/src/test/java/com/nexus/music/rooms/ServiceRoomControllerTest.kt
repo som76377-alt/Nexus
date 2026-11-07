@@ -29,6 +29,41 @@ import org.junit.Test
 class ServiceRoomControllerTest {
 
     @Test
+    fun playbackPhaseSynchronouslyStagesTrackBeforeBackToBackPlay() = runTest {
+        val controller = newController(FakeRoomRepository(), FakeRoomPlayer())
+        try {
+            controller.attach("room-phase")
+            runCurrent()
+
+            assertEquals(ServiceRoomController.PlaybackPhase.ROOM_PAUSED, controller.playbackPhase())
+            val selected = RoomPlayerIntent.SelectTrack(
+                sourceId = "https://www.youtube.com/watch?v=phase-track",
+                canonicalSourceUrl = "https://www.youtube.com/watch?v=phase-track",
+                title = "Phase track",
+                artist = null,
+                shouldPlay = true
+            )
+            assertEquals(
+                ServiceRoomController.PlaybackPhase.TRACK_PENDING_PLAYING,
+                controller.playbackPhase(selected)
+            )
+            assertTrue("Play must remain staged until the controller completes the shared start",
+                controller.playbackPhase(RoomPlayerIntent.Play).holdsPlay)
+            assertEquals(
+                ServiceRoomController.PlaybackPhase.TRACK_PENDING_PLAYING,
+                controller.playbackPhase()
+            )
+            assertEquals(
+                ServiceRoomController.PlaybackPhase.TRACK_PENDING_PAUSED,
+                controller.playbackPhase(RoomPlayerIntent.Pause)
+            )
+            assertFalse(controller.playbackPhase().shouldPlay)
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
     fun attachPublishesAnAlreadyLoadedLocalTrackThroughRevisionCas() = runTest {
         val canonical = "https://www.youtube.com/watch?v=local-track"
         val repository = FakeRoomRepository()
@@ -583,7 +618,7 @@ class ServiceRoomControllerTest {
             advanceTimeBy(150L)
             runCurrent()
             assertEquals(1, repository.readinessCalls)
-            assertTrue(controller.shouldRoomBePlaying())
+            assertTrue(controller.playbackPhase().shouldPlay)
 
             player.setSnapshot(
                 LocalPlaybackSnapshot(
@@ -600,7 +635,7 @@ class ServiceRoomControllerTest {
                 RoomPlayerIntent.SkipToNext(
                     previousSourceId = first,
                     previousPositionMs = 0L,
-                    shouldPlay = controller.shouldRoomBePlaying()
+                    shouldPlay = controller.playbackPhase().shouldPlay
                 )
             )
             runCurrent()
