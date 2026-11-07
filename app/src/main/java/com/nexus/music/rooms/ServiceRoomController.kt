@@ -834,7 +834,9 @@ internal class ServiceRoomController(
                 val retry = repository.publishPlayback(rebased)
                 recordDiagnostic(
                     "rpc.publish_retry",
-                    "applied=${retry.applied} revision=${retry.revision}",
+                    "action_id=${pending.actionId} action_type=${pending.actionType} " +
+                        "intent_time_elapsed_ms=${pending.elapsedMs} publish_ack_elapsed_ms=${clock.elapsedRealtimeMs()} " +
+                        "publish_acknowledged=${retry.applied} revision=${retry.revision}",
                     publishLatencyMs = (clock.elapsedRealtimeMs() - retryStarted).coerceAtLeast(0L)
                 )
                 if (!isCurrent(roomId, generation)) return
