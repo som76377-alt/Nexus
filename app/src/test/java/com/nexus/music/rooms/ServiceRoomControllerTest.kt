@@ -1164,10 +1164,7 @@ class ServiceRoomControllerTest {
     ) : RoomMediaResolver {
         var resolveCount = 0
 
-        override suspend fun resolve(
-            sourceId: String,
-            canonicalSourceUrl: String
-        ): ResolvedAudio {
+        override suspend fun resolve(canonicalSourceUrl: String): ResolvedAudio {
             resolveCount += 1
             if (resolveCount <= failuresBeforeSuccess) {
                 throw IOException("Temporary stream resolution failure.")
