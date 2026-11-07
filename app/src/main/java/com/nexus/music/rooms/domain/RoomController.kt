@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
  */
 interface RoomController {
     val state: StateFlow<RoomControllerState>
+    val diagnostics: StateFlow<RoomDiagnosticsSnapshot>
     suspend fun attach(roomId: String)
     suspend fun detach()
     suspend fun submit(command: RoomCommand): RoomPublishResult

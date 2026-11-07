@@ -1,4 +1,4 @@
-> **Implementation-status note (2026-11-06):** This document describes the current implementation at the PR #6 baseline. It is not the target architecture. The service-owned RoomController migration is still pending; see [ARCHITECTURE_TARGET.md](ARCHITECTURE_TARGET.md) and [FOUNDATION_STATUS.md](FOUNDATION_STATUS.md).
+> **Implementation-status note (2026-11-06):** This document records the existing Nexus architecture and the service-owned room-controller implementation now staged on `feature/service-owned-room-controller`. The implementation reuses the single Media3 player and current Supabase REST/RPC + Realtime path. Fresh CI and two-physical-device acceptance remain required before release. See [ARCHITECTURE_TARGET.md](ARCHITECTURE_TARGET.md) and [FOUNDATION_STATUS.md](FOUNDATION_STATUS.md).
 
 # Nexus architecture
 

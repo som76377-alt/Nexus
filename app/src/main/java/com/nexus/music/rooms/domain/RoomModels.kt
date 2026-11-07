@@ -20,12 +20,7 @@ enum class RoomActionType(val wireValue: String) {
     }
 }
 
-/**
- * Explicit local user intent captured at the player command boundary.
- *
- * The player adapter must emit these only for genuine local user commands.
- * Applying a remote room command must never emit another local intent.
- */
+/** Explicit local user intent captured at the MediaSession command boundary. */
 sealed interface RoomPlayerIntent {
     data object Play : RoomPlayerIntent
     data object Pause : RoomPlayerIntent
@@ -35,15 +30,24 @@ sealed interface RoomPlayerIntent {
         val canonicalSourceUrl: String,
         val title: String,
         val artist: String?,
-        val durationMs: Long
+        val shouldPlay: Boolean = false
+    ) : RoomPlayerIntent
+    data class SkipToNext(
+        val previousSourceId: String,
+        val previousPositionMs: Long,
+        val shouldPlay: Boolean = true
+    ) : RoomPlayerIntent
+    data class SkipToPrevious(
+        val previousSourceId: String,
+        val previousPositionMs: Long,
+        val shouldPlay: Boolean = true
     ) : RoomPlayerIntent
 }
 
 /**
  * A user or recovery command against the authoritative room playback revision.
  *
- * expectedRevision is the database compare-and-swap version. It is deliberately
- * not a Lamport counter: revision CAS remains the ordering authority in v1.
+ * expectedRevision is the database compare-and-swap version, not a Lamport counter.
  */
 data class RoomCommand(
     val roomId: String,
@@ -100,10 +104,15 @@ data class RoomPlaybackSnapshot(
 /** Small player-neutral snapshot; Media3 constants never cross this boundary. */
 data class LocalPlaybackSnapshot(
     val sourceId: String = "",
+    val canonicalSourceUrl: String = "",
     val title: String = "",
     val artist: String? = null,
+    /** Desired playback state; remains true while audio is buffering. */
+    val playWhenReady: Boolean = false,
+    /** Actual audio advancement, used only for drift measurement. */
     val isPlaying: Boolean = false,
     val isBuffering: Boolean = false,
+    val isReady: Boolean = false,
     val positionMs: Long = 0L,
     val durationMs: Long = 0L
 )
@@ -116,14 +125,62 @@ enum class RoomConnectionState {
     ERROR
 }
 
+sealed interface RoomRealtimeSignal {
+    data object PlaybackInvalidated : RoomRealtimeSignal
+    data class PlaybackUpdated(val snapshot: RoomPlaybackSnapshot) : RoomRealtimeSignal
+    data object ChatInvalidated : RoomRealtimeSignal
+    data class StartScheduled(
+        val revision: Long,
+        val sourceId: String,
+        val startAt: String
+    ) : RoomRealtimeSignal
+    data class ConnectionChanged(val connected: Boolean) : RoomRealtimeSignal
+}
+
+data class RoomPlaybackReadyResult(
+    val startAt: String?,
+    val activeMembers: Int,
+    val readyMembers: Int
+)
+
 data class RoomControllerState(
     val roomId: String? = null,
     val connection: RoomConnectionState = RoomConnectionState.DISCONNECTED,
     val playback: RoomPlaybackSnapshot? = null,
-    val lastError: String? = null
+    val lastError: String? = null,
+    val realtimeConnected: Boolean = false,
+    val chatSignalVersion: Long = 0L,
+    /** Non-error progress shown while a room operation is running. */
+    val statusMessage: String? = null
 )
 
 data class RoomPublishResult(
     val applied: Boolean,
     val revision: Long
 )
+
+/** Bounded diagnostics for measuring actual transport and playback behavior on devices. */
+data class RoomDiagnosticsSnapshot(
+    val lastPublishLatencyMs: Long? = null,
+    val lastSnapshotLatencyMs: Long? = null,
+    val lastApplyLatencyMs: Long? = null,
+    val lastDriftMs: Long? = null,
+    val lastRoundTripMs: Long? = null,
+    val lastCommandAgeMs: Long? = null,
+    val events: List<String> = emptyList()
+) {
+    val summary: String
+        get() = "publish=${lastPublishLatencyMs?.let { "${it}ms" } ?: "—"} · " +
+            "snapshot=${lastSnapshotLatencyMs?.let { "${it}ms" } ?: "—"} · " +
+            "apply=${lastApplyLatencyMs?.let { "${it}ms" } ?: "—"} · " +
+            "peer-age=${lastCommandAgeMs?.let { "${it}ms" } ?: "—"} · " +
+            "drift=${lastDriftMs?.let { "${it}ms" } ?: "—"} · " +
+            "RTT=${lastRoundTripMs?.let { "${it}ms" } ?: "—"}"
+
+    fun exportText(): String = buildString {
+        appendLine("Nexus room synchronization diagnostics")
+        appendLine(summary)
+        appendLine("Events are device-local monotonic observations; compare timestamps across phones only through server-anchored measurements.")
+        events.forEach { appendLine(it) }
+    }
+}

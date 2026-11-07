@@ -1,13 +1,10 @@
 # Room data adapters
 
-This package will contain concrete adapters for the domain ports.
+The data package adapts the existing authenticated REST/RPC and Realtime clients to the player-neutral room domain.
 
-Planned responsibilities:
-
-- Adapt the existing `RoomsApi` REST/RPC methods to `RoomRepository`.
-- Adapt the existing `RoomRealtimeClient` to playback invalidation signals.
-- Map database rows and RPC responses to domain models.
-- Keep auth/session refresh, membership checks and HTTP error handling here.
+- `SupabaseRoomRepository` maps playback snapshots and revision-checked commands through the existing `RoomsApi`.
+- The repository adapts `RoomRealtimeClient` into playback invalidation, chat invalidation and connection-state signals.
+- `SupabaseRoomClock` reuses the existing five-probe server-clock calibration.
 
 Rules:
 

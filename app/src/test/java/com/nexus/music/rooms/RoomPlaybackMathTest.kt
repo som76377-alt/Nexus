@@ -109,7 +109,7 @@ class RoomPlaybackMathTest {
         assertEquals(DriftCorrectionType.NONE, controller.evaluate(400L, false, 0L).type)
         val ahead = controller.evaluate(400L, false, 500L)
         assertEquals(DriftCorrectionType.SET_SPEED, ahead.type)
-        assertEquals(0.99f, ahead.speed)
+        assertEquals(0.98f, ahead.speed)
         assertEquals(DriftCorrectionType.NONE, controller.evaluate(400L, false, 1_000L).type)
         val reversed = controller.evaluate(-400L, false, 1_500L)
         assertEquals(DriftCorrectionType.RESET_SPEED, reversed.type)
@@ -117,13 +117,12 @@ class RoomPlaybackMathTest {
             DriftCorrectionType.NONE,
             controller.evaluate(-400L, false, 2_000L).type
         )
-        assertEquals(
-            DriftCorrectionType.NONE,
-            controller.evaluate(-400L, false, 2_500L).type
-        )
+        val initialBehind = controller.evaluate(-400L, false, 2_500L)
+        assertEquals(DriftCorrectionType.SET_SPEED, initialBehind.type)
+        assertTrue(initialBehind.speed > 1f && initialBehind.speed <= 1.02f)
         val settledBehind = controller.evaluate(-400L, false, 3_000L)
         assertEquals(DriftCorrectionType.SET_SPEED, settledBehind.type)
-        assertTrue(settledBehind.speed > 1f && settledBehind.speed <= 1.01f)
+        assertTrue(settledBehind.speed > initialBehind.speed && settledBehind.speed <= 1.02f)
     }
 
     @Test
@@ -132,20 +131,18 @@ class RoomPlaybackMathTest {
         controller.evaluate(-350L, false, 0L)
         val behind = controller.evaluate(-350L, false, 500L)
         assertEquals(DriftCorrectionType.SET_SPEED, behind.type)
-        assertEquals(1.01f, behind.speed)
+        assertTrue(behind.speed > 1f && behind.speed <= 1.02f)
     }
 
     @Test
     fun largeDriftSeeksOnlyAfterThreeSamplesAndRespectsCooldown() {
         val controller = DriftCorrectionController()
-        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_900L, false, 0L).type)
-        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_900L, false, 500L).type)
-        assertEquals(DriftCorrectionType.SEEK, controller.evaluate(1_900L, false, 1_000L).type)
-        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_900L, false, 2_000L).type)
-        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_900L, false, 4_000L).type)
-        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_900L, false, 8_000L).type)
-        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_900L, false, 12_000L).type)
-        assertEquals(DriftCorrectionType.SEEK, controller.evaluate(1_900L, false, 13_000L).type)
+        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_000L, false, 0L).type)
+        assertEquals(DriftCorrectionType.SEEK, controller.evaluate(1_000L, false, 500L).type)
+        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_000L, false, 1_000L).type)
+        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_000L, false, 4_000L).type)
+        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_000L, false, 6_000L).type)
+        assertEquals(DriftCorrectionType.SEEK, controller.evaluate(1_000L, false, 6_500L).type)
     }
 
     @Test
@@ -199,8 +196,8 @@ class RoomPlaybackMathTest {
 
     @Test
     fun seekThresholdIsNotTriggeredByMinorDifference() {
-        assertFalse(RoomPlaybackMath.needsSeek(10_000L, 10_500L))
-        assertTrue(RoomPlaybackMath.needsSeek(10_000L, 11_000L))
+        assertFalse(RoomPlaybackMath.needsSeek(10_000L, 10_699L))
+        assertTrue(RoomPlaybackMath.needsSeek(10_000L, 10_700L))
     }
 
     @Test
@@ -235,6 +232,15 @@ class RoomPlaybackMathTest {
     }
 
     @Test
+    fun stillUnappliedRevisionCannotBypassItsRetryBackoff() {
+        val policy = RemoteApplyRetryPolicy()
+        assertTrue(policy.shouldAttempt(4L, 0L, hasUnappliedChanges = true))
+        assertEquals(1_000L, policy.recordFailure(4L, 0L))
+        assertFalse(policy.shouldAttempt(4L, 999L, hasUnappliedChanges = true))
+        assertTrue(policy.shouldAttempt(4L, 1_000L, hasUnappliedChanges = true))
+    }
+
+    @Test
     fun newerRevisionIsNeverBlockedByOlderRetry() {
         val policy = RemoteApplyRetryPolicy()
         policy.recordFailure(4L, 0L)
@@ -251,4 +257,21 @@ class RoomPlaybackMathTest {
         assertFalse(policy.shouldRetry(4L, 10_000L))
         assertEquals(1_000L, policy.recordFailure(4L, 10_000L))
     }
+    @Test
+    fun halfSecondDriftGetsAPlaybackRateCorrectionAfterTwoStableSamples() {
+        val controller = DriftCorrectionController()
+        assertEquals(DriftCorrectionType.NONE, controller.evaluate(500L, false, 0L).type)
+        val correction = controller.evaluate(500L, false, 1_000L)
+        assertEquals(DriftCorrectionType.SET_SPEED, correction.type)
+        assertTrue(correction.speed <= 0.98f)
+    }
+
+    @Test
+    fun roomTimestampParserHandlesPostgresMicrosecondsAndOffsets() {
+        val utc = RoomTimestampParser.parse("2026-11-06T09:00:00.123456Z")
+        val offset = RoomTimestampParser.parse("2026-11-06T14:30:00.123456+05:30")
+        assertEquals(utc, offset)
+        assertEquals(null, RoomTimestampParser.parse("not-a-timestamp"))
+    }
+
 }

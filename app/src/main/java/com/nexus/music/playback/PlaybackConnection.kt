@@ -27,9 +27,6 @@ data class PlaybackSnapshot(
     val durationMs: Long = 0L,
     val playWhenReady: Boolean = false,
     val isBuffering: Boolean = false,
-    val userActionSequence: Long = 0L,
-    val lastUserAction: String = "",
-    val lastUserActionElapsedMs: Long = 0L
 )
 
 /** Activity-side bridge to the player owned by PlaybackService. */
@@ -49,33 +46,6 @@ class PlaybackConnection(
     private var controller: MediaController? = null
     private var pendingRequest: PlaybackRequest? = null
     private var pendingPlayWhenReady = true
-    private var pendingUserInitiated = true
-    private var userActionSequence = 0L
-    private var lastUserAction = ""
-    private var lastUserActionElapsedMs = 0L
-    @Volatile private var programmaticSeekTargetMs: Long? = null
-    @Volatile private var programmaticSeekAtElapsedMs: Long = 0L
-    @Volatile private var programmaticPlayTarget: Boolean? = null
-    @Volatile private var programmaticPlayAtElapsedMs: Long = 0L
-    @Volatile private var programmaticTrackTarget: String? = null
-    @Volatile private var programmaticTrackAtElapsedMs: Long = 0L
-    private var lastObservedMediaId: String? = null
-
-    private fun recordUserAction(action: String) {
-        userActionSequence += 1L
-        lastUserAction = action
-        lastUserActionElapsedMs = android.os.SystemClock.elapsedRealtime()
-    }
-
-    private fun markProgrammaticPlayChange(target: Boolean) {
-        programmaticPlayTarget = target
-        programmaticPlayAtElapsedMs = android.os.SystemClock.elapsedRealtime()
-    }
-
-    private fun markProgrammaticTrackChange(sourceId: String) {
-        programmaticTrackTarget = sourceId
-        programmaticTrackAtElapsedMs = android.os.SystemClock.elapsedRealtime()
-    }
 
     private val controllerFuture = MediaController.Builder(
         context,
@@ -84,57 +54,6 @@ class PlaybackConnection(
 
     private val playerListener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
-            publishState()
-        }
-
-        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-            val expectedProgrammaticValue = programmaticPlayTarget
-            val isExpectedProgrammaticChange =
-                expectedProgrammaticValue == playWhenReady &&
-                    android.os.SystemClock.elapsedRealtime() - programmaticPlayAtElapsedMs <= 3_000L
-            if (isExpectedProgrammaticChange) {
-                programmaticPlayTarget = null
-            } else if (reason == Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST ||
-                reason == Player.PLAY_WHEN_READY_CHANGE_REASON_REMOTE
-            ) {
-                recordUserAction(if (playWhenReady) "PLAY" else "PAUSE")
-            }
-            publishState()
-        }
-
-        override fun onPositionDiscontinuity(
-            oldPosition: Player.PositionInfo,
-            newPosition: Player.PositionInfo,
-            reason: Int
-        ) {
-            if (reason == Player.DISCONTINUITY_REASON_SEEK) {
-                val expected = programmaticSeekTargetMs
-                val recent = android.os.SystemClock.elapsedRealtime() - programmaticSeekAtElapsedMs <= 3_000L
-                val isProgrammaticCorrection = recent && expected != null &&
-                    kotlin.math.abs(newPosition.positionMs - expected) <= 500L
-                if (isProgrammaticCorrection) {
-                    programmaticSeekTargetMs = null
-                } else {
-                    recordUserAction("SEEK")
-                }
-            }
-            publishState()
-        }
-
-        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            val newMediaId = mediaItem?.mediaId
-            val changed = newMediaId != lastObservedMediaId
-            lastObservedMediaId = newMediaId
-            val expectedProgrammaticTrack = programmaticTrackTarget
-            val isExpectedProgrammaticChange =
-                !newMediaId.isNullOrBlank() &&
-                    newMediaId == expectedProgrammaticTrack &&
-                    android.os.SystemClock.elapsedRealtime() - programmaticTrackAtElapsedMs <= 5_000L
-            if (isExpectedProgrammaticChange) {
-                programmaticTrackTarget = null
-            } else if (changed && !newMediaId.isNullOrBlank()) {
-                recordUserAction("TRACK")
-            }
             publishState()
         }
 
@@ -158,11 +77,10 @@ class PlaybackConnection(
                 controller = connectedController
                 connectedController.addListener(playerListener)
                 pendingRequest?.let {
-                    startPlayback(it, pendingPlayWhenReady, pendingUserInitiated)
+                    startPlayback(it, pendingPlayWhenReady)
                 }
                 pendingRequest = null
                 pendingPlayWhenReady = true
-                pendingUserInitiated = true
                 onReady()
                 publishState()
             } catch (error: Exception) {
@@ -174,34 +92,25 @@ class PlaybackConnection(
 
     override fun play(
         audio: ResolvedAudio,
-        shouldPlay: Boolean,
-        userInitiated: Boolean
+        shouldPlay: Boolean
     ): Boolean {
         val request = PlaybackRequest.from(audio)
         val activeController = controller
         if (activeController == null) {
             pendingRequest = request
             pendingPlayWhenReady = shouldPlay
-            pendingUserInitiated = userInitiated
             return true
         }
         pendingRequest = null
         pendingPlayWhenReady = true
-        return startPlayback(request, shouldPlay, userInitiated)
+        return startPlayback(request, shouldPlay)
     }
 
     private fun startPlayback(
         request: PlaybackRequest,
-        shouldPlay: Boolean,
-        userInitiated: Boolean
+        shouldPlay: Boolean
     ): Boolean {
         val activeController = controller ?: return false
-        if (!userInitiated) {
-            markProgrammaticTrackChange(request.sourceId)
-            if (activeController.playWhenReady != shouldPlay) {
-                markProgrammaticPlayChange(shouldPlay)
-            }
-        }
         return try {
             val metadata = MediaMetadata.Builder()
                 .setTitle(request.title)
@@ -244,32 +153,24 @@ class PlaybackConnection(
         publishState()
     }
 
-    override fun seekTo(positionMs: Long, userInitiated: Boolean): Boolean {
+    override fun seekTo(positionMs: Long): Boolean {
         val activeController = controller ?: return false
         if (!activeController.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)) {
             return false
         }
-        val target = positionMs.coerceAtLeast(0L)
-        if (!userInitiated) {
-            programmaticSeekTargetMs = target
-            programmaticSeekAtElapsedMs = android.os.SystemClock.elapsedRealtime()
-        }
-        activeController.seekTo(target)
+        activeController.seekTo(positionMs.coerceAtLeast(0L))
         return true
     }
 
     override fun setPlaying(shouldPlay: Boolean, positionMs: Long?) {
         val activeController = controller ?: return
-        if (activeController.playWhenReady != shouldPlay) {
-            markProgrammaticPlayChange(shouldPlay)
-        }
         if (shouldPlay) {
             if (activeController.playbackState == Player.STATE_IDLE ||
                 activeController.playbackState == Player.STATE_ENDED
             ) {
                 val restartPosition = positionMs ?: 0L
                 if (activeController.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)) {
-                    seekTo(restartPosition, userInitiated = false)
+                    seekTo(restartPosition)
                 }
                 activeController.prepare()
             }
@@ -311,9 +212,6 @@ class PlaybackConnection(
             durationMs = duration,
             playWhenReady = activeController.playWhenReady,
             isBuffering = activeController.playbackState == Player.STATE_BUFFERING,
-            userActionSequence = userActionSequence,
-            lastUserAction = lastUserAction,
-            lastUserActionElapsedMs = lastUserActionElapsedMs
         )
     }
 
