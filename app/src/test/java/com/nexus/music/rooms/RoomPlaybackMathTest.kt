@@ -2,6 +2,7 @@ package com.nexus.music.rooms
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -256,6 +257,21 @@ class RoomPlaybackMathTest {
         val correction = controller.evaluate(500L, false, 1_000L)
         assertEquals(DriftCorrectionType.SET_SPEED, correction.type)
         assertTrue(correction.speed <= 0.98f)
+    }
+
+    @Test
+    fun roomTimestampParserRejectsTrailingGarbage() {
+        assertNull(RoomTimestampParser.parse("2026-11-06T12:30:00.123456Zgarbage"))
+        assertNull(RoomTimestampParser.parse("2026-11-06T12:30:00Zjunk"))
+    }
+
+    @Test
+    fun bufferingBreaksConsecutiveDriftSamples() {
+        val controller = DriftCorrectionController()
+        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_000L, false, 0L).type)
+        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_000L, true, 500L).type)
+        assertEquals(DriftCorrectionType.NONE, controller.evaluate(1_000L, false, 1_000L).type)
+        assertEquals(DriftCorrectionType.SEEK, controller.evaluate(1_000L, false, 1_500L).type)
     }
 
     @Test
