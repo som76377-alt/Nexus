@@ -1,4 +1,5 @@
 # Nexus integration work log
+| T4 system interruptions and local-first playback | DONE | c73889587620d89744d55dfe4b6c16dc5945d748 | [Android CI](https://github.com/som76377-alt/Nexus/actions/runs/42376020571); [Web room tests](https://github.com/som76377-alt/Nexus/actions/runs/42376020388) | S5/S8: Media3 audio-focus and becoming-noisy reasons now create local-only interruption intents; transient focus release and explicit Play rejoin the current room timeline without publishing. Drift correction and local fallback are suspended during interruption; pending barriers and remote applies are held until release. Added three S5 regression tests. Android lint, unit tests, debug APK assembly, unsigned-release guard, and web build passed. Two-device behavior remains UNVERIFIED. Net diff: +389 / -5. |
 
 | Task | Status | Commit | CI run | Learning |
 |---|---|---|---|---|
