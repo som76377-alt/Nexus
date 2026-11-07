@@ -113,7 +113,8 @@ class PlaybackService : MediaSessionService() {
             delegate = exoPlayer,
             recordIntent = playerPort::recordUserIntent,
             isRoomActive = { controller.state.value.roomId != null },
-            shouldHoldRoomPlay = controller::shouldHoldUserPlay
+            shouldHoldRoomPlay = controller::shouldHoldUserPlay,
+            shouldRoomBePlaying = controller::shouldRoomBePlaying
         )
         playerPort.setRoomPlaybackStartedListener(sessionPlayer::clearPendingRoomTrackStart)
         mediaSession = MediaSession.Builder(this, sessionPlayer).build()
