@@ -149,6 +149,7 @@ internal class ServiceRoomController(
         lastRemoteRevision = 0L
         lastAppliedRevision = 0L
         lastRemotePlayback = null
+        refreshPlaybackPhase()
         retryPolicy.reset()
         driftController.reset()
         driftSeekGate.reset()
@@ -307,7 +308,11 @@ internal class ServiceRoomController(
         publishJob = null
         localTrackFallbackJob?.cancel()
         localTrackFallbackJob = null
-        startJob?.cancel()
+        clearStart()
+    }
+
+    private fun clearStart(cancelJob: Boolean = true) {
+        if (cancelJob) startJob?.cancel()
         startJob = null
         startRevision = null
         scheduledStartAt = null
@@ -420,12 +425,7 @@ internal class ServiceRoomController(
         }
         if (intent == RoomPlayerIntent.SystemPause) {
             playbackPhase = if (playbackPhase.shouldPlay || player.snapshot().playWhenReady) PlaybackPhase.SYSTEM_PAUSED_PLAYING else PlaybackPhase.SYSTEM_PAUSED_PAUSED
-            startJob?.cancel()
-            startJob = null
-            startJob?.cancel()
-            startJob = null
-            startRevision = null
-            scheduledStartAt = null
+            clearStart()
             mutableState.value = mutableState.value.copy(statusMessage = null)
             player.resetPlaybackSpeed()
             driftController.reset()
@@ -1387,9 +1387,7 @@ internal class ServiceRoomController(
             (startJob?.isActive == true || player.snapshot().playWhenReady)
         ) return
 
-        startJob?.cancel()
-        startJob?.cancel()
-        startJob = null
+        clearStart()
         startRevision = revision
         scheduledStartAt = null
         playbackPhase = PlaybackPhase.START_PREPARING
@@ -1570,8 +1568,8 @@ internal class ServiceRoomController(
                             reason = "readiness_rpc_failed"
                         )
                     } else {
-                        startRevision = null
-                        scheduledStartAt = null
+                        clearStart(cancelJob = false)
+                        refreshPlaybackPhase()
                     }
                 }
             }
@@ -1674,7 +1672,6 @@ internal class ServiceRoomController(
         if (scheduledStartAt == startAt && startJob?.isActive == true) return
 
         startJob?.cancel()
-        startJob = null
         scheduledStartAt = startAt
         playbackPhase = PlaybackPhase.START_SCHEDULED
         playbackAnchorRevision = revision
@@ -1715,8 +1712,8 @@ internal class ServiceRoomController(
                         lastError = "The local stream stopped being ready before the shared start.",
                         statusMessage = null
                     )
-                    startRevision = null
-                    scheduledStartAt = null
+                    clearStart(cancelJob = false)
+                    refreshPlaybackPhase()
                     recordDiagnostic("barrier.final_ready_timeout", "revision=$revision")
                     return@launch
                 }
@@ -1744,7 +1741,7 @@ internal class ServiceRoomController(
                 // create a second start job; only a device that used the no-peer fallback
                 // remains eligible for a late peer's shared-anchor correction.
                 completedStartRevision = revision
-                scheduledStartAt = null
+                clearStart(cancelJob = false)
                 playbackPhase = PlaybackPhase.ROOM_PLAYING
                 playbackAnchorRevision = revision
                 playbackAnchorAt = startAt
@@ -1789,10 +1786,7 @@ internal class ServiceRoomController(
     private fun cancelStartBarrier(reason: String) {
         if (startRevision == null) return
         recordDiagnostic("barrier.cancelled", "revision=$startRevision reason=$reason")
-        startJob?.cancel()
-        startJob = null
-        startRevision = null
-        scheduledStartAt = null
+        clearStart()
         refreshPlaybackPhase()
         mutableState.value = mutableState.value.copy(statusMessage = null)
     }
@@ -1812,10 +1806,7 @@ internal class ServiceRoomController(
             requestReconciliation(roomId, sessionGeneration)
             return
         }
-        startJob?.cancel()
-        startJob = null
-        startRevision = null
-        scheduledStartAt = null
+        clearStart()
         completedStartRevision = maxOf(completedStartRevision, remote.revision)
         playbackPhase = PlaybackPhase.ROOM_PLAYING
         lastAppliedRevision = maxOf(lastAppliedRevision, remote.revision)
