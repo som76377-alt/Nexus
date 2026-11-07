@@ -24,6 +24,8 @@ enum class RoomActionType(val wireValue: String) {
 sealed interface RoomPlayerIntent {
     data object Play : RoomPlayerIntent
     data object Pause : RoomPlayerIntent
+    /** Android paused playback for audio focus loss or becoming-noisy; never publish this as a room command. */
+    data object SystemPause : RoomPlayerIntent
     data class SeekTo(val positionMs: Long) : RoomPlayerIntent
     data class SelectTrack(
         val sourceId: String,
