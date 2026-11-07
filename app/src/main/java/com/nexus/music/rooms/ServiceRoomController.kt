@@ -489,16 +489,10 @@ internal class ServiceRoomController(
             var retryGeneration = Long.MIN_VALUE
             var retryCount = 0
             try {
-                val first = pendingAction
-                if (first != null && (first.actionType != RoomActionType.TRACK || !first.shouldPlay)) {
-                    delay(100L)
-                }
+                if (pendingAction?.let { it.actionType != RoomActionType.TRACK || !it.shouldPlay } == true) delay(100L)
                 while (isCurrent(roomId, generation)) {
                     val pending = pendingAction ?: break
-                    if (pending.generation != retryGeneration) {
-                        retryGeneration = pending.generation
-                        retryCount = 0
-                    }
+                    if (pending.generation != retryGeneration) { retryGeneration = pending.generation; retryCount = 0 }
                     try {
                         publishPendingAction(roomId, generation)
                     } catch (cancelled: CancellationException) {
@@ -518,10 +512,6 @@ internal class ServiceRoomController(
                     if (pendingAction?.generation == pending.generation) {
                         retryCount = (retryCount + 1).coerceAtMost(5)
                         val retryIn = publishRetryDelay(retryCount)
-                        recordDiagnostic(
-                            "rpc.publish_retry_scheduled",
-                            "generation=${pending.generation} attempt=$retryCount delay=${retryIn}ms reason=unresolved"
-                        )
                         delay(retryIn)
                     }
                 }
@@ -1481,7 +1471,6 @@ internal class ServiceRoomController(
             shouldPlay = true,
             requestedPositionMs = positionMs
         )
-        recordDiagnostic("barrier.recovery_publish_queued", "revision=${remote.revision} position=${positionMs}ms")
         schedulePendingPublish(roomId, generation)
     }
 
