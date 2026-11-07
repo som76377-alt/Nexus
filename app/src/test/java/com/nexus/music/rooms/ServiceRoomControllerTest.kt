@@ -58,6 +58,15 @@ class ServiceRoomControllerTest {
                 controller.playbackPhase(RoomPlayerIntent.Pause)
             )
             assertFalse(controller.playbackPhase().shouldPlay)
+            controller.playbackPhase(RoomPlayerIntent.SystemPause)
+            assertEquals(
+                ServiceRoomController.PlaybackPhase.SYSTEM_PAUSED_TRACK_PENDING_PLAYING,
+                controller.playbackPhase(selected)
+            )
+            assertTrue(
+                "Play remains held for a pending track even during an OS interruption",
+                controller.playbackPhase(RoomPlayerIntent.Play).holdsPlay
+            )
         } finally {
             controller.close()
         }
