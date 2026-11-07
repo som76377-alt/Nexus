@@ -174,6 +174,7 @@ internal class ServiceRoomController(
         // never treat the wall-clock fallback as a valid synchronized server clock.
         try {
             clock.calibrate()
+            recordDiagnostic("clock.calibrated", "server_clock_ready=${clock.isCalibrated()}")
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
@@ -329,8 +330,13 @@ internal class ServiceRoomController(
     ) {
         val elapsed = clock.elapsedRealtimeMs()
         val wall = System.currentTimeMillis()
-        val serverNow = runCatching { clock.estimatedServerTimeMs() }.getOrNull()
-        val clockOffset = if (clock.isCalibrated()) serverNow?.minus(wall) else null
+        val calibrated = clock.isCalibrated()
+        val serverNow = if (calibrated) {
+            runCatching { clock.estimatedServerTimeMs() }.getOrNull()
+        } else {
+            null
+        }
+        val clockOffset = serverNow?.minus(wall)
         val measuredRtt = clock.estimatedRoundTripTimeMs().takeIf { it >= 0L }
         val phase = playbackPhase.name
         val line = "wall=$wall mono=$elapsed server=${serverNow ?: "unknown"} phase=$phase $event" +
@@ -629,6 +635,7 @@ internal class ServiceRoomController(
             if (now - lastCalibration >= CLOCK_CALIBRATION_INTERVAL_MS) {
                 try {
                     clock.calibrate()
+                    recordDiagnostic("clock.recalibrated", "server_clock_ready=${clock.isCalibrated()}")
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
