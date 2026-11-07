@@ -1082,7 +1082,6 @@ class ServiceRoomControllerTest {
         override fun snapshot(): LocalPlaybackSnapshot = mutablePlayback.value
 
         override suspend fun prepareCanonicalSource(
-            sourceId: String,
             canonicalSourceUrl: String,
             streamUrl: String,
             title: String,
