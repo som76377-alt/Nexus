@@ -196,6 +196,13 @@ class RoomPlaybackMathTest {
     }
 
     @Test
+    fun seekThresholdIsNotTriggeredByMinorDifference() {
+        assertFalse(RoomPlaybackMath.needsSeek(10_000L, 10_699L))
+        assertTrue(RoomPlaybackMath.needsSeek(10_000L, 10_700L))
+    }
+
+
+    @Test
     fun driftSeekGateWaitsForTheFirstSeekInsteadOfAllowingAnother() {
         val gate = DriftSeekGate()
         gate.begin(10_000L, 1_000L)
