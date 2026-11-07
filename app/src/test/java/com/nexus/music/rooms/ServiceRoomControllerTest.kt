@@ -866,7 +866,6 @@ class ServiceRoomControllerTest {
 
             assertEquals(null, controller.state.value.roomId)
             assertTrue(controller.state.value.playback == null)
-            assertEquals(0, repository.leaveCount)
         } finally {
             controller.close()
         }
@@ -891,7 +890,6 @@ class ServiceRoomControllerTest {
         val published = mutableListOf<RoomCommand>()
         val signals = MutableSharedFlow<RoomRealtimeSignal>(extraBufferCapacity = 16)
         var snapshot: RoomPlaybackSnapshot? = initialSnapshot
-        var leaveCount = 0
         var scheduledStartAt: String? = null
         var readinessCalls = 0
         var serverNowMs: Long = 10_000L
@@ -955,10 +953,6 @@ class ServiceRoomControllerTest {
             signals
 
         override suspend fun touchRoom(roomId: String): Boolean = true
-
-        override suspend fun leaveRoom(roomId: String) {
-            leaveCount += 1
-        }
 
         fun emit(signal: RoomRealtimeSignal) {
             signals.tryEmit(signal)
