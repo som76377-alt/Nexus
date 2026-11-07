@@ -349,10 +349,17 @@ internal class ServiceRoomController(
 
         if (intent == RoomPlayerIntent.SystemPause) {
             localInterruptionState = LocalInterruptionState.SYSTEM_PAUSED
+            barrierJob?.cancel()
+            barrierJob = null
+            barrierStartJob?.cancel()
+            barrierStartJob = null
+            barrierRevision = null
+            barrierScheduledStartAt = null
+            mutableState.value = mutableState.value.copy(statusMessage = null)
             player.resetPlaybackSpeed()
             driftController.reset()
             driftSeekGate.reset()
-            recordDiagnostic("local.system_pause", "local-only; room timeline unchanged")
+            recordDiagnostic("local.system_pause", "local-only; room timeline unchanged; pending barrier suspended")
             return
         }
 
@@ -364,6 +371,14 @@ internal class ServiceRoomController(
                     rejoinRoomTimelineLocally(roomId, remote, "system_resume")
                 } else {
                     // A focus-release callback must not undo an explicit user Pause.
+                    val local = player.snapshot()
+                    if (remote != null && !remote.isPlaying &&
+                        local.sourceId == remote.canonicalSourceUrl && local.isReady
+                    ) {
+                        player.seekTo(expectedRoomPosition(remote))
+                    } else if (remote != null && local.sourceId != remote.canonicalSourceUrl) {
+                        requestReconciliation(roomId, sessionGeneration)
+                    }
                     player.pause()
                     recordDiagnostic(
                         "local.system_resume_held",
@@ -1037,6 +1052,15 @@ internal class ServiceRoomController(
             return
         }
         if (!shouldApply || !isCurrent(roomId, generation)) return
+        if (localInterruptionState == LocalInterruptionState.SYSTEM_PAUSED) {
+            // Keep the authoritative row fresh but do not let a remote PLAY/START
+            // override this device's active OS interruption. Resume reconciles it.
+            recordDiagnostic(
+                "remote.apply_deferred_system_pause",
+                "revision=${remote.revision} action=${remote.actionType}"
+            )
+            return
+        }
 
         try {
             applyRemoteSnapshot(remote, roomId, generation)
@@ -1702,15 +1726,23 @@ internal class ServiceRoomController(
         source: String
     ) {
         val local = player.snapshot()
-        if (local.sourceId != remote.canonicalSourceUrl) {
+        if (local.sourceId != remote.canonicalSourceUrl || !local.isReady) {
             player.pause()
             recordDiagnostic(
                 "local.system_pause_reconcile",
-                "local source differs from playing room revision=${remote.revision}"
+                "local source/stream is not ready for room revision=${remote.revision}"
             )
             requestReconciliation(roomId, sessionGeneration)
             return
         }
+        barrierJob?.cancel()
+        barrierJob = null
+        barrierStartJob?.cancel()
+        barrierStartJob = null
+        barrierRevision = null
+        barrierScheduledStartAt = null
+        barrierCompletedRevision = maxOf(barrierCompletedRevision, remote.revision)
+        mutableState.value = mutableState.value.copy(statusMessage = null)
         val expected = expectedRoomPosition(remote)
         player.seekTo(expected)
         player.resetPlaybackSpeed()
