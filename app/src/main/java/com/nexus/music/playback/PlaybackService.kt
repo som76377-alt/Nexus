@@ -141,7 +141,6 @@ class PlaybackService : MediaSessionService() {
         roomController = null
         serviceScope.cancel()
         mediaSession?.release()
-        roomPlayerPort?.close()
         player?.release()
         mediaSession = null
         roomPlayerPort = null
