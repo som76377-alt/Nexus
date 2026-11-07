@@ -145,6 +145,7 @@ internal class RoomIntentForwardingPlayer(
 
     override fun pause() {
         recordIntent(RoomPlayerIntent.Pause)
+        pendingRoomTrackStart = false
         super.pause()
     }
 
@@ -195,6 +196,7 @@ internal class RoomIntentForwardingPlayer(
 
     override fun setPlayWhenReady(playWhenReady: Boolean) {
         recordIntent(if (playWhenReady) RoomPlayerIntent.Play else RoomPlayerIntent.Pause)
+        if (!playWhenReady) pendingRoomTrackStart = false
         if (playWhenReady && isRoomActive() &&
             (pendingRoomTrackStart || shouldHoldRoomPlay())
         ) {
@@ -257,6 +259,7 @@ internal class RoomIntentForwardingPlayer(
 
     override fun stop() {
         recordIntent(RoomPlayerIntent.Pause)
+        pendingRoomTrackStart = false
         super.stop()
     }
 
