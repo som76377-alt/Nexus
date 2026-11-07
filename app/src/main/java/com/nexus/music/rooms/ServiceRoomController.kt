@@ -1323,8 +1323,8 @@ internal class ServiceRoomController(
                 }
 
                 recordDiagnostic("barrier.waiting_for_peer", "revision=$revision")
-                // The database caps readiness to this revision's four-second command
-                // window, so a late peer cannot create a START after local fallback.
+                // A late peer may still emit a stale START after local fallback; the completed
+                // RECOVERY revision prevents that older barrier from rewinding playback.
                 while (
                     isCurrent(roomId, generation) &&
                     barrierRevision == revision &&
