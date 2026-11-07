@@ -25,13 +25,14 @@ function toast(message) {
   toastTimer = setTimeout(() => node.classList.remove("show"), 2600);
 }
 function logEvent(message) {
+  const time = new Date().toLocaleTimeString();
   const list = $("event-log");
   const item = document.createElement("li");
-  item.textContent = new Date().toLocaleTimeString() + " · " + message;
+  item.textContent = time + " · " + message;
   list.prepend(item);
   while (list.children.length > 35) list.lastElementChild.remove();
-  state.lastEvent = new Date().toLocaleTimeString();
-  $("last-event-value").textContent = state.lastEvent;
+  state.lastEvent = time;
+  $("last-event-value").textContent = time;
 }
 function setConnection(online, label) {
   $("connection-dot").classList.toggle("online", online);
@@ -131,8 +132,9 @@ async function enterRoom(roomId, roomCode) {
     $("room-status").textContent = "Room joined · initial refresh will retry";
     logEvent("Initial room refresh failed: " + errorMessage(error));
   }
-  startRealtime();
   stopTimers();
+  startRealtime();
+  scheduleSafetyPoll();
   state.heartbeatTimer = setInterval(async () => {
     if (!state.roomId) return;
     const { data, error } = await supabase.rpc("touch_room", { p_room_id: state.roomId });
@@ -143,10 +145,6 @@ async function enterRoom(roomId, roomCode) {
       $("room-status").textContent = state.realtimeConnected ? "Connected · live updates" : "Connected · polling fallback";
     }
   }, 25000);
-  state.pollTimer = setInterval(() => refreshAll().catch((error) => {
-    $("room-status").textContent = "Refreshing · " + errorMessage(error);
-    logEvent("Polling error: " + errorMessage(error));
-  }), 5000);
 }
 function startRealtime() {
   if (state.channel) supabase.removeChannel(state.channel);
@@ -163,6 +161,7 @@ function startRealtime() {
     .subscribe((status, error) => {
       const connected = status === "SUBSCRIBED";
       state.realtimeConnected = connected;
+      scheduleSafetyPoll();
       $("realtime-pill").textContent = connected ? "REALTIME LIVE" : "REALTIME " + status;
       $("realtime-pill").style.color = connected ? "var(--lime)" : "#d6b17c";
       $("fallback-value").textContent = connected ? "5s safety poll" : "5s polling fallback";
@@ -171,8 +170,21 @@ function startRealtime() {
       else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") logEvent("Realtime reconnecting" + (error?.message ? ": " + error.message : ""));
     });
 }
+function scheduleSafetyPoll() {
+  if (state.pollTimer) clearTimeout(state.pollTimer);
+  if (!state.roomId) return;
+  state.pollTimer = setTimeout(async () => {
+    try {
+      await refreshAll();
+    } catch (error) {
+      $("room-status").textContent = "Refreshing · " + errorMessage(error);
+      logEvent("Polling error: " + errorMessage(error));
+    }
+    scheduleSafetyPoll();
+  }, state.realtimeConnected ? 30000 : 5000);
+}
 function stopTimers() {
-  if (state.pollTimer) clearInterval(state.pollTimer);
+  if (state.pollTimer) clearTimeout(state.pollTimer);
   if (state.heartbeatTimer) clearInterval(state.heartbeatTimer);
   state.pollTimer = null;
   state.heartbeatTimer = null;
@@ -191,7 +203,6 @@ async function refreshPlayback() {
   if (error) throw error;
   state.playback = data;
   renderPlayback();
-  renderMembers();
 }
 async function refreshPresence() {
   if (!state.roomId) return;
@@ -214,7 +225,6 @@ async function refreshMessages() {
   if (error) throw error;
   state.messages = (data || []).reverse();
   renderMessages();
-  renderMembers();
 }
 function formatTime(ms) {
   const total = Math.max(0, Math.floor((Number(ms) || 0) / 1000));

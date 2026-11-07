@@ -84,6 +84,7 @@ class ListeningRoomActivity : Activity() {
     private var diagnosticsJob: Job? = null
     private var lastChatSignalVersion = 0L
     private var isSeeking = false
+    private var isActivityStarted = false
     private var lastSnapshot = PlaybackSnapshot(connected = false)
     private var backInvokedCallback: android.window.OnBackInvokedCallback? = null
 
@@ -96,9 +97,17 @@ class ListeningRoomActivity : Activity() {
 
     private val playerTicker = object : Runnable {
         override fun run() {
+            if (!isActivityStarted || isFinishing || isDestroyed) return
             val snapshot = playback?.snapshot() ?: PlaybackSnapshot(connected = false)
             renderPlayback(snapshot)
-            if (!isFinishing && !isDestroyed) handler.postDelayed(this, 500L)
+            schedulePlayerTicker(snapshot)
+        }
+    }
+
+    private fun schedulePlayerTicker(snapshot: PlaybackSnapshot) {
+        handler.removeCallbacks(playerTicker)
+        if (isActivityStarted && snapshot.isPlaying && !isFinishing && !isDestroyed) {
+            handler.postDelayed(playerTicker, 500L)
         }
     }
 
@@ -549,6 +558,7 @@ class ListeningRoomActivity : Activity() {
     private fun onPlaybackChanged(snapshot: PlaybackSnapshot) {
         lastSnapshot = snapshot
         renderPlayback(snapshot)
+        schedulePlayerTicker(snapshot)
     }
 
     private fun renderPlayback(snapshot: PlaybackSnapshot) {
@@ -724,16 +734,20 @@ class ListeningRoomActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
-        handler.removeCallbacks(playerTicker)
-        handler.post(playerTicker)
+        isActivityStarted = true
+        val snapshot = playback?.snapshot() ?: PlaybackSnapshot(connected = false)
+        renderPlayback(snapshot)
+        schedulePlayerTicker(snapshot)
     }
 
     override fun onStop() {
+        isActivityStarted = false
         handler.removeCallbacks(playerTicker)
         super.onStop()
     }
 
     override fun onDestroy() {
+        isActivityStarted = false
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             backInvokedCallback?.let(onBackInvokedDispatcher::unregisterOnBackInvokedCallback)
             backInvokedCallback = null
