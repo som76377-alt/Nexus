@@ -10,8 +10,6 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -19,7 +17,6 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
-import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import com.nexus.music.MainActivity
@@ -27,7 +24,6 @@ import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackService
 import com.nexus.music.rooms.domain.RoomConnectionState
 import com.nexus.music.rooms.domain.RoomController
-import com.nexus.music.playback.PlaybackSnapshot
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -51,8 +47,9 @@ import java.util.Locale
  */
 class ListeningRoomActivity : Activity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val handler = Handler(Looper.getMainLooper())
 
+    private lateinit var introPanel: LinearLayout
+    private lateinit var bottomNavigation: LinearLayout
     private lateinit var status: TextView
     private lateinit var codeInput: EditText
     private lateinit var joinButton: Button
@@ -63,11 +60,7 @@ class ListeningRoomActivity : Activity() {
     private lateinit var messagesBox: LinearLayout
     private lateinit var messageInput: EditText
     private lateinit var sendButton: Button
-    private lateinit var nowPlaying: TextView
-    private lateinit var playButton: Button
-    private lateinit var seekBar: SeekBar
-    private lateinit var diagnosticsText: TextView
-    private lateinit var copyDiagnosticsButton: Button
+    private lateinit var copyCodeButton: Button
 
     private var playback: PlaybackConnection? = null
     private var roomId: String? = null
@@ -80,11 +73,8 @@ class ListeningRoomActivity : Activity() {
     private var syncJob: Job? = null
     private var roomController: RoomController? = null
     private var roomStateJob: Job? = null
-    private var diagnosticsJob: Job? = null
     private var lastChatSignalVersion = 0L
-    private var isSeeking = false
     private var isActivityStarted = false
-    private var lastSnapshot = PlaybackSnapshot(connected = false)
     private var backInvokedCallback: android.window.OnBackInvokedCallback? = null
 
     private val background = Color.rgb(12, 14, 18)
@@ -93,22 +83,6 @@ class ListeningRoomActivity : Activity() {
     private val accent = Color.rgb(167, 240, 106)
     private val foreground = Color.rgb(244, 247, 250)
     private val muted = Color.rgb(160, 172, 187)
-
-    private val playerTicker = object : Runnable {
-        override fun run() {
-            if (!isActivityStarted || isFinishing || isDestroyed) return
-            val snapshot = playback?.snapshot() ?: PlaybackSnapshot(connected = false)
-            renderPlayback(snapshot)
-            schedulePlayerTicker(snapshot)
-        }
-    }
-
-    private fun schedulePlayerTicker(snapshot: PlaybackSnapshot) {
-        handler.removeCallbacks(playerTicker)
-        if (isActivityStarted && snapshot.isPlaying && !isFinishing && !isDestroyed) {
-            handler.postDelayed(playerTicker, 500L)
-        }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -121,22 +95,34 @@ class ListeningRoomActivity : Activity() {
             setBackgroundColor(this@ListeningRoomActivity.background)
             setPadding(dp(20), dp(24), dp(20), dp(18))
         }
+        introPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
         header.addView(label("NEXUS", 12f, accent, true), LinearLayout.LayoutParams(0, -2, 1f))
-        root.addView(header)
-
-        root.addView(label("Listening room", 28f, foreground, true), params(16))
-        root.addView(label(
+        introPanel.addView(header)
+        introPanel.addView(label("Listening room", 28f, foreground, true), params(16))
+        introPanel.addView(label(
             "Private rooms for two. Chat history is kept separately in each room.",
             13f, muted
         ), params(6))
+        root.addView(introPanel)
 
         status = label("Connect to create a room or enter an invite code.", 12f, muted)
         status.setPadding(dp(12), dp(12), dp(12), dp(12))
         status.background = rounded(surface, 12)
+        status.maxLines = 1
+        status.ellipsize = android.text.TextUtils.TruncateAt.END
+        status.contentDescription = "Room connection status. Long-press for diagnostics."
+        status.setOnLongClickListener {
+            if (roomController == null) false else {
+                showDiagnostics()
+                true
+            }
+        }
         root.addView(status, params(16))
 
         roomActions = LinearLayout(this).apply {
@@ -180,52 +166,20 @@ class ListeningRoomActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        inviteText = label("Room active", 12f, accent, true)
+        inviteText = label("Room active", 12f, accent, true).apply {
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
         roomHeader.addView(inviteText, LinearLayout.LayoutParams(0, -2, 1f))
-        roomHeader.addView(actionButton("Exit room", false).apply {
+        copyCodeButton = actionButton("Copy code", false).apply {
+            isEnabled = false
+            setOnClickListener { inviteCode?.let(::copyCode) }
+        }
+        roomHeader.addView(copyCodeButton)
+        roomHeader.addView(actionButton("Leave", false).apply {
             setOnClickListener { leaveRoom() }
         })
         roomPanel.addView(roomHeader, params(0))
-
-        roomPanel.addView(label("Now playing together", 15f, foreground, true), params(14))
-        nowPlaying = label("Nothing playing yet", 12f, muted)
-        roomPanel.addView(nowPlaying, params(5))
-        seekBar = SeekBar(this).apply {
-            max = 1000
-            progressTintList = android.content.res.ColorStateList.valueOf(accent)
-            thumbTintList = android.content.res.ColorStateList.valueOf(accent)
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(bar: SeekBar?, value: Int, fromUser: Boolean) {
-                    if (fromUser) isSeeking = true
-                }
-                override fun onStartTrackingTouch(bar: SeekBar?) { isSeeking = true }
-                override fun onStopTrackingTouch(bar: SeekBar?) {
-                    val duration = lastSnapshot.durationMs
-                    if (duration > 0L) {
-                        playback?.seekTo(duration * seekBar.progress / seekBar.max)
-                    }
-                    isSeeking = false
-                }
-            })
-        }
-        roomPanel.addView(seekBar, params(0))
-        playButton = actionButton("Play / pause", true).apply {
-            setOnClickListener { playback?.togglePlayback() }
-        }
-        roomPanel.addView(playButton, params(4))
-
-        val diagnosticsRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        diagnosticsText = label("Sync diagnostics · waiting for measurements", 10f, muted)
-        diagnosticsRow.addView(diagnosticsText, LinearLayout.LayoutParams(0, -2, 1f))
-        copyDiagnosticsButton = actionButton("Copy log", false).apply {
-            setOnClickListener { copyDiagnostics() }
-            isEnabled = false
-        }
-        diagnosticsRow.addView(copyDiagnosticsButton, LinearLayout.LayoutParams(-2, dp(38)))
-        roomPanel.addView(diagnosticsRow, params(5))
 
         roomPanel.addView(label("Room chat", 15f, foreground, true), params(16))
         val chatScroll = ScrollView(this).apply {
@@ -267,17 +221,15 @@ class ListeningRoomActivity : Activity() {
         root.addView(roomPanel, LinearLayout.LayoutParams(-1, 0, 1f).apply {
             topMargin = dp(12)
         })
-        root.addView(buildBottomNavigation(), LinearLayout.LayoutParams(-1, dp(62)))
+        bottomNavigation = buildBottomNavigation()
+        root.addView(bottomNavigation, LinearLayout.LayoutParams(-1, dp(62)))
 
         setContentView(root)
         registerBackNavigation()
         playback = PlaybackConnection(
             context = this,
-                        onReady = {
-                renderPlayback(playback?.snapshot() ?: PlaybackSnapshot(false))
-                restoreActiveRoomIfPresent()
-            },
-            onStateChanged = ::onPlaybackChanged,
+            onReady = { restoreActiveRoomIfPresent() },
+            onStateChanged = { },
             onError = { message -> status.text = "Player: $message" }
         )
     }
@@ -324,7 +276,7 @@ class ListeningRoomActivity : Activity() {
                 inviteCode = created.inviteCode
                 enterRoom(created.roomId)
                 status.text = "Room created. Share the invite code with the other person."
-                inviteText.text = "Invite code: ${created.inviteCode}"
+                inviteText.text = "Room code: ${created.inviteCode}"
                 android.app.AlertDialog.Builder(this@ListeningRoomActivity)
                     .setTitle("Room created")
                     .setMessage("Share this invite code:\n\n${created.inviteCode}\n\nThe other person can enter it in Nexus.")
@@ -374,12 +326,15 @@ class ListeningRoomActivity : Activity() {
         roomSessionGeneration += 1L
         val sessionGeneration = roomSessionGeneration
         roomId = id
+        introPanel.visibility = View.GONE
+        bottomNavigation.visibility = View.GONE
         roomPanel.visibility = View.VISIBLE
         roomActions.visibility = View.GONE
         createButton.visibility = View.GONE
         codeInput.visibility = View.GONE
         joinButton.visibility = View.GONE
-        inviteText.text = inviteCode?.let { "Invite code: $it" } ?: "Room connected"
+        inviteText.text = inviteCode?.let { "Room code: $it" } ?: "Room connected"
+        copyCodeButton.isEnabled = inviteCode != null
         status.text = "Connected · starting room engine…"
 
         try {
@@ -396,13 +351,6 @@ class ListeningRoomActivity : Activity() {
             if (roomId != id || roomSessionGeneration != sessionGeneration) return
             ActiveRoomSessionStore.save(this@ListeningRoomActivity, id)
 
-            diagnosticsJob?.cancel()
-            diagnosticsJob = scope.launch {
-                controller.diagnostics.collect { diagnostics ->
-                    diagnosticsText.text = diagnostics.summary
-                    copyDiagnosticsButton.isEnabled = diagnostics.events.isNotEmpty()
-                }
-            }
             lastChatSignalVersion = controller.state.value.chatSignalVersion
             roomStateJob?.cancel()
             roomStateJob = scope.launch {
@@ -451,6 +399,16 @@ class ListeningRoomActivity : Activity() {
             }
             throw error
         }
+    }
+
+    private fun showDiagnostics() {
+        val diagnostics = roomController?.diagnostics?.value ?: return
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Room diagnostics")
+            .setMessage(diagnostics.summary)
+            .setPositiveButton("Copy log") { _, _ -> copyDiagnostics() }
+            .setNegativeButton("Close", null)
+            .show()
     }
 
     private fun copyDiagnostics() {
@@ -568,27 +526,6 @@ class ListeningRoomActivity : Activity() {
         }
     }
 
-    private fun onPlaybackChanged(snapshot: PlaybackSnapshot) {
-        lastSnapshot = snapshot
-        renderPlayback(snapshot)
-        schedulePlayerTicker(snapshot)
-    }
-
-    private fun renderPlayback(snapshot: PlaybackSnapshot) {
-        lastSnapshot = snapshot
-        nowPlaying.text = if (snapshot.title.isBlank()) {
-            "Nothing playing yet"
-        } else {
-            "${snapshot.title}${snapshot.artist.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()}"
-        }
-        playButton.text = if (snapshot.playWhenReady) "Pause" else "Play"
-        seekBar.isEnabled = snapshot.durationMs > 0L
-        if (!isSeeking && snapshot.durationMs > 0L) {
-            seekBar.progress = ((snapshot.positionMs.toDouble() / snapshot.durationMs) * seekBar.max)
-                .toInt().coerceIn(0, seekBar.max)
-        }
-    }
-
     private fun leaveRoom() {
         val id = roomId ?: return
         val sessionGeneration = roomSessionGeneration
@@ -617,8 +554,6 @@ class ListeningRoomActivity : Activity() {
         stopChatFallbackSync()
         roomStateJob?.cancel()
         roomStateJob = null
-        diagnosticsJob?.cancel()
-        diagnosticsJob = null
         val controller = roomController
         roomController = null
         if (controller != null) {
@@ -627,13 +562,13 @@ class ListeningRoomActivity : Activity() {
 
         messageInput.text.clear()
         codeInput.text.clear()
-        isSeeking = false
         roomId = null
         inviteCode = null
         userId = null
         if (clearPersistedRoom) ActiveRoomSessionStore.clear(this)
         lastChatSignalVersion = 0L
-        lastSnapshot = playback?.snapshot() ?: PlaybackSnapshot(connected = false)
+        introPanel.visibility = View.VISIBLE
+        bottomNavigation.visibility = View.VISIBLE
         roomPanel.visibility = View.GONE
         roomActions.visibility = View.VISIBLE
         createButton.visibility = View.VISIBLE
@@ -759,15 +694,11 @@ class ListeningRoomActivity : Activity() {
                 }
             }
         }
-        val snapshot = playback?.snapshot() ?: PlaybackSnapshot(connected = false)
-        renderPlayback(snapshot)
-        schedulePlayerTicker(snapshot)
     }
 
     override fun onStop() {
         isActivityStarted = false
         stopChatFallbackSync()
-        handler.removeCallbacks(playerTicker)
         super.onStop()
     }
 
@@ -781,8 +712,6 @@ class ListeningRoomActivity : Activity() {
         // Activity navigation/recreation while PlaybackService remains alive.
         stopChatFallbackSync()
         roomStateJob?.cancel()
-        diagnosticsJob?.cancel()
-        handler.removeCallbacks(playerTicker)
         playback?.close()
         playback = null
         scope.cancel()
