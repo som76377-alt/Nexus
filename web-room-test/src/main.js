@@ -357,10 +357,10 @@ function extractYoutubeId(input) {
   if (/^[a-zA-Z0-9_-]{11}$/.test(value)) return value;
   try {
     const url = new URL(value);
-    if (url.hostname === "youtu.be" || url.hostname.endsWith(".youtu.be")) {
+    if (url.hostname === "youtu.be") {
       return url.pathname.split("/").filter(Boolean)[0] || null;
     }
-    if (url.hostname.includes("youtube.com")) {
+    if (url.hostname === "youtube.com" || url.hostname.endsWith(".youtube.com")) {
       const v = url.searchParams.get("v");
       if (v) return v;
       const parts = url.pathname.split("/").filter(Boolean);
