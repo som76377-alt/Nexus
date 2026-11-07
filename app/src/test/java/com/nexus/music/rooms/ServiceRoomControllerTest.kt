@@ -263,6 +263,18 @@ class ServiceRoomControllerTest {
             assertEquals("Preparing synchronized start…", controller.state.value.statusMessage)
             assertFalse(player.snapshot().playWhenReady)
 
+            // A no-op Next command must not tear down the current shared start.
+            player.emitIntent(
+                RoomPlayerIntent.SkipToNext(
+                    previousSourceId = canonical,
+                    previousPositionMs = player.snapshot().positionMs
+                )
+            )
+            runCurrent()
+            assertEquals(1, repository.published.size)
+            assertEquals(1, repository.readinessCalls)
+            assertEquals("Preparing synchronized start…", controller.state.value.statusMessage)
+
             clock.advance(1_501L)
             advanceTimeBy(250L)
             runCurrent()
