@@ -583,13 +583,17 @@ internal class ServiceRoomController(
                 setError(error, "Playback reconciliation failed")
             }
 
-            try {
-                publishPendingAction(roomId, generation)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                failed = true
-                setError(error, "Playback command could not be published")
+            // captureLocalIntent owns the debounce window. Do not let this immediate
+            // polling pass publish an older selection before a newer Play/Pause can merge.
+            if (publishJob?.isActive != true) {
+                try {
+                    publishPendingAction(roomId, generation)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    failed = true
+                    setError(error, "Playback command could not be published")
+                }
             }
 
             consecutiveFailures = if (failed) {
