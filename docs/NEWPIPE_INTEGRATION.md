@@ -20,13 +20,13 @@ Resolved media URLs may be signed and expire. Persist the canonical source/video
 Ordinary local unit tests use MockWebServer and do not contact YouTube:
 
 ```bash
-gradle --no-daemon :app:testDebugUnitTest
+./gradlew --no-daemon :app:testDebugUnitTest
 ```
 
 An opt-in live smoke test searches public YouTube Music results and resolves one audio stream:
 
 ```bash
-gradle --no-daemon -Pnexus.liveExtractorTests=true :app:testDebugUnitTest
+./gradlew --no-daemon -Pnexus.liveExtractorTests=true :app:testDebugUnitTest
 ```
 
 The live test is intentionally skipped in normal CI because upstream availability and extraction behaviour can change independently of this repository.
