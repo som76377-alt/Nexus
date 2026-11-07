@@ -220,72 +220,55 @@ internal class RoomIntentForwardingPlayer(
         }
     }
 
-    override fun seekToNext() {
-        val previousSourceId = delegate.currentMediaItem?.mediaId.orEmpty()
-        val previousPositionMs = delegate.currentPosition.coerceAtLeast(0L)
-        val shouldPlay = delegate.playWhenReady
-        super.seekToNext()
-        val changedTrack = delegate.currentMediaItem?.mediaId?.let { it != previousSourceId } == true
+    private data class SkipState(
+        val sourceId: String,
+        val positionMs: Long,
+        val shouldPlay: Boolean
+    )
+
+    private fun captureSkipState() = SkipState(
+        sourceId = delegate.currentMediaItem?.mediaId.orEmpty(),
+        positionMs = delegate.currentPosition.coerceAtLeast(0L),
+        shouldPlay = delegate.playWhenReady
+    )
+
+    private fun finishSkip(previous: SkipState, next: Boolean) {
+        val changedTrack = delegate.currentMediaItem?.mediaId?.let { it != previous.sourceId } == true
         if (isRoomActive() && changedTrack) {
-            pendingRoomTrackStart = shouldPlay
-            if (shouldPlay) delegate.pause()
+            pendingRoomTrackStart = previous.shouldPlay
+            if (previous.shouldPlay) delegate.pause()
         }
-        recordIntent(RoomPlayerIntent.SkipToNext(
-            previousSourceId = previousSourceId,
-            previousPositionMs = previousPositionMs,
-            shouldPlay = shouldPlay
-        ))
+        recordIntent(
+            if (next) {
+                RoomPlayerIntent.SkipToNext(previous.sourceId, previous.positionMs, previous.shouldPlay)
+            } else {
+                RoomPlayerIntent.SkipToPrevious(previous.sourceId, previous.positionMs, previous.shouldPlay)
+            }
+        )
+    }
+
+    override fun seekToNext() {
+        val previous = captureSkipState()
+        super.seekToNext()
+        finishSkip(previous, next = true)
     }
 
     override fun seekToNextMediaItem() {
-        val previousSourceId = delegate.currentMediaItem?.mediaId.orEmpty()
-        val previousPositionMs = delegate.currentPosition.coerceAtLeast(0L)
-        val shouldPlay = delegate.playWhenReady
+        val previous = captureSkipState()
         super.seekToNextMediaItem()
-        val changedTrack = delegate.currentMediaItem?.mediaId?.let { it != previousSourceId } == true
-        if (isRoomActive() && changedTrack) {
-            pendingRoomTrackStart = shouldPlay
-            if (shouldPlay) delegate.pause()
-        }
-        recordIntent(RoomPlayerIntent.SkipToNext(
-            previousSourceId = previousSourceId,
-            previousPositionMs = previousPositionMs,
-            shouldPlay = shouldPlay
-        ))
+        finishSkip(previous, next = true)
     }
 
     override fun seekToPrevious() {
-        val previousSourceId = delegate.currentMediaItem?.mediaId.orEmpty()
-        val previousPositionMs = delegate.currentPosition.coerceAtLeast(0L)
-        val shouldPlay = delegate.playWhenReady
+        val previous = captureSkipState()
         super.seekToPrevious()
-        val changedTrack = delegate.currentMediaItem?.mediaId?.let { it != previousSourceId } == true
-        if (isRoomActive() && changedTrack) {
-            pendingRoomTrackStart = shouldPlay
-            if (shouldPlay) delegate.pause()
-        }
-        recordIntent(RoomPlayerIntent.SkipToPrevious(
-            previousSourceId = previousSourceId,
-            previousPositionMs = previousPositionMs,
-            shouldPlay = shouldPlay
-        ))
+        finishSkip(previous, next = false)
     }
 
     override fun seekToPreviousMediaItem() {
-        val previousSourceId = delegate.currentMediaItem?.mediaId.orEmpty()
-        val previousPositionMs = delegate.currentPosition.coerceAtLeast(0L)
-        val shouldPlay = delegate.playWhenReady
+        val previous = captureSkipState()
         super.seekToPreviousMediaItem()
-        val changedTrack = delegate.currentMediaItem?.mediaId?.let { it != previousSourceId } == true
-        if (isRoomActive() && changedTrack) {
-            pendingRoomTrackStart = shouldPlay
-            if (shouldPlay) delegate.pause()
-        }
-        recordIntent(RoomPlayerIntent.SkipToPrevious(
-            previousSourceId = previousSourceId,
-            previousPositionMs = previousPositionMs,
-            shouldPlay = shouldPlay
-        ))
+        finishSkip(previous, next = false)
     }
 
     override fun stop() {

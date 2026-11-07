@@ -10,7 +10,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -21,9 +20,6 @@ import org.json.JSONObject
 import java.io.IOException
 import java.security.KeyStore
 import java.util.concurrent.TimeUnit
-import java.text.SimpleDateFormat
-import java.util.Locale
-import java.util.TimeZone
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -101,16 +97,15 @@ class RoomsApi(context: Context) {
     suspend fun calibrateServerClock() = withContext(Dispatchers.IO) {
         // Run the five tiny time probes concurrently. Sequential probes made room entry
         // wait behind slow mobile-network round trips even though only the best samples matter.
-        val samples = coroutineScope {
-            (0 until 5).map {
-                async(Dispatchers.IO) {
+        val samples = (0 until 5).map {
+                async {
                     val requestStarted = SystemClock.elapsedRealtime()
                     try {
                         val response = apiRequest("POST", "/rest/v1/rpc/room_server_time", "{}")
                             .trim()
                             .removeSurrounding(34.toChar().toString())
                         val requestFinished = SystemClock.elapsedRealtime()
-                        val serverTime = parseServerTimestampMillis(response)
+                        val serverTime = RoomTimestampParser.parse(response)
                             ?: throw IOException("The server returned an invalid clock timestamp.")
                         val midpoint = requestStarted + (requestFinished - requestStarted) / 2L
                         ClockOffsetSample(
@@ -124,38 +119,10 @@ class RoomsApi(context: Context) {
                     }
                 }
             }.awaitAll().filterNotNull()
-        }
         val estimate = ServerClockEstimator.estimate(samples)
             ?: throw IOException("Nexus could not obtain enough reliable server-clock samples.")
         serverClockOffsetFromElapsedMs = estimate.offsetMs
         serverClockRoundTripMs = estimate.medianRoundTripMs
-    }
-
-    private fun parseServerTimestampMillis(value: String): Long? {
-        val match = Regex(
-            """^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?(Z|[+-]\d{2}:\d{2})$"""
-        ).matchEntire(value) ?: return null
-        val baseMillis = runCatching {
-            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).apply {
-                isLenient = false
-                timeZone = TimeZone.getTimeZone("GMT")
-            }.parse(match.groupValues[1])?.time
-        }.getOrNull() ?: return null
-        val fractionMillis = match.groupValues[2]
-            .takeIf(String::isNotEmpty)
-            ?.padEnd(3, '0')
-            ?.take(3)
-            ?.toLongOrNull() ?: 0L
-        val zone = match.groupValues[3]
-        val offsetMinutes = if (zone == "Z") {
-            0
-        } else {
-            val sign = if (zone[0] == '-') -1 else 1
-            val hours = zone.substring(1, 3).toIntOrNull() ?: return null
-            val minutes = zone.substring(4, 6).toIntOrNull() ?: return null
-            sign * (hours * 60 + minutes)
-        }
-        return baseMillis + fractionMillis - offsetMinutes * 60_000L
     }
 
     suspend fun realtimeAccessToken(): String = withContext(Dispatchers.IO) {
