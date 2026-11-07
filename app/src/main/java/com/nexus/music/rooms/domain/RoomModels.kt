@@ -26,6 +26,8 @@ sealed interface RoomPlayerIntent {
     data object Pause : RoomPlayerIntent
     /** Android paused playback for audio focus loss or becoming-noisy; never publish this as a room command. */
     data object SystemPause : RoomPlayerIntent
+    /** Android resumed playback after transient audio focus was regained. */
+    data object SystemResume : RoomPlayerIntent
     data class SeekTo(val positionMs: Long) : RoomPlayerIntent
     data class SelectTrack(
         val sourceId: String,
