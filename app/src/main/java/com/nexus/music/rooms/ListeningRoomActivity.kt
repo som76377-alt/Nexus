@@ -116,6 +116,7 @@ class ListeningRoomActivity : Activity() {
         status.background = rounded(surface, 12)
         status.maxLines = 1
         status.ellipsize = android.text.TextUtils.TruncateAt.END
+        status.contentDescription = "Room connection status. Long-press for diagnostics."
         status.setOnLongClickListener {
             if (roomController == null) false else {
                 showDiagnostics()
@@ -165,7 +166,10 @@ class ListeningRoomActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        inviteText = label("Room active", 12f, accent, true)
+        inviteText = label("Room active", 12f, accent, true).apply {
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
         roomHeader.addView(inviteText, LinearLayout.LayoutParams(0, -2, 1f))
         copyCodeButton = actionButton("Copy code", false).apply {
             isEnabled = false
@@ -224,7 +228,7 @@ class ListeningRoomActivity : Activity() {
         registerBackNavigation()
         playback = PlaybackConnection(
             context = this,
-                        onReady = { restoreActiveRoomIfPresent() },
+            onReady = { restoreActiveRoomIfPresent() },
             onStateChanged = { },
             onError = { message -> status.text = "Player: $message" }
         )
