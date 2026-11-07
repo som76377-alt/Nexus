@@ -489,8 +489,10 @@ class ServiceRoomControllerTest {
                 commandAt = "1970-01-01T00:00:10.000Z"
             )
         )
+        repository.scheduledStartAt = "1970-01-01T00:00:12.000Z"
         val player = FakeRoomPlayer()
-        val controller = newController(repository, player)
+        val clock = FakeRoomClock()
+        val controller = newController(repository, player, clock = clock)
 
         try {
             controller.attach("room-browser-source")
@@ -500,6 +502,13 @@ class ServiceRoomControllerTest {
             assertEquals(listOf(videoId), repository.readinessSourceIds)
             assertEquals(canonical, player.snapshot().canonicalSourceUrl)
             assertEquals("Preparing synchronized start…", controller.state.value.statusMessage)
+            assertFalse(player.snapshot().playWhenReady)
+
+            // The scheduled-start payload carries source_id, not source_url.
+            clock.advance(2_000L)
+            advanceTimeBy(2_000L)
+            runCurrent()
+            assertTrue(player.snapshot().playWhenReady)
         } finally {
             controller.close()
         }
@@ -1872,7 +1881,7 @@ class ServiceRoomControllerTest {
             check(current.roomId == roomId && current.revision == revision) {
                 "readiness revision must match the authoritative snapshot"
             }
-            check(current.canonicalSourceUrl == sourceId &&
+            check(current.sourceId == sourceId &&
                 current.actionType == RoomActionType.TRACK &&
                 current.isPlaying
             ) {
