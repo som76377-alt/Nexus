@@ -136,7 +136,7 @@ internal class RoomIntentForwardingPlayer(
 
     override fun play() {
         recordIntent(RoomPlayerIntent.Play)
-        if (isRoomActive() && shouldHoldRoomStart()) {
+        if (shouldHoldRoomStart()) {
             // A newly selected track or an active shared-start barrier must stay staged.
             delegate.pause()
         } else {
@@ -200,9 +200,7 @@ internal class RoomIntentForwardingPlayer(
     override fun setPlayWhenReady(playWhenReady: Boolean) {
         recordIntent(if (playWhenReady) RoomPlayerIntent.Play else RoomPlayerIntent.Pause)
         if (!playWhenReady) pendingRoomTrackStart = false
-        if (playWhenReady && isRoomActive() &&
-            shouldHoldRoomStart()
-        ) {
+        if (playWhenReady && shouldHoldRoomStart()) {
             delegate.pause()
         } else {
             super.setPlayWhenReady(playWhenReady)
