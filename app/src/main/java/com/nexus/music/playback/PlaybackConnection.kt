@@ -92,7 +92,7 @@ class PlaybackConnection(
 
     fun play(
         audio: ResolvedAudio,
-        shouldPlay: Boolean
+        shouldPlay: Boolean = true
     ): Boolean {
         val request = audio
         val activeController = controller
