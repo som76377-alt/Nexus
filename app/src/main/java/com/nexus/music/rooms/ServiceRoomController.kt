@@ -353,61 +353,55 @@ internal class ServiceRoomController(
     /** The sole playback-state contract consumed by the MediaSession player wrapper. */
     fun playbackPhase(intent: RoomPlayerIntent? = null): PlaybackPhase {
         if (intent == null) return playbackPhase
-        if (playbackPhase.isSystemPaused &&
-            intent != RoomPlayerIntent.SystemPause &&
-            intent != RoomPlayerIntent.SystemResume
-        ) {
-            playbackPhase = when (intent) {
-                is RoomPlayerIntent.SelectTrack ->
-                    if (intent.shouldPlay) PlaybackPhase.SYSTEM_PAUSED_TRACK_PENDING_PLAYING
-                    else PlaybackPhase.SYSTEM_PAUSED_TRACK_PENDING_PAUSED
-                else -> playbackPhase
-            }
-            return playbackPhase
-        }
-
         val phase = playbackPhase
         val roomActive = phase.isRoomActive
+        val interrupted = phase.isSystemPaused
         val pendingTrack = phase == PlaybackPhase.TRACK_PENDING_PLAYING ||
             phase == PlaybackPhase.TRACK_PENDING_PAUSED
         playbackPhase = when (intent) {
-            RoomPlayerIntent.SystemPause ->
-                if (phase.shouldPlay) PlaybackPhase.SYSTEM_PAUSED_PLAYING
+            RoomPlayerIntent.SystemPause -> if (phase.shouldPlay) PlaybackPhase.SYSTEM_PAUSED_PLAYING
                 else PlaybackPhase.SYSTEM_PAUSED_PAUSED
             RoomPlayerIntent.SystemResume -> phaseFromRoomState()
-            is RoomPlayerIntent.SelectTrack -> if (!roomActive) PlaybackPhase.LOCAL
-                else if (intent.shouldPlay) PlaybackPhase.TRACK_PENDING_PLAYING
-                else PlaybackPhase.TRACK_PENDING_PAUSED
+            is RoomPlayerIntent.SelectTrack -> when {
+                !roomActive -> PlaybackPhase.LOCAL
+                interrupted && intent.shouldPlay -> PlaybackPhase.SYSTEM_PAUSED_TRACK_PENDING_PLAYING
+                interrupted -> PlaybackPhase.SYSTEM_PAUSED_TRACK_PENDING_PAUSED
+                intent.shouldPlay -> PlaybackPhase.TRACK_PENDING_PLAYING
+                else -> PlaybackPhase.TRACK_PENDING_PAUSED
+            }
             RoomPlayerIntent.Play -> when {
-                phase.holdsPlay -> phase
+                interrupted || phase.holdsPlay -> phase
                 roomActive -> PlaybackPhase.ROOM_PLAYING
                 else -> PlaybackPhase.LOCAL
             }
-            RoomPlayerIntent.Pause -> if (!roomActive) PlaybackPhase.LOCAL
-                else if (pendingTrack) PlaybackPhase.TRACK_PENDING_PAUSED
-                else PlaybackPhase.ROOM_PAUSED
-            is RoomPlayerIntent.SeekTo -> if (pendingTrack) phase
-                else if (!roomActive) PlaybackPhase.LOCAL
-                else if (phase.shouldPlay) PlaybackPhase.ROOM_PLAYING
-                else PlaybackPhase.ROOM_PAUSED
+            RoomPlayerIntent.Pause -> when {
+                interrupted -> phase
+                !roomActive -> PlaybackPhase.LOCAL
+                pendingTrack -> PlaybackPhase.TRACK_PENDING_PAUSED
+                else -> PlaybackPhase.ROOM_PAUSED
+            }
+            is RoomPlayerIntent.SeekTo -> when {
+                interrupted || pendingTrack -> phase
+                !roomActive -> PlaybackPhase.LOCAL
+                phase.shouldPlay -> PlaybackPhase.ROOM_PLAYING
+                else -> PlaybackPhase.ROOM_PAUSED
+            }
         }
         return playbackPhase
     }
 
-    private fun phaseFromRoomState(): PlaybackPhase {
-        if (activeRoomId == null) return PlaybackPhase.LOCAL
-        pendingAction?.let {
-            return if (it.actionType == RoomActionType.TRACK) {
-                if (it.shouldPlay) PlaybackPhase.TRACK_PENDING_PLAYING
-                else PlaybackPhase.TRACK_PENDING_PAUSED
-            } else if (it.shouldPlay) PlaybackPhase.ROOM_PLAYING else PlaybackPhase.ROOM_PAUSED
-        }
-        if (startRevision != null) {
-            return if (scheduledStartAt == null) PlaybackPhase.START_PREPARING
-            else PlaybackPhase.START_SCHEDULED
-        }
-        return if (lastRemotePlayback?.isPlaying == true) PlaybackPhase.ROOM_PLAYING
-        else PlaybackPhase.ROOM_PAUSED
+    private fun phaseFromRoomState(): PlaybackPhase = when {
+        activeRoomId == null -> PlaybackPhase.LOCAL
+        pendingAction?.actionType == RoomActionType.TRACK ->
+            if (pendingAction?.shouldPlay == true) PlaybackPhase.TRACK_PENDING_PLAYING
+            else PlaybackPhase.TRACK_PENDING_PAUSED
+        pendingAction != null ->
+            if (pendingAction?.shouldPlay == true) PlaybackPhase.ROOM_PLAYING
+            else PlaybackPhase.ROOM_PAUSED
+        startRevision != null && scheduledStartAt == null -> PlaybackPhase.START_PREPARING
+        startRevision != null -> PlaybackPhase.START_SCHEDULED
+        lastRemotePlayback?.isPlaying == true -> PlaybackPhase.ROOM_PLAYING
+        else -> PlaybackPhase.ROOM_PAUSED
     }
 
     private fun refreshPlaybackPhase() {
