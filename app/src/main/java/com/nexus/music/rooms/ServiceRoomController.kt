@@ -81,7 +81,9 @@ internal class ServiceRoomController(
         START_PREPARING(true, true, true, false),
         START_SCHEDULED(true, true, true, false),
         SYSTEM_PAUSED_PLAYING(true, true, false, true),
-        SYSTEM_PAUSED_PAUSED(true, false, false, true)
+        SYSTEM_PAUSED_PAUSED(true, false, false, true),
+        SYSTEM_PAUSED_TRACK_PENDING_PLAYING(true, true, true, true),
+        SYSTEM_PAUSED_TRACK_PENDING_PAUSED(true, false, false, true)
     }
 
     @Volatile private var playbackPhase = PlaybackPhase.LOCAL
@@ -350,10 +352,22 @@ internal class ServiceRoomController(
 
     /** The sole playback-state contract consumed by the MediaSession player wrapper. */
     fun playbackPhase(intent: RoomPlayerIntent? = null): PlaybackPhase {
-        if (intent == null || (playbackPhase.isSystemPaused &&
-                intent != RoomPlayerIntent.SystemPause &&
-                intent != RoomPlayerIntent.SystemResume)
-        ) return playbackPhase
+        if (intent == null) return playbackPhase
+        if (playbackPhase.isSystemPaused &&
+            intent != RoomPlayerIntent.SystemPause &&
+            intent != RoomPlayerIntent.SystemResume
+        ) {
+            playbackPhase = when (intent) {
+                is RoomPlayerIntent.SelectTrack ->
+                    if (intent.shouldPlay) PlaybackPhase.SYSTEM_PAUSED_TRACK_PENDING_PLAYING
+                    else PlaybackPhase.SYSTEM_PAUSED_TRACK_PENDING_PAUSED
+                is RoomPlayerIntent.SkipToNext, is RoomPlayerIntent.SkipToPrevious ->
+                    if (intent.shouldPlay) PlaybackPhase.SYSTEM_PAUSED_TRACK_PENDING_PLAYING
+                    else PlaybackPhase.SYSTEM_PAUSED_TRACK_PENDING_PAUSED
+                else -> playbackPhase
+            }
+            return playbackPhase
+        }
 
         val phase = playbackPhase
         val roomActive = phase.isRoomActive
@@ -1459,7 +1473,8 @@ internal class ServiceRoomController(
                         statusMessage = null
                     )
                     recordDiagnostic("barrier.local_ready_timeout", "revision=$revision")
-                    startRevision = null
+                    clearStart(cancelJob = false)
+                    refreshPlaybackPhase()
                     return@launch
                 }
 
@@ -1591,7 +1606,8 @@ internal class ServiceRoomController(
                 statusMessage = null
             )
             recordDiagnostic("barrier.fallback_not_ready", "revision=$revision reason=$reason")
-            startRevision = null
+            clearStart(cancelJob = false)
+            refreshPlaybackPhase()
             return
         }
 
@@ -1600,8 +1616,7 @@ internal class ServiceRoomController(
         player.resetPlaybackSpeed()
         player.play()
         completedStartRevision = maxOf(completedStartRevision, revision)
-        startRevision = null
-        scheduledStartAt = null
+        clearStart(cancelJob = false)
         playbackPhase = PlaybackPhase.ROOM_PLAYING
         playbackAnchorRevision = revision
         playbackAnchorAt = serverTimestamp()
@@ -1775,8 +1790,8 @@ internal class ServiceRoomController(
                             reason = "scheduled_start_failed"
                         )
                     } else {
-                        startRevision = null
-                        scheduledStartAt = null
+                        clearStart(cancelJob = false)
+                        refreshPlaybackPhase()
                     }
                 }
             }
