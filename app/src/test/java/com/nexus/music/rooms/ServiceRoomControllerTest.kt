@@ -1139,16 +1139,27 @@ class ServiceRoomControllerTest {
             runCurrent()
             assertTrue(repository.published.isEmpty())
 
-            player.pause()
             player.emitIntent(RoomPlayerIntent.SystemPause)
             runCurrent()
+            val seeksBeforeInterruption = player.seekCalls
+            val speedChangesBeforeInterruption = player.speedChanges
+            // Model transient focus suppression: desired play remains true, and an
+            // out-of-date player callback must not trigger room drift correction.
+            player.setSnapshot(
+                player.snapshot().copy(
+                    playWhenReady = true,
+                    isPlaying = true,
+                    positionMs = 50_000L
+                )
+            )
             clock.advance(5_000L)
             advanceTimeBy(5_000L)
             runCurrent()
 
             assertTrue("Android system pause must not publish a room PAUSE", repository.published.isEmpty())
-            assertFalse("system interruption must leave local audio paused", player.snapshot().playWhenReady)
-            assertFalse(player.snapshot().isPlaying)
+            assertEquals("system-paused drift must not seek", seeksBeforeInterruption, player.seekCalls)
+            assertEquals("system-paused drift must not change playback speed", speedChangesBeforeInterruption, player.speedChanges)
+            assertEquals("system-paused local timeline is left untouched", 50_000L, player.snapshot().positionMs)
             assertTrue(controller.diagnostics.value.events.any { it.contains("local.system_pause") })
         } finally {
             controller.close()
@@ -1413,6 +1424,10 @@ class ServiceRoomControllerTest {
     ) : RoomPlayerPort {
         private val mutablePlayback = MutableStateFlow(initial)
         private val mutableIntents = MutableSharedFlow<RoomPlayerIntent>(extraBufferCapacity = 16)
+        var seekCalls = 0
+            private set
+        var speedChanges = 0
+            private set
 
         override val userIntents: SharedFlow<RoomPlayerIntent> = mutableIntents
 
@@ -1452,12 +1467,15 @@ class ServiceRoomControllerTest {
         }
 
         override fun seekTo(positionMs: Long) {
+            seekCalls += 1
             mutablePlayback.value = mutablePlayback.value.copy(
                 positionMs = positionMs.coerceAtLeast(0L)
             )
         }
 
-        override fun setPlaybackSpeed(speed: Float) = Unit
+        override fun setPlaybackSpeed(speed: Float) {
+            speedChanges += 1
+        }
 
         override fun resetPlaybackSpeed() = Unit
 
