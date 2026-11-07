@@ -392,12 +392,6 @@ internal class ServiceRoomController(
         val elapsed = clock.elapsedRealtimeMs()
         val current = player.snapshot()
         val previous = pendingAction
-        // Pause/Seek merge into a pending Track only when Media3 exposes that item.
-        // Play always preserves a pending TRACK because peers may not have prepared it yet.
-        val preserveTrack = previous?.actionType == RoomActionType.TRACK &&
-            current.sourceId.isNotBlank() &&
-            previous.sourceId == current.sourceId
-
         val next = when (intent) {
             is RoomPlayerIntent.SelectTrack -> PendingLocalAction(
                 actionId = UUID.randomUUID().toString(),
@@ -425,7 +419,7 @@ internal class ServiceRoomController(
                 // so this is a normal immediate resume rather than a new-track barrier.
                 pendingFromSnapshot(RoomActionType.PLAY, current, elapsed)
             }
-            RoomPlayerIntent.Pause -> if (preserveTrack) {
+            RoomPlayerIntent.Pause -> if (previous?.actionType == RoomActionType.TRACK) {
                 previous!!.copy(
                     actionId = UUID.randomUUID().toString(),
                     generation = ++localActionGeneration,
@@ -435,7 +429,7 @@ internal class ServiceRoomController(
             } else {
                 pendingFromSnapshot(RoomActionType.PAUSE, current, elapsed)
             }
-            is RoomPlayerIntent.SeekTo -> if (preserveTrack) {
+            is RoomPlayerIntent.SeekTo -> if (previous?.actionType == RoomActionType.TRACK) {
                 previous!!.copy(
                     actionId = UUID.randomUUID().toString(),
                     generation = ++localActionGeneration,
