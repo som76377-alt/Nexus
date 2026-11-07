@@ -67,6 +67,9 @@ internal class ServiceRoomController(
     private val driftSeekGate = DriftSeekGate()
     private val retryPolicy = RemoteApplyRetryPolicy()
 
+    private enum class LocalInterruptionState { NONE, SYSTEM_PAUSED }
+    private var localInterruptionState = LocalInterruptionState.NONE
+
     private var roomJob: Job? = null
     private var roomScope: CoroutineScope? = null
     private var reconcileJob: Job? = null
@@ -131,6 +134,7 @@ internal class ServiceRoomController(
         lastAppliedRevision = 0L
         lastRemotePlayback = null
         retryPolicy.reset()
+        localInterruptionState = LocalInterruptionState.NONE
         driftController.reset()
         driftSeekGate.reset()
         signalSequence = 0L
@@ -259,6 +263,7 @@ internal class ServiceRoomController(
         lastAppliedRevision = 0L
         localActionGeneration = 0L
         retryPolicy.reset()
+        localInterruptionState = LocalInterruptionState.NONE
         driftController.reset()
         driftSeekGate.reset()
         player.resetPlaybackSpeed()
@@ -341,6 +346,46 @@ internal class ServiceRoomController(
 
     private fun captureLocalIntent(intent: RoomPlayerIntent) {
         val roomId = activeRoomId ?: return
+
+        if (intent == RoomPlayerIntent.SystemPause) {
+            localInterruptionState = LocalInterruptionState.SYSTEM_PAUSED
+            player.resetPlaybackSpeed()
+            driftController.reset()
+            driftSeekGate.reset()
+            recordDiagnostic("local.system_pause", "local-only; room timeline unchanged")
+            return
+        }
+
+        if (intent == RoomPlayerIntent.Play &&
+            localInterruptionState == LocalInterruptionState.SYSTEM_PAUSED
+        ) {
+            val remote = lastRemotePlayback
+            if (remote?.isPlaying == true) {
+                val local = player.snapshot()
+                localInterruptionState = LocalInterruptionState.NONE
+                if (local.sourceId == remote.canonicalSourceUrl) {
+                    val expected = expectedRoomPosition(remote)
+                    player.seekTo(expected)
+                    player.resetPlaybackSpeed()
+                    player.play()
+                    recordDiagnostic(
+                        "local.system_pause_rejoined",
+                        "revision=${remote.revision} position=${expected}ms; no room publish"
+                    )
+                } else {
+                    // Do not publish PLAY for a stale local item over a room that has moved on.
+                    recordDiagnostic(
+                        "local.system_pause_reconcile",
+                        "local source differs from playing room revision=${remote.revision}"
+                    )
+                    requestReconciliation(roomId, sessionGeneration)
+                }
+                return
+            }
+            localInterruptionState = LocalInterruptionState.NONE
+            recordDiagnostic("local.system_pause_released", "room is not playing; explicit Play may publish")
+        }
+
         val previousAction = pendingAction
         val isPendingTrackPlay = intent is RoomPlayerIntent.Play &&
             previousAction?.actionType == RoomActionType.TRACK
@@ -445,7 +490,8 @@ internal class ServiceRoomController(
                 )
             }
             is RoomPlayerIntent.SkipToNext,
-            is RoomPlayerIntent.SkipToPrevious -> null
+            is RoomPlayerIntent.SkipToPrevious,
+            RoomPlayerIntent.SystemPause -> null
         } ?: return
 
         pendingAction = next
@@ -1629,10 +1675,37 @@ internal class ServiceRoomController(
         mutableState.value = mutableState.value.copy(statusMessage = null)
     }
 
+    private fun expectedRoomPosition(remote: RoomPlaybackSnapshot): Long {
+        val anchorTime = if (playbackAnchorRevision == remote.revision) {
+            playbackAnchorAt?.let(::parseTimestamp)
+        } else {
+            null
+        } ?: parseTimestamp(remote.commandAt.ifBlank { remote.updatedAt })
+        val elapsed = if (clock.isCalibrated()) {
+            anchorTime?.let {
+                (clock.estimatedServerTimeMs() - it).coerceAtLeast(0L)
+            } ?: 0L
+        } else {
+            0L
+        }
+        val anchorPosition = if (playbackAnchorRevision == remote.revision) {
+            playbackAnchorPositionMs ?: remote.positionMs
+        } else {
+            remote.positionMs
+        }
+        return RoomPlaybackMath.expectedRemotePositionMs(
+            positionMs = anchorPosition,
+            isPlaying = remote.isPlaying,
+            elapsedSinceUpdateMs = elapsed,
+            durationMs = remote.durationMs
+        )
+    }
+
     private fun correctLocalDrift(remote: RoomPlaybackSnapshot) {
         val roomId = activeRoomId ?: return
         val local = player.snapshot()
         if (!isCurrent(roomId, sessionGeneration)) return
+        if (localInterruptionState == LocalInterruptionState.SYSTEM_PAUSED) return
         if (local.sourceId != remote.canonicalSourceUrl || pendingAction != null) return
         if (!remote.isPlaying) {
             player.resetPlaybackSpeed()
