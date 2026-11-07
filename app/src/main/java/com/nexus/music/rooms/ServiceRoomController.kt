@@ -161,7 +161,6 @@ internal class ServiceRoomController(
         playbackAnchorRevision = null
         playbackAnchorAt = null
         playbackAnchorPositionMs = null
-
         val newUserId = repository.currentUserId()
         if (!isCurrent(roomId, generation)) return
         userId = newUserId
@@ -176,7 +175,6 @@ internal class ServiceRoomController(
             recordDiagnostic("clock.calibration_failed", error.message.orEmpty())
         }
         if (!isCurrent(roomId, generation)) return
-
         val initial = repository.fetchPlaybackSnapshot(roomId)
         if (!isCurrent(roomId, generation)) return
         if (initial != null) {
@@ -185,12 +183,10 @@ internal class ServiceRoomController(
             lastAppliedRevision = 0L
             mutableState.value = mutableState.value.copy(playback = initial)
         }
-
         val parent = SupervisorJob(controllerJob)
         val childScope = CoroutineScope(controllerScope.coroutineContext + parent)
         roomJob = parent
         roomScope = childScope
-
         childScope.launch {
             repository.observeRealtimeSignals(roomId).collect { signal ->
                 if (!isCurrent(roomId, generation)) return@collect
@@ -202,10 +198,7 @@ internal class ServiceRoomController(
                     }
                     is RoomRealtimeSignal.PlaybackUpdated -> {
                         signalSequence++
-                        recordDiagnostic(
-                            "realtime.playback_snapshot",
-                            "revision=${signal.snapshot.revision} sequence=$signalSequence"
-                        )
+                        recordDiagnostic("realtime.playback_snapshot", "revision=${signal.snapshot.revision} sequence=$signalSequence")
                         requestReconciliation(roomId, generation, signal.snapshot)
                     }
                     RoomRealtimeSignal.ChatInvalidated -> {
@@ -236,14 +229,12 @@ internal class ServiceRoomController(
                 }
             }
         }
-
         childScope.launch {
             driftLoop(roomId, generation)
         }
         childScope.launch {
             pollingLoop(roomId, generation)
         }
-
         mutableState.value = mutableState.value.copy(
             connection = RoomConnectionState.CONNECTING,
             lastError = null
@@ -418,7 +409,6 @@ internal class ServiceRoomController(
 
     private fun captureLocalIntent(intent: RoomPlayerIntent) {
         val roomId = activeRoomId ?: return
-
         if (intent != RoomPlayerIntent.SystemPause && intent != RoomPlayerIntent.SystemResume) {
             playbackPhase(intent)
         }
@@ -445,14 +435,10 @@ internal class ServiceRoomController(
                 RoomPlayerIntent.Play -> if (remote?.isPlaying == true) {
                     resumeAfterInterruption(roomId, remote, "explicit_play", requirePlayWhenReady = false)
                     return
-                } else recordDiagnostic(
-                    "local.system_pause_released",
-                    "room is not playing; explicit Play may publish"
-                )
+                } else recordDiagnostic("local.system_pause_released", "room is not playing; explicit Play may publish")
                 else -> recordDiagnostic("local.system_pause_overridden", "explicit user intent=$intent")
             }
         }
-
         val previousAction = pendingAction
         val isPendingTrackPlay = intent is RoomPlayerIntent.Play &&
             previousAction?.actionType == RoomActionType.TRACK
@@ -501,7 +487,6 @@ internal class ServiceRoomController(
             RoomPlayerIntent.SystemPause,
             RoomPlayerIntent.SystemResume -> null
         } ?: return
-
         setPendingAction(next)
         recordDiagnostic("local.intent", "type=${next.actionType} source=${next.sourceId} generation=${next.generation}")
         val scope = roomScope ?: return
@@ -517,7 +502,6 @@ internal class ServiceRoomController(
                 ) return@launch
                 val local = player.snapshot()
                 if (local.sourceId != next.canonicalSourceUrl || !local.isReady) return@launch
-
                 player.seekTo(next.requestedPositionMs ?: 0L)
                 player.resetPlaybackSpeed()
                 player.play()
@@ -560,10 +544,7 @@ internal class ServiceRoomController(
                         retryCount = (retryCount + 1).coerceAtMost(5)
                         val retryIn = publishRetryDelay(retryCount)
                         setError(error, "Playback command could not be published")
-                        recordDiagnostic(
-                            "rpc.publish_retry_scheduled",
-                            "generation=${pending.generation} attempt=$retryCount delay=${retryIn}ms"
-                        )
+                        recordDiagnostic("rpc.publish_retry_scheduled", "generation=${pending.generation} attempt=$retryCount delay=${retryIn}ms")
                         delay(retryIn)
                         continue
                     }
@@ -634,7 +615,6 @@ internal class ServiceRoomController(
         while (isCurrent(roomId, generation) && coroutineContext.isActive) {
             var failed = false
             val now = clock.elapsedRealtimeMs()
-
             if (now - lastCalibration >= CLOCK_CALIBRATION_INTERVAL_MS) {
                 try {
                     clock.calibrate()
@@ -647,7 +627,6 @@ internal class ServiceRoomController(
                 }
                 lastCalibration = clock.elapsedRealtimeMs()
             }
-
             if (now - lastHeartbeat >= HEARTBEAT_INTERVAL_MS) {
                 try {
                     val active = repository.touchRoom(roomId)
@@ -668,7 +647,6 @@ internal class ServiceRoomController(
                     setError(error, "Room heartbeat failed")
                 }
             }
-
             try {
                 refreshRemotePlayback(roomId, generation)
             } catch (cancelled: CancellationException) {
@@ -677,7 +655,6 @@ internal class ServiceRoomController(
                 failed = true
                 setError(error, "Playback reconciliation failed")
             }
-
             consecutiveFailures = if (failed) {
                 (consecutiveFailures + 1).coerceAtMost(4)
             } else {
@@ -763,7 +740,6 @@ internal class ServiceRoomController(
                 local.title.ifBlank { pending.title }
             }
             if (sourceId.isBlank() || canonicalUrl.isBlank() || title.isBlank()) return
-
             val command = RoomCommand(
                 roomId = roomId,
                 actionId = pending.actionId,
@@ -788,7 +764,6 @@ internal class ServiceRoomController(
                 }).coerceAtLeast(0L),
                 durationMs = local.durationMs.coerceAtLeast(0L)
             )
-
             val publishStarted = clock.elapsedRealtimeMs()
             val result = repository.publishPlayback(command)
             val publishLatency = (clock.elapsedRealtimeMs() - publishStarted).coerceAtLeast(0L)
@@ -803,7 +778,6 @@ internal class ServiceRoomController(
                 acceptPublished(command, result.revision, pending)
                 return
             }
-
             val latest = repository.fetchPlaybackSnapshot(roomId) ?: return
             if (!isCurrent(roomId, generation)) return
             setRemotePlayback(latest)
@@ -819,7 +793,6 @@ internal class ServiceRoomController(
             ) ?: Long.MAX_VALUE
             val localWins = localActionServerMs >
                 remoteActionServerMs + LOCAL_ACTION_WIN_MARGIN_MS
-
             if (newerPending) {
                 // Never retry the stale command captured before a newer local action.
                 // Let the newest intent compete against the refreshed revision instead.
@@ -828,7 +801,6 @@ internal class ServiceRoomController(
                 if (localWins) requestPublishAfterApplyLock(roomId, generation)
                 return
             }
-
             if (localWins) {
                 val rebased = command.copy(expectedRevision = latest.revision)
                 val retryStarted = clock.elapsedRealtimeMs()
@@ -844,7 +816,6 @@ internal class ServiceRoomController(
                     return
                 }
             }
-
             val authoritative = repository.fetchPlaybackSnapshot(roomId) ?: latest
             if (!isCurrent(roomId, generation)) return
             setRemotePlayback(authoritative)
@@ -930,17 +901,12 @@ internal class ServiceRoomController(
             val snapshotStarted = clock.elapsedRealtimeMs()
             remote = repository.fetchPlaybackSnapshot(roomId) ?: return
             val snapshotLatency = (clock.elapsedRealtimeMs() - snapshotStarted).coerceAtLeast(0L)
-            recordDiagnostic(
-                "rest.snapshot",
-                "revision=${remote.revision}",
-                snapshotLatencyMs = snapshotLatency
-            )
+            recordDiagnostic("rest.snapshot", "revision=${remote.revision}", snapshotLatencyMs = snapshotLatency)
         } else {
             remote = realtimeSnapshot
             recordDiagnostic("realtime.snapshot_apply", "revision=${remote.revision}")
         }
         if (!isCurrent(roomId, generation) || remote.roomId != roomId) return
-
         var shouldApply = false
         var shouldPublishLocal = false
         applyMutex.withLock {
@@ -958,7 +924,6 @@ internal class ServiceRoomController(
                 playback = remote,
                 lastError = null
             )
-
             val local = player.snapshot()
             val pending = pendingAction
             if (pending != null && localActionIsNewer(pending, remote)) {
@@ -979,7 +944,6 @@ internal class ServiceRoomController(
                 retryPolicy.recordSuccess(remote.revision)
                 return@withLock
             }
-
             val changed = remote.revision > lastAppliedRevision &&
                 (remote.actionType != RoomActionType.STATE ||
                     local.sourceId != remote.canonicalSourceUrl ||
@@ -995,7 +959,6 @@ internal class ServiceRoomController(
                 retryPolicy.recordSuccess(remote.revision)
             }
         }
-
         if (shouldPublishLocal) {
             requestPublishAfterApplyLock(roomId, generation)
             return
@@ -1004,13 +967,9 @@ internal class ServiceRoomController(
         if (playbackPhase.isSystemPaused) {
             // Keep the authoritative row fresh but do not let a remote PLAY/START
             // override this device's active OS interruption. Resume reconciles it.
-            recordDiagnostic(
-                "remote.apply_deferred_system_pause",
-                "revision=${remote.revision} action=${remote.actionType}"
-            )
+            recordDiagnostic("remote.apply_deferred_system_pause", "revision=${remote.revision} action=${remote.actionType}")
             return
         }
-
         try {
             applyRemoteSnapshot(remote, roomId, generation)
             retryPolicy.recordSuccess(remote.revision)
@@ -1059,7 +1018,6 @@ internal class ServiceRoomController(
         if (!isCurrent(roomId, generation)) return
         // Duplicate poll/realtime wakes for the same revision share one in-flight resolution.
         if (!applyingRevisions.add(remote.revision)) return
-
         val applyStarted = clock.elapsedRealtimeMs()
         val commandTimestamp = parseTimestamp(remote.commandAt.ifBlank { remote.updatedAt })
         val commandAge = commandTimestamp?.let {
@@ -1127,7 +1085,6 @@ internal class ServiceRoomController(
                     )
                 }
             }
-
             if (!isCurrent(roomId, generation) ||
                 localActionGeneration != localGeneration ||
                 signalSequence != startingSignal
@@ -1150,7 +1107,6 @@ internal class ServiceRoomController(
                 shouldReconcileAgain = true
                 return
             }
-
             applyMutex.withLock {
                 if (!isCurrent(roomId, generation) ||
                     localActionGeneration != localGeneration ||
@@ -1161,14 +1117,12 @@ internal class ServiceRoomController(
                     shouldReconcileAgain = true
                     return@withLock
                 }
-
                 val latestIntent = pendingAction
                 val authoritative = newest ?: remote
                 if (latestIntent != null && localActionIsNewer(latestIntent, authoritative)) {
                     shouldPublishLocal = true
                     return@withLock
                 }
-
                 val anchorTime = parseTimestamp(
                     authoritative.commandAt.ifBlank { authoritative.updatedAt }
                 )
@@ -1261,7 +1215,6 @@ internal class ServiceRoomController(
         if (start?.revision == revision &&
             (startJob?.isActive == true || player.snapshot().playWhenReady)
         ) return
-
         clearStart()
         start = StartState(revision)
         playbackPhase = PlaybackPhase.START_PREPARING
@@ -1274,11 +1227,7 @@ internal class ServiceRoomController(
             lastError = null,
             statusMessage = "Preparing synchronized start…"
         )
-        recordDiagnostic(
-            "barrier.prepare",
-            "revision=$revision source=$sourceId"
-        )
-
+        recordDiagnostic("barrier.prepare", "revision=$revision source=$sourceId")
         val scope = roomScope ?: return
         startJob = scope.launch {
             try {
@@ -1324,7 +1273,6 @@ internal class ServiceRoomController(
                     if (local.sourceId == canonicalSourceUrl && local.isReady) break
                     delay(BARRIER_READY_RETRY_MS)
                 }
-
                 if (!isCurrent(roomId, generation) || start?.revision != revision) return@launch
                 val local = player.snapshot()
                 if (local.sourceId != canonicalSourceUrl || !local.isReady) {
@@ -1345,10 +1293,7 @@ internal class ServiceRoomController(
                     revision = revision,
                     sourceId = sourceId
                 )
-                recordDiagnostic(
-                    "barrier.ready",
-                    "revision=$revision ready=${result.readyMembers}/${result.activeMembers}"
-                )
+                recordDiagnostic("barrier.ready", "revision=$revision ready=${result.readyMembers}/${result.activeMembers}")
                 val scheduled = result.startAt
                 if (!scheduled.isNullOrBlank()) {
                     onBarrierStartScheduled(
@@ -1360,7 +1305,6 @@ internal class ServiceRoomController(
                     )
                     return@launch
                 }
-
                 recordDiagnostic("barrier.waiting_for_peer", "revision=$revision")
                 // A late peer may still emit a stale START after local fallback; the completed
                 // RECOVERY revision prevents that older barrier from rewinding playback.
@@ -1371,7 +1315,6 @@ internal class ServiceRoomController(
                 ) {
                     delay(BARRIER_READY_RETRY_MS)
                 }
-
                 if (!isCurrent(roomId, generation) || start?.revision != revision) return@launch
 
                 // Re-check once before fallback in case the START broadcast was delayed.
@@ -1395,7 +1338,6 @@ internal class ServiceRoomController(
                     )
                     return@launch
                 }
-
                 val remote = lastRemotePlayback
                 val readyLocal = player.snapshot()
                 if (remote == null ||
@@ -1471,7 +1413,6 @@ internal class ServiceRoomController(
             refreshPlaybackPhase()
             return
         }
-
         val position = remote.positionMs.coerceAtLeast(0L)
         player.seekTo(position)
         player.resetPlaybackSpeed()
@@ -1487,10 +1428,7 @@ internal class ServiceRoomController(
             lastError = null,
             statusMessage = null
         )
-        recordDiagnostic(
-            "barrier.started_without_peer",
-            "revision=$revision position=${position}ms reason=$reason"
-        )
+        recordDiagnostic("barrier.started_without_peer", "revision=$revision position=${position}ms reason=$reason")
         publishFallbackRecovery(roomId, generation, remote, position)
     }
 
@@ -1540,13 +1478,11 @@ internal class ServiceRoomController(
             return
         }
         if (start?.revision != revision) return
-
         val startAtMs = parseTimestamp(startAt) ?: run {
             recordDiagnostic("barrier.invalid_start", "revision=$revision")
             return
         }
         if (playbackAnchorAt == startAt && playbackPhase == PlaybackPhase.START_SCHEDULED && startJob?.isActive == true) return
-
         startJob?.cancel()
         startJob = null
         if (start?.revision != revision) return
@@ -1557,10 +1493,7 @@ internal class ServiceRoomController(
         val scope = roomScope ?: return
         startJob = scope.launch {
             try {
-                recordDiagnostic(
-                    "barrier.start_scheduled",
-                    "revision=$revision server_start=$startAt"
-                )
+                recordDiagnostic("barrier.start_scheduled", "revision=$revision server_start=$startAt")
                 while (isCurrent(roomId, generation) && start?.revision == revision) {
                     val remaining = startAtMs - clock.estimatedServerTimeMs()
                     if (remaining <= 0L) break
@@ -1570,14 +1503,12 @@ internal class ServiceRoomController(
                     start?.revision != revision ||
                     pendingAction != null
                 ) return@launch
-
                 val currentRemote = lastRemotePlayback
                 if (currentRemote == null ||
                     currentRemote.revision != revision ||
                     currentRemote.sourceId != sourceId ||
                     !currentRemote.isPlaying
                 ) return@launch
-
                 val ready = withTimeoutOrNull(BARRIER_FINAL_READY_TIMEOUT_MS) {
                     while (isCurrent(roomId, generation) && !player.snapshot().isReady) {
                         delay(100L)
@@ -1628,10 +1559,7 @@ internal class ServiceRoomController(
                     lastError = null,
                     statusMessage = null
                 )
-                recordDiagnostic(
-                    "barrier.started",
-                    "revision=$revision start_offset=${elapsedSinceStart}ms"
-                )
+                recordDiagnostic("barrier.started", "revision=$revision start_offset=${elapsedSinceStart}ms")
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -1687,10 +1615,7 @@ internal class ServiceRoomController(
             requestReconciliation(roomId, sessionGeneration)
         }
         player.pause()
-        recordDiagnostic(
-            "local.system_resume_held",
-            "room is paused or local play intent was cleared; no room publish"
-        )
+        recordDiagnostic("local.system_resume_held", "room is paused or local play intent was cleared; no room publish")
     }
 
     private fun rejoinRoomTimelineLocally(
@@ -1701,10 +1626,7 @@ internal class ServiceRoomController(
         val local = player.snapshot()
         if (local.sourceId != remote.canonicalSourceUrl) {
             player.pause()
-            recordDiagnostic(
-                "local.system_pause_reconcile",
-                "local source differs from room revision=${remote.revision}"
-            )
+            recordDiagnostic("local.system_pause_reconcile", "local source differs from room revision=${remote.revision}")
             requestReconciliation(roomId, sessionGeneration)
             return
         }
@@ -1766,7 +1688,6 @@ internal class ServiceRoomController(
             return
         }
         if (local.isBuffering || !local.isPlaying) return
-
         if (!clock.isCalibrated()) return
         val nowElapsed = clock.elapsedRealtimeMs()
         if (driftSeekGate.shouldWait(
@@ -1777,7 +1698,6 @@ internal class ServiceRoomController(
                 nowElapsedMs = nowElapsed
             )
         ) return
-
         val expected = expectedRoomPosition(remote)
         val drift = local.positionMs - expected
         val correction = driftController.evaluate(
