@@ -394,8 +394,7 @@ internal class ServiceRoomController(
 
         val next = when (intent) {
             is RoomPlayerIntent.SelectTrack -> PendingLocalAction(
-                actionId = previous?.takeIf { preserveTrack }?.actionId
-                    ?: UUID.randomUUID().toString(),
+                actionId = UUID.randomUUID().toString(),
                 generation = ++localActionGeneration,
                 elapsedMs = elapsed,
                 actionType = RoomActionType.TRACK,
@@ -410,6 +409,7 @@ internal class ServiceRoomController(
                 // peers prepare the new source and enter the shared start barrier too.
                 player.pause()
                 previous.copy(
+                    actionId = UUID.randomUUID().toString(),
                     generation = ++localActionGeneration,
                     elapsedMs = elapsed,
                     shouldPlay = true
@@ -421,6 +421,7 @@ internal class ServiceRoomController(
             }
             RoomPlayerIntent.Pause -> if (preserveTrack) {
                 previous!!.copy(
+                    actionId = UUID.randomUUID().toString(),
                     generation = ++localActionGeneration,
                     elapsedMs = elapsed,
                     shouldPlay = false
