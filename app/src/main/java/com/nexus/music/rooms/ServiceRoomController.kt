@@ -476,7 +476,6 @@ internal class ServiceRoomController(
                 pendingAction = fallback
                 recordDiagnostic("local.track_fallback", "source=${fallback.sourceId} reason=room_start_timeout")
                 scope.launch {
-                    delay(50L)
                     try {
                         publishPendingAction(roomId, expectedSession)
                     } catch (cancelled: CancellationException) {
