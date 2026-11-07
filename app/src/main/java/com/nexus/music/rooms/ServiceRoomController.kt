@@ -393,6 +393,15 @@ internal class ServiceRoomController(
             recordDiagnostic("local.system_pause_released", "room is not playing; explicit Play may publish")
         }
 
+        if (intent != RoomPlayerIntent.Play &&
+            localInterruptionState == LocalInterruptionState.SYSTEM_PAUSED
+        ) {
+            // A later explicit Pause/Seek/track selection supersedes the interruption;
+            // a delayed focus-gain callback must not undo that user decision.
+            localInterruptionState = LocalInterruptionState.NONE
+            recordDiagnostic("local.system_pause_overridden", "explicit user intent=$intent")
+        }
+
         val previousAction = pendingAction
         val isPendingTrackPlay = intent is RoomPlayerIntent.Play &&
             previousAction?.actionType == RoomActionType.TRACK
