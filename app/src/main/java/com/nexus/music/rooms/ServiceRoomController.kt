@@ -386,8 +386,8 @@ internal class ServiceRoomController(
         val elapsed = clock.elapsedRealtimeMs()
         val current = player.snapshot()
         val previous = pendingAction
-        // Merge Play/Pause/Seek into a pending Track only when Media3 already exposes
-        // that exact canonical item. No time-window guess is needed.
+        // Pause/Seek merge into a pending Track only when Media3 exposes that item.
+        // Play always preserves a pending TRACK because peers may not have prepared it yet.
         val preserveTrack = previous?.actionType == RoomActionType.TRACK &&
             current.sourceId.isNotBlank() &&
             previous.sourceId == current.sourceId
@@ -430,9 +430,19 @@ internal class ServiceRoomController(
                 pendingFromSnapshot(RoomActionType.PAUSE, current, elapsed)
             }
             is RoomPlayerIntent.SeekTo -> if (preserveTrack) {
-                previous!!.copy(generation = ++localActionGeneration, elapsedMs = elapsed)
+                previous!!.copy(
+                    actionId = UUID.randomUUID().toString(),
+                    generation = ++localActionGeneration,
+                    elapsedMs = elapsed,
+                    requestedPositionMs = intent.positionMs
+                )
             } else {
-                pendingFromSnapshot(RoomActionType.SEEK, current, elapsed)
+                pendingFromSnapshot(
+                    RoomActionType.SEEK,
+                    current,
+                    elapsed,
+                    requestedPositionMs = intent.positionMs
+                )
             }
             is RoomPlayerIntent.SkipToNext,
             is RoomPlayerIntent.SkipToPrevious -> null
@@ -704,7 +714,7 @@ internal class ServiceRoomController(
                 canonicalSourceUrl = canonicalUrl,
                 title = title,
                 artist = local.artist ?: pending.artist,
-                // New tracks start at zero; never inherit the previous item's position.
+                // New tracks start at zero unless an explicit seek was captured before publish.
                 // The requested play state is retained while the local player stays paused.
                 isPlaying = when (pending.actionType) {
                     RoomActionType.TRACK, RoomActionType.PLAY, RoomActionType.RECOVERY -> pending.shouldPlay
