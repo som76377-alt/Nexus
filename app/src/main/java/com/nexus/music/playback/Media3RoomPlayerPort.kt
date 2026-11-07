@@ -239,23 +239,19 @@ internal class RoomIntentForwardingPlayer(
 
     private fun finishSkip(previous: SkipState) {
         val item = delegate.currentMediaItem ?: return
-        val sourceId = item.mediaId
-        val title = item.mediaMetadata.title?.toString().orEmpty()
-        if (sourceId.isNotBlank() && title.isNotBlank() && sourceId != previous.sourceId) {
-            if (playbackPhase(null).isRoomActive) delegate.pause()
-            emitIntent(
-                RoomPlayerIntent.SelectTrack(
-                    sourceId = sourceId,
-                    canonicalSourceUrl = sourceId,
-                    title = title,
-                    artist = item.mediaMetadata.artist?.toString(),
-                    shouldPlay = previous.shouldPlay
-                )
-            )
-        } else {
-            val position = delegate.currentPosition.coerceAtLeast(0L)
-            if (position != previous.positionMs) emitIntent(RoomPlayerIntent.SeekTo(position))
+        val intent = resolveSkipIntent(
+            previousSourceId = previous.sourceId,
+            previousPositionMs = previous.positionMs,
+            shouldPlay = previous.shouldPlay,
+            currentSourceId = item.mediaId,
+            currentTitle = item.mediaMetadata.title?.toString().orEmpty(),
+            currentArtist = item.mediaMetadata.artist?.toString(),
+            currentPositionMs = delegate.currentPosition
+        ) ?: return
+        if (intent is RoomPlayerIntent.SelectTrack && playbackPhase(null).isRoomActive) {
+            delegate.pause()
         }
+        emitIntent(intent)
     }
 
     private inline fun skip(action: () -> Unit) {
@@ -302,4 +298,30 @@ internal class RoomIntentForwardingPlayer(
             )
         )
     }
+}
+
+
+/** Converts a completed MediaSession skip into the concrete shared timeline intent. */
+internal fun resolveSkipIntent(
+    previousSourceId: String,
+    previousPositionMs: Long,
+    shouldPlay: Boolean,
+    currentSourceId: String,
+    currentTitle: String,
+    currentArtist: String?,
+    currentPositionMs: Long
+): RoomPlayerIntent? {
+    if (currentSourceId.isNotBlank() && currentTitle.isNotBlank() &&
+        currentSourceId != previousSourceId
+    ) {
+        return RoomPlayerIntent.SelectTrack(
+            sourceId = currentSourceId,
+            canonicalSourceUrl = currentSourceId,
+            title = currentTitle,
+            artist = currentArtist,
+            shouldPlay = shouldPlay
+        )
+    }
+    val position = currentPositionMs.coerceAtLeast(0L)
+    return if (position != previousPositionMs) RoomPlayerIntent.SeekTo(position) else null
 }
