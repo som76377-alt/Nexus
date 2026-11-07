@@ -110,7 +110,4 @@ internal class SupabaseRoomRepository(
 
     override suspend fun touchRoom(roomId: String): Boolean = api.touchRoom(roomId)
 
-    override suspend fun leaveRoom(roomId: String) {
-        api.leaveRoom(roomId)
-    }
 }
