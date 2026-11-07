@@ -224,7 +224,7 @@ internal class RoomIntentForwardingPlayer(
         val changedTrack = delegate.currentMediaItem?.mediaId?.let { it != previous.sourceId } == true
         if (isRoomActive() && changedTrack) {
             pendingRoomTrackStart = previous.shouldPlay
-            if (previous.shouldPlay) delegate.pause()
+            delegate.pause()
         }
         recordIntent(
             if (next) {
@@ -280,8 +280,9 @@ internal class RoomIntentForwardingPlayer(
         if (canonicalUrl.isBlank() || title.isBlank()) return
         val shouldPlay = if (isRoomActive()) shouldRoomBePlaying() else delegate.playWhenReady
         pendingRoomTrackStart = isRoomActive() && shouldPlay
-        // Do not let a new item inherit the previous item's active playWhenReady.
-        if (shouldPlay) delegate.pause()
+        // Room playback is staged by the coordinator; outside a room, preserve normal
+        // MediaSession auto-play behavior when a controller replaces the media item.
+        if (isRoomActive()) delegate.pause()
         recordIntent(
             RoomPlayerIntent.SelectTrack(
                 sourceId = canonicalUrl,
