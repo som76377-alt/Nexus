@@ -349,12 +349,16 @@ internal class ServiceRoomController(
             // Keep the requested state in the pending TRACK command for the shared barrier.
             player.pause()
         }
-        if (!isPendingTrackPlay) cancelStartBarrier("new local playback intent")
-        localTrackFallbackJob?.cancel()
-        localTrackFallbackJob = null
-        playbackAnchorRevision = null
-        playbackAnchorAt = null
-        playbackAnchorPositionMs = null
+        val isSkipIntent = intent is RoomPlayerIntent.SkipToNext ||
+            intent is RoomPlayerIntent.SkipToPrevious
+        if (!isPendingTrackPlay && !isSkipIntent) cancelStartBarrier("new local playback intent")
+        if (!isSkipIntent) {
+            localTrackFallbackJob?.cancel()
+            localTrackFallbackJob = null
+            playbackAnchorRevision = null
+            playbackAnchorAt = null
+            playbackAnchorPositionMs = null
+        }
         when (intent) {
             is RoomPlayerIntent.SkipToNext -> {
                 captureSkipIntent(
