@@ -28,6 +28,12 @@ internal object RoomPlaybackMath {
         return if (a >= b) a - b else b - a
     }
 
+    fun needsSeek(
+        currentPositionMs: Long,
+        expectedPositionMs: Long,
+        thresholdMs: Long = 700L
+    ): Boolean = distanceMs(currentPositionMs, expectedPositionMs) >= thresholdMs
+
     private fun safeAdd(first: Long, second: Long): Long {
         if (Long.MAX_VALUE - first < second) return Long.MAX_VALUE
         return first + second
