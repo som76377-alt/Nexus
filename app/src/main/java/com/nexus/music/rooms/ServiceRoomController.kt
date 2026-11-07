@@ -1179,6 +1179,9 @@ internal class ServiceRoomController(
         sourceId: String
     ) {
         if (!isCurrent(roomId, generation) || revision <= barrierCompletedRevision) return
+        val remoteAtStart = lastRemotePlayback ?: return
+        if (remoteAtStart.revision != revision || remoteAtStart.sourceId != sourceId) return
+        val canonicalSourceUrl = remoteAtStart.canonicalSourceUrl
         if (barrierRevision == revision &&
             (barrierJob?.isActive == true || player.snapshot().playWhenReady)
         ) return
@@ -1214,20 +1217,16 @@ internal class ServiceRoomController(
                         recordDiagnostic("barrier.clock_probe_failed", error.message.orEmpty())
                     }
                     if (!clock.isCalibrated()) {
-                        val remote = lastRemotePlayback
                         val local = player.snapshot()
-                        if (remote != null &&
-                            remote.revision == revision &&
-                            remote.canonicalSourceUrl == sourceId &&
-                            remote.isPlaying &&
-                            local.sourceId == sourceId &&
+                        if (remoteAtStart.isPlaying &&
+                            local.sourceId == canonicalSourceUrl &&
                             local.isReady
                         ) {
                             startLocallyWithoutPeer(
                                 roomId = roomId,
                                 generation = generation,
                                 revision = revision,
-                                remote = remote,
+                                remote = remoteAtStart,
                                 reason = "server_clock_unavailable"
                             )
                             return@launch
@@ -1248,13 +1247,13 @@ internal class ServiceRoomController(
                     clock.elapsedRealtimeMs() < localReadyDeadline
                 ) {
                     val local = player.snapshot()
-                    if (local.sourceId == sourceId && local.isReady) break
+                    if (local.sourceId == canonicalSourceUrl && local.isReady) break
                     delay(BARRIER_READY_RETRY_MS)
                 }
 
                 if (!isCurrent(roomId, generation) || barrierRevision != revision) return@launch
                 val local = player.snapshot()
-                if (local.sourceId != sourceId || !local.isReady) {
+                if (local.sourceId != canonicalSourceUrl || !local.isReady) {
                     mutableState.value = mutableState.value.copy(
                         lastError = "This device could not prepare the selected track.",
                         statusMessage = null
@@ -1328,7 +1327,7 @@ internal class ServiceRoomController(
                     remote.revision != revision ||
                     remote.sourceId != sourceId ||
                     !remote.isPlaying ||
-                    readyLocal.sourceId != sourceId ||
+                    readyLocal.sourceId != remote.canonicalSourceUrl ||
                     !readyLocal.isReady
                 ) {
                     mutableState.value = mutableState.value.copy(
@@ -1503,8 +1502,10 @@ internal class ServiceRoomController(
     ) {
         if (!isCurrent(roomId, generation)) return
         val remote = lastRemotePlayback
-        if (remote != null &&
-            (remote.revision != revision || remote.canonicalSourceUrl != sourceId || !remote.isPlaying)
+        if (remote == null ||
+            remote.revision != revision ||
+            remote.sourceId != sourceId ||
+            !remote.isPlaying
         ) return
 
         // Duplicate or stale STARTs cannot rewind a completed local timeline. A device
