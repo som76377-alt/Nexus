@@ -316,7 +316,6 @@ internal class ServiceRoomController(
     private fun clearStart(cancelJob: Boolean = true) {
         if (cancelJob) startJob?.cancel()
         startJob = null
-        start?.revision = null
         start = null
     }
 
@@ -399,7 +398,7 @@ internal class ServiceRoomController(
             if (pendingAction?.shouldPlay == true) PlaybackPhase.ROOM_PLAYING
             else PlaybackPhase.ROOM_PAUSED
         start != null && start?.scheduledAt == null -> PlaybackPhase.START_PREPARING
-        startRevision != null -> PlaybackPhase.START_SCHEDULED
+        start != null -> PlaybackPhase.START_SCHEDULED
         lastRemotePlayback?.isPlaying == true -> PlaybackPhase.ROOM_PLAYING
         else -> PlaybackPhase.ROOM_PAUSED
     }
@@ -1191,7 +1190,7 @@ internal class ServiceRoomController(
                     authoritative.isPlaying
                 // PLAY resumes an already-loaded item. READY/START is only for a new TRACK.
                 val shouldUseSharedStart = isNewTrackStart
-                if (startRevision != null && startRevision != authoritative.revision) {
+                if (start != null && start?.revision != authoritative.revision) {
                     cancelStartBarrier("a newer room revision arrived")
                 }
                 if (!isNewTrackStart && playbackAnchorRevision != authoritative.revision) {
@@ -1319,7 +1318,7 @@ internal class ServiceRoomController(
                 // never cause repeated readiness RPCs or leave this device paused forever.
                 while (
                     isCurrent(roomId, generation) &&
-                    startRevision == revision &&
+                    start?.revision == revision &&
                     clock.elapsedRealtimeMs() < localReadyDeadline
                 ) {
                     val local = player.snapshot()
@@ -1368,13 +1367,13 @@ internal class ServiceRoomController(
                 // RECOVERY revision prevents that older barrier from rewinding playback.
                 while (
                     isCurrent(roomId, generation) &&
-                    startRevision == revision &&
+                    start?.revision == revision &&
                     clock.elapsedRealtimeMs() < barrierDeadline
                 ) {
                     delay(BARRIER_READY_RETRY_MS)
                 }
 
-                if (!isCurrent(roomId, generation) || startRevision != revision) return@launch
+                if (!isCurrent(roomId, generation) || start?.revision != revision) return@launch
 
                 // Re-check once before fallback in case the START broadcast was delayed.
                 // This also refreshes the server readiness lease for a peer that is almost ready.
@@ -1412,7 +1411,8 @@ internal class ServiceRoomController(
                         statusMessage = null
                     )
                     recordDiagnostic("barrier.fallback_not_ready", "revision=$revision")
-                    startRevision = null
+                    clearStart(cancelJob = false)
+                    refreshPlaybackPhase()
                     return@launch
                 }
 
@@ -1428,7 +1428,7 @@ internal class ServiceRoomController(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                if (isCurrent(roomId, generation) && startRevision == revision) {
+                if (isCurrent(roomId, generation) && start?.revision == revision) {
                     setError(error, "Synchronized start could not be scheduled")
                     recordDiagnostic("barrier.error", error.message.orEmpty())
                     val remote = lastRemotePlayback
@@ -1460,7 +1460,7 @@ internal class ServiceRoomController(
         remote: RoomPlaybackSnapshot,
         reason: String
     ) {
-        if (!isCurrent(roomId, generation) || startRevision != revision) return
+        if (!isCurrent(roomId, generation) || start?.revision != revision) return
         val local = player.snapshot()
         if (local.sourceId != remote.canonicalSourceUrl || !local.isReady || !remote.isPlaying) {
             mutableState.value = mutableState.value.copy(
@@ -1540,7 +1540,7 @@ internal class ServiceRoomController(
             recordDiagnostic("barrier.duplicate_start_ignored", "revision=$revision")
             return
         }
-        if (startRevision != revision) return
+        if (start?.revision != revision) return
 
         val startAtMs = parseTimestamp(startAt) ?: run {
             recordDiagnostic("barrier.invalid_start", "revision=$revision")
@@ -1561,13 +1561,13 @@ internal class ServiceRoomController(
                     "barrier.start_scheduled",
                     "revision=$revision server_start=$startAt"
                 )
-                while (isCurrent(roomId, generation) && startRevision == revision) {
+                while (isCurrent(roomId, generation) && start?.revision == revision) {
                     val remaining = startAtMs - clock.estimatedServerTimeMs()
                     if (remaining <= 0L) break
                     delay(remaining.coerceAtMost(250L))
                 }
                 if (!isCurrent(roomId, generation) ||
-                    startRevision != revision ||
+                    start?.revision != revision ||
                     pendingAction != null
                 ) return@launch
 
@@ -1610,7 +1610,7 @@ internal class ServiceRoomController(
                 player.seekTo(target)
                 player.resetPlaybackSpeed()
                 if (!isCurrent(roomId, generation) ||
-                    startRevision != revision ||
+                    start?.revision != revision ||
                     pendingAction != null
                 ) return@launch
                 player.play()
@@ -1635,7 +1635,7 @@ internal class ServiceRoomController(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                if (isCurrent(roomId, generation) && startRevision == revision) {
+                if (isCurrent(roomId, generation) && start?.revision == revision) {
                     setError(error, "Synchronized playback could not start")
                     recordDiagnostic("barrier.start_error", error.message.orEmpty())
                     val remote = lastRemotePlayback
@@ -1662,7 +1662,7 @@ internal class ServiceRoomController(
 
     private fun cancelStartBarrier(reason: String) {
         if (start == null) return
-        recordDiagnostic("barrier.cancelled", "revision=$startRevision reason=$reason")
+        recordDiagnostic("barrier.cancelled", "revision=${start?.revision} reason=$reason")
         clearStart()
         refreshPlaybackPhase()
         mutableState.value = mutableState.value.copy(statusMessage = null)
