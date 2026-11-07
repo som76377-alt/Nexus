@@ -155,6 +155,38 @@ data class RoomPublishResult(
     val revision: Long
 )
 
+/** Device/build facts attached to each exported room diagnostic log. */
+data class RoomDiagnosticsDeviceInfo(
+    val appVersion: String = "unknown",
+    val deviceModel: String = "unknown",
+    val apiLevel: Int = 0,
+    val wakeMode: String = "unknown"
+)
+
+/** Formats the bounded, device-local synchronization timeline for export. */
+object RoomDiagnosticsFormatter {
+    const val MAX_ENTRIES = 300
+
+    fun format(
+        device: RoomDiagnosticsDeviceInfo,
+        clockOffsetMs: Long?,
+        roundTripMs: Long?,
+        phase: String,
+        events: List<String>
+    ): String = buildString {
+        appendLine("Nexus room synchronization diagnostics")
+        appendLine("app_version=${device.appVersion}")
+        appendLine("device_model=${device.deviceModel}")
+        appendLine("api_level=${device.apiLevel}")
+        appendLine("wake_mode=${device.wakeMode}")
+        appendLine("clock_offset_ms=${clockOffsetMs ?: "unknown"}")
+        appendLine("clock_rtt_ms=${roundTripMs ?: "unknown"}")
+        appendLine("phase=$phase")
+        appendLine("Events use device-local monotonic elapsed time; server timestamps anchor cross-device comparisons.")
+        events.takeLast(MAX_ENTRIES).forEach { appendLine(it) }
+    }
+}
+
 /** Bounded diagnostics for measuring actual transport and playback behavior on devices. */
 data class RoomDiagnosticsSnapshot(
     val lastPublishLatencyMs: Long? = null,
@@ -163,20 +195,26 @@ data class RoomDiagnosticsSnapshot(
     val lastDriftMs: Long? = null,
     val lastRoundTripMs: Long? = null,
     val lastCommandAgeMs: Long? = null,
+    val device: RoomDiagnosticsDeviceInfo = RoomDiagnosticsDeviceInfo(),
+    val clockOffsetMs: Long? = null,
+    val playbackPhase: String = "LOCAL",
     val events: List<String> = emptyList()
 ) {
     val summary: String
-        get() = "publish=${lastPublishLatencyMs?.let { "${it}ms" } ?: "—"} · " +
+        get() = "app=${device.appVersion} · ${device.deviceModel} · API ${device.apiLevel} · " +
+            "wake=${device.wakeMode} · offset=${clockOffsetMs?.let { "${it}ms" } ?: "unknown"} · " +
+            "publish=${lastPublishLatencyMs?.let { "${it}ms" } ?: "—"} · " +
             "snapshot=${lastSnapshotLatencyMs?.let { "${it}ms" } ?: "—"} · " +
             "apply=${lastApplyLatencyMs?.let { "${it}ms" } ?: "—"} · " +
             "peer-age=${lastCommandAgeMs?.let { "${it}ms" } ?: "—"} · " +
             "drift=${lastDriftMs?.let { "${it}ms" } ?: "—"} · " +
-            "RTT=${lastRoundTripMs?.let { "${it}ms" } ?: "—"}"
+            "RTT=${lastRoundTripMs?.let { "${it}ms" } ?: "—"} · phase=$playbackPhase"
 
-    fun exportText(): String = buildString {
-        appendLine("Nexus room synchronization diagnostics")
-        appendLine(summary)
-        appendLine("Events are device-local monotonic observations; compare timestamps across phones only through server-anchored measurements.")
-        events.forEach { appendLine(it) }
-    }
+    fun exportText(): String = RoomDiagnosticsFormatter.format(
+        device = device,
+        clockOffsetMs = clockOffsetMs,
+        roundTripMs = lastRoundTripMs,
+        phase = playbackPhase,
+        events = events
+    )
 }
