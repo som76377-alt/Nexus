@@ -249,29 +249,16 @@ internal class RoomIntentForwardingPlayer(
         )
     }
 
-    override fun seekToNext() {
+    private inline fun skip(next: Boolean, action: () -> Unit) {
         val previous = captureSkipState()
-        super.seekToNext()
-        finishSkip(previous, next = true)
+        action()
+        finishSkip(previous, next)
     }
 
-    override fun seekToNextMediaItem() {
-        val previous = captureSkipState()
-        super.seekToNextMediaItem()
-        finishSkip(previous, next = true)
-    }
-
-    override fun seekToPrevious() {
-        val previous = captureSkipState()
-        super.seekToPrevious()
-        finishSkip(previous, next = false)
-    }
-
-    override fun seekToPreviousMediaItem() {
-        val previous = captureSkipState()
-        super.seekToPreviousMediaItem()
-        finishSkip(previous, next = false)
-    }
+    override fun seekToNext() = skip(true) { delegate.seekToNext() }
+    override fun seekToNextMediaItem() = skip(true) { delegate.seekToNextMediaItem() }
+    override fun seekToPrevious() = skip(false) { delegate.seekToPrevious() }
+    override fun seekToPreviousMediaItem() = skip(false) { delegate.seekToPreviousMediaItem() }
 
     override fun stop() {
         emitIntent(RoomPlayerIntent.Pause)
