@@ -1,7 +1,6 @@
 package com.nexus.music.rooms.domain
 
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Backend boundary for room playback.
@@ -30,7 +29,6 @@ interface RoomRepository {
  * It must never create a second player for room playback.
  */
 interface RoomPlayerPort {
-    val playback: StateFlow<LocalPlaybackSnapshot>
     val userIntents: Flow<RoomPlayerIntent>
 
     /** Read a fresh position/state; StateFlow is for observation, not a clock. */
