@@ -9,8 +9,6 @@ on:
 permissions:
   contents: read
 
-# Keep only the newest validation run for a PR/branch; superseded commits do not
-# need to consume another full Android SDK + Gradle build.
 concurrency:
   group: nexus-android-ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -22,6 +20,26 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Enforce immutable SPEC.md
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          # Bootstrap is allowed exactly once: the PR base must not already contain SPEC.md.
+          if git cat-file -e "${BASE_SHA}:SPEC.md" 2>/dev/null; then
+            if ! git diff --quiet "${BASE_SHA}" "${GITHUB_SHA}" -- SPEC.md; then
+              echo "::error::SPEC.md is owner-controlled and must not be changed by a pull request."
+              git diff --stat "${BASE_SHA}" "${GITHUB_SHA}" -- SPEC.md
+              exit 1
+            fi
+          else
+            echo "SPEC.md bootstrap: base branch has no SPEC.md; initial addition is permitted."
+          fi
 
       - name: Set up JDK
         uses: actions/setup-java@v5

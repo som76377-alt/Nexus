@@ -29,6 +29,24 @@ jobs:
         working-directory: web-room-test
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Enforce immutable SPEC.md
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if git cat-file -e "${BASE_SHA}:SPEC.md" 2>/dev/null; then
+            if ! git diff --quiet "${BASE_SHA}" "${GITHUB_SHA}" -- SPEC.md; then
+              echo "::error::SPEC.md is owner-controlled and must not be changed by a pull request."
+              git diff --stat "${BASE_SHA}" "${GITHUB_SHA}" -- SPEC.md
+              exit 1
+            fi
+          else
+            echo "SPEC.md bootstrap: base branch has no SPEC.md; initial addition is permitted."
+          fi
       - uses: actions/setup-node@v4
         with:
           node-version: 22
