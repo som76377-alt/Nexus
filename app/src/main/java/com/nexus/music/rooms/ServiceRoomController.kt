@@ -489,7 +489,10 @@ internal class ServiceRoomController(
             var retryGeneration = Long.MIN_VALUE
             var retryCount = 0
             try {
-                if (pendingAction?.let { it.actionType != RoomActionType.TRACK || !it.shouldPlay } == true) delay(100L)
+                if (pendingAction?.let {
+                        it.actionType != RoomActionType.RECOVERY &&
+                            (it.actionType != RoomActionType.TRACK || !it.shouldPlay)
+                    } == true) delay(100L)
                 while (isCurrent(roomId, generation)) {
                     val pending = pendingAction ?: break
                     if (pending.generation != retryGeneration) { retryGeneration = pending.generation; retryCount = 0 }
