@@ -259,7 +259,7 @@ class ServiceRoomControllerTest {
 
             assertTrue(player.snapshot().playWhenReady)
             assertTrue(player.snapshot().isPlaying)
-            assertEquals(1_502L, player.snapshot().positionMs)
+            assertEquals("only time after start_at advances the staged track", 2L, player.snapshot().positionMs)
             assertEquals(1L, controller.state.value.playback?.revision)
             assertEquals(null, controller.state.value.statusMessage)
 
@@ -273,7 +273,7 @@ class ServiceRoomControllerTest {
             runCurrent()
             assertEquals(
                 "a duplicate scheduled START must not re-run the barrier or seek",
-                1_502L,
+                2L,
                 player.snapshot().positionMs
             )
             assertTrue(controller.diagnostics.value.events.any {
@@ -283,21 +283,21 @@ class ServiceRoomControllerTest {
             // Drift correction must project from the exact position at the scheduled
             // anchor, not combine the old command position with the new anchor time.
             clock.advance(1_000L)
-            player.setSnapshot(player.snapshot().copy(positionMs = 2_502L))
+            player.setSnapshot(player.snapshot().copy(positionMs = 1_002L))
             advanceTimeBy(1_000L)
             runCurrent()
             clock.advance(1_000L)
-            player.setSnapshot(player.snapshot().copy(positionMs = 3_502L))
+            player.setSnapshot(player.snapshot().copy(positionMs = 2_002L))
             advanceTimeBy(1_000L)
             runCurrent()
-            assertEquals(3_502L, player.snapshot().positionMs)
+            assertEquals(2_002L, player.snapshot().positionMs)
         } finally {
             controller.close()
         }
     }
 
     @Test
-    fun explicitPlayOnPausedTrackPublishesPlayIntentAndWaitsForBarrier() = runTest {
+    fun explicitPlayOnPausedTrackResumesLocallyWithoutWaitingForBarrier() = runTest {
         val canonical = "https://www.youtube.com/watch?v=local-resume"
         val repository = FakeRoomRepository()
         val player = FakeRoomPlayer(
@@ -322,6 +322,7 @@ class ServiceRoomControllerTest {
             assertEquals(RoomActionType.TRACK, repository.published.single().actionType)
             assertFalse(repository.published.single().isPlaying)
 
+            player.setSnapshot(player.snapshot().copy(playWhenReady = true, isPlaying = true))
             player.emitIntent(RoomPlayerIntent.Play)
             runCurrent()
             advanceTimeBy(100L)
@@ -330,10 +331,53 @@ class ServiceRoomControllerTest {
             assertEquals(2, repository.published.size)
             assertEquals(RoomActionType.PLAY, repository.published.last().actionType)
             assertEquals(2L, controller.state.value.playback?.revision)
-            assertTrue("PLAY intent must remain true even though the local player is held paused", repository.published.last().isPlaying)
-            assertEquals(1, repository.readinessCalls)
-            assertFalse(player.snapshot().playWhenReady)
-            assertEquals("PLAY must not rewind a paused item while both devices prepare", 25_000L, player.snapshot().positionMs)
+            assertTrue("PLAY intent must be published", repository.published.last().isPlaying)
+            assertEquals("resume must not call READY", 0, repository.readinessCalls)
+            assertTrue("local audio resumes immediately", player.snapshot().playWhenReady)
+            assertTrue(player.snapshot().isPlaying)
+            assertEquals("resume retains the paused position", 25_000L, player.snapshot().positionMs)
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
+    fun playImmediatelyAfterPausedTrackSelectionDoesNotReenterTrackBarrier() = runTest {
+        val canonical = "https://www.youtube.com/watch?v=paused-selection-play"
+        val repository = FakeRoomRepository()
+        val player = FakeRoomPlayer(
+            LocalPlaybackSnapshot(
+                sourceId = canonical,
+                canonicalSourceUrl = canonical,
+                title = "Paused selection",
+                artist = "Artist",
+                playWhenReady = false,
+                isPlaying = false,
+                isReady = true,
+                positionMs = 0L,
+                durationMs = 90_000L
+            )
+        )
+        val controller = newController(repository, player)
+
+        try {
+            controller.attach("room-paused-selection")
+            runCurrent()
+
+            // The track selection is still queued for publication. The user's Play
+            // starts the already-prepared local item and publishes PLAY, not TRACK.
+            player.setSnapshot(player.snapshot().copy(playWhenReady = true, isPlaying = true))
+            player.emitIntent(RoomPlayerIntent.Play)
+            runCurrent()
+            advanceTimeBy(150L)
+            runCurrent()
+
+            assertEquals(1, repository.published.size)
+            assertEquals(RoomActionType.PLAY, repository.published.single().actionType)
+            assertTrue(repository.published.single().isPlaying)
+            assertTrue(player.snapshot().playWhenReady)
+            assertTrue(player.snapshot().isPlaying)
+            assertEquals("already-prepared resume must not call READY", 0, repository.readinessCalls)
         } finally {
             controller.close()
         }
@@ -365,23 +409,28 @@ class ServiceRoomControllerTest {
             assertFalse(player.snapshot().playWhenReady)
             assertEquals(1, repository.readinessCalls)
 
-            clock.advance(46_100L)
+            clock.advance(4_100L)
+            repository.serverNowMs = clock.estimatedServerTimeMs()
             advanceTimeBy(100L)
             runCurrent()
 
-            assertTrue("the ready device must not remain paused forever", player.snapshot().playWhenReady)
+            assertTrue("ready local audio must not wait 46 seconds for a peer", player.snapshot().playWhenReady)
             assertTrue(player.snapshot().isPlaying)
-            assertEquals(46_100L, player.snapshot().positionMs)
+            assertEquals("fallback starts from the new track's base position", 0L, player.snapshot().positionMs)
             assertEquals(2, repository.readinessCalls)
-            assertEquals(1L, controller.state.value.playback?.revision)
-            assertTrue(
-                controller.diagnostics.value.events.any { it.contains("barrier.started_without_peer") }
-            )
+            assertEquals(RoomActionType.RECOVERY, repository.published.last().actionType)
+            assertEquals(0L, repository.published.last().positionMs)
+            assertEquals(2L, controller.state.value.playback?.revision)
+            assertTrue(controller.diagnostics.value.events.any {
+                it.contains("barrier.started_without_peer")
+            })
+            assertTrue(controller.diagnostics.value.events.any {
+                it.contains("barrier.recovery_published")
+            })
 
-            // A peer that becomes ready at the edge of the server expiry window can
-            // still deliver the shared anchor after local fallback has begun.
-            clock.advance(1_500L)
-            player.setSnapshot(player.snapshot().copy(positionMs = 47_600L))
+            // A delayed START for the superseded TRACK revision must not rewind the
+            // already-playing local fallback; RECOVERY is now the shared timeline.
+            player.setSnapshot(player.snapshot().copy(positionMs = 1_000L))
             repository.emit(
                 RoomRealtimeSignal.StartScheduled(
                     revision = 1L,
@@ -390,14 +439,7 @@ class ServiceRoomControllerTest {
                 )
             )
             runCurrent()
-            assertEquals(
-                "late shared anchor must preserve the command-time playback timeline",
-                47_600L,
-                player.snapshot().positionMs
-            )
-            assertTrue(controller.diagnostics.value.events.any {
-                it.contains("barrier.late_shared_anchor")
-            })
+            assertEquals(1_000L, player.snapshot().positionMs)
         } finally {
             controller.close()
         }
@@ -454,7 +496,7 @@ class ServiceRoomControllerTest {
     }
 
     @Test
-    fun playOnAnAlreadyPreparedPausedTrackUsesTheSharedStartBarrier() = runTest {
+    fun playOnAnAlreadyPreparedPausedTrackResumesImmediatelyWithoutBarrier() = runTest {
         val canonical = "https://www.youtube.com/watch?v=resume-barrier"
         val repository = FakeRoomRepository(
             initialSnapshot = RoomPlaybackSnapshot(
@@ -495,18 +537,54 @@ class ServiceRoomControllerTest {
         try {
             controller.attach("room-resume")
             runCurrent()
-            assertFalse("resume must wait for the shared anchor", player.snapshot().playWhenReady)
-            assertEquals(1, repository.readinessCalls)
+            assertTrue("remote PLAY resumes the prepared item immediately", player.snapshot().playWhenReady)
+            assertTrue(player.snapshot().isPlaying)
+            assertEquals(30_000L, player.snapshot().positionMs)
+            assertEquals("resume does not call READY", 0, repository.readinessCalls)
             assertTrue(repository.published.isEmpty())
+        } finally {
+            controller.close()
+        }
+    }
 
-            clock.advance(1_501L)
-            advanceTimeBy(250L)
+    @Test
+    fun recoveryCommandLetsLatePeerCatchUpWithoutAnotherReadinessBarrier() = runTest {
+        val canonical = "https://www.youtube.com/watch?v=recovery-catch-up"
+        val repository = FakeRoomRepository(
+            initialSnapshot = RoomPlaybackSnapshot(
+                roomId = "room-recovery",
+                sourceId = canonical,
+                canonicalSourceUrl = canonical,
+                title = "Recovery track",
+                artist = "Artist",
+                isPlaying = true,
+                positionMs = 2_000L,
+                durationMs = 120_000L,
+                revision = 4L,
+                updatedBy = "device-1",
+                updatedAt = "1970-01-01T00:00:10.000Z",
+                actionId = "recovery-action",
+                actionType = RoomActionType.RECOVERY,
+                originDeviceId = "device-1",
+                commandAt = "1970-01-01T00:00:10.000Z"
+            )
+        )
+        val player = FakeRoomPlayer()
+        val clock = FakeRoomClock()
+        val controller = newController(repository, player, clock = clock)
+
+        try {
+            controller.attach("room-recovery")
+            runCurrent()
+            advanceTimeBy(50L)
             runCurrent()
 
+            assertEquals(canonical, player.snapshot().canonicalSourceUrl)
+            assertTrue(player.snapshot().isReady)
             assertTrue(player.snapshot().playWhenReady)
             assertTrue(player.snapshot().isPlaying)
-            assertEquals(31_501L, player.snapshot().positionMs)
-            assertTrue(repository.published.isEmpty())
+            assertEquals(2_001L, player.snapshot().positionMs)
+            assertEquals("RECOVERY must not enter READY/START", 0, repository.readinessCalls)
         } finally {
             controller.close()
         }
@@ -783,6 +861,7 @@ class ServiceRoomControllerTest {
         var leaveCount = 0
         var scheduledStartAt: String? = null
         var readinessCalls = 0
+        var serverNowMs: Long = 10_000L
 
         override suspend fun currentUserId(): String = "device-1"
 
@@ -792,6 +871,10 @@ class ServiceRoomControllerTest {
         override suspend fun publishPlayback(command: RoomCommand): RoomPublishResult {
             published += command
             val revision = command.expectedRevision + 1L
+            val timestamp = "1970-01-01T00:00:%02d.%03dZ".format(
+                serverNowMs / 1_000L,
+                serverNowMs % 1_000L
+            )
             snapshot = RoomPlaybackSnapshot(
                 roomId = command.roomId,
                 sourceId = command.sourceId,
@@ -803,11 +886,11 @@ class ServiceRoomControllerTest {
                 durationMs = command.durationMs,
                 revision = revision,
                 updatedBy = command.originDeviceId,
-                updatedAt = "2026-11-06T00:00:00.000Z",
+                updatedAt = timestamp,
                 actionId = command.actionId,
                 actionType = command.actionType,
                 originDeviceId = command.originDeviceId,
-                commandAt = "2026-11-06T00:00:00.000Z"
+                commandAt = timestamp
             )
             return RoomPublishResult(applied = true, revision = revision)
         }
@@ -823,7 +906,7 @@ class ServiceRoomControllerTest {
                 "readiness revision must match the authoritative snapshot"
             }
             check(current.canonicalSourceUrl == sourceId &&
-                current.actionType in setOf(RoomActionType.TRACK, RoomActionType.PLAY) &&
+                current.actionType == RoomActionType.TRACK &&
                 current.isPlaying
             ) {
                 "only an active TRACK or PLAY revision can enter the shared start barrier"

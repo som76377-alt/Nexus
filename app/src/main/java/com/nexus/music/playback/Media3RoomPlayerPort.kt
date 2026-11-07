@@ -30,51 +30,19 @@ internal class Media3RoomPlayerPort(
     private val mutableUserIntents = MutableSharedFlow<RoomPlayerIntent>(
         extraBufferCapacity = 32
     )
-    private var systemPauseForwarded = false
 
     override val playback: StateFlow<LocalPlaybackSnapshot> = mutablePlayback
     override val userIntents: SharedFlow<RoomPlayerIntent> = mutableUserIntents
 
+    private var onRoomPlaybackStarted: (() -> Unit)? = null
+
+    fun setRoomPlaybackStartedListener(listener: () -> Unit) {
+        onRoomPlaybackStarted = listener
+    }
+
     private val listener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
             mutablePlayback.value = readSnapshot()
-        }
-
-        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-            mutablePlayback.value = readSnapshot()
-            if (playWhenReady) {
-                systemPauseForwarded = false
-            } else if (
-                reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY ||
-                reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS ||
-                reason == Player.PLAY_WHEN_READY_CHANGE_REASON_SUPPRESSED_TOO_LONG
-            ) {
-                forwardSystemPause()
-            }
-        }
-
-        override fun onPlaybackSuppressionReasonChanged(playbackSuppressionReason: Int) {
-            mutablePlayback.value = readSnapshot()
-            if (playbackSuppressionReason ==
-                Player.PLAYBACK_SUPPRESSION_REASON_TRANSIENT_AUDIO_FOCUS_LOSS
-            ) {
-                // Transient focus loss suppresses output while playWhenReady can remain true.
-                // Pause locally too, so a later focus return cannot resume one phone alone.
-                forwardSystemPause(pauseLocal = true)
-            } else if (playbackSuppressionReason == Player.PLAYBACK_SUPPRESSION_REASON_NONE &&
-                player.playWhenReady
-            ) {
-                systemPauseForwarded = false
-            }
-        }
-
-        private fun forwardSystemPause(pauseLocal: Boolean = false) {
-            if (systemPauseForwarded) return
-            systemPauseForwarded = true
-            if (pauseLocal && player.playWhenReady) {
-                player.pause()
-            }
-            mutableUserIntents.tryEmit(RoomPlayerIntent.Pause)
         }
     }
 
@@ -135,6 +103,7 @@ internal class Media3RoomPlayerPort(
     }
 
     override fun play() {
+        onRoomPlaybackStarted?.invoke()
         when (player.playbackState) {
             Player.STATE_IDLE -> player.prepare()
             Player.STATE_ENDED -> {
@@ -176,12 +145,16 @@ internal class RoomIntentForwardingPlayer(
     private val recordIntent: (RoomPlayerIntent) -> Unit,
     private val isRoomActive: () -> Boolean = { false }
 ) : androidx.media3.common.ForwardingPlayer(delegate) {
+    private var pendingRoomTrackStart = false
+
+    fun clearPendingRoomTrackStart() {
+        pendingRoomTrackStart = false
+    }
 
     override fun play() {
         recordIntent(RoomPlayerIntent.Play)
-        if (isRoomActive()) {
-            // User intent is published by the room controller; local playback is released
-            // only when the shared start barrier completes.
+        if (isRoomActive() && pendingRoomTrackStart) {
+            // Hold only the initial Play for a newly selected track; resume is local.
             delegate.pause()
         } else {
             super.play()
@@ -240,7 +213,7 @@ internal class RoomIntentForwardingPlayer(
 
     override fun setPlayWhenReady(playWhenReady: Boolean) {
         recordIntent(if (playWhenReady) RoomPlayerIntent.Play else RoomPlayerIntent.Pause)
-        if (playWhenReady && isRoomActive()) {
+        if (playWhenReady && isRoomActive() && pendingRoomTrackStart) {
             delegate.pause()
         } else {
             super.setPlayWhenReady(playWhenReady)
@@ -253,10 +226,9 @@ internal class RoomIntentForwardingPlayer(
         val shouldPlay = delegate.playWhenReady
         super.seekToNext()
         val changedTrack = delegate.currentMediaItem?.mediaId?.let { it != previousSourceId } == true
-        if (isRoomActive() && shouldPlay && changedTrack) {
-            // MediaSession skip methods act synchronously on the wrapped player. Stop the
-            // newly selected item before the next audio render; the room barrier owns resume.
-            delegate.pause()
+        if (isRoomActive() && changedTrack) {
+            pendingRoomTrackStart = shouldPlay
+            if (shouldPlay) delegate.pause()
         }
         recordIntent(RoomPlayerIntent.SkipToNext(
             previousSourceId = previousSourceId,
@@ -271,10 +243,9 @@ internal class RoomIntentForwardingPlayer(
         val shouldPlay = delegate.playWhenReady
         super.seekToNextMediaItem()
         val changedTrack = delegate.currentMediaItem?.mediaId?.let { it != previousSourceId } == true
-        if (isRoomActive() && shouldPlay && changedTrack) {
-            // MediaSession skip methods act synchronously on the wrapped player. Stop the
-            // newly selected item before the next audio render; the room barrier owns resume.
-            delegate.pause()
+        if (isRoomActive() && changedTrack) {
+            pendingRoomTrackStart = shouldPlay
+            if (shouldPlay) delegate.pause()
         }
         recordIntent(RoomPlayerIntent.SkipToNext(
             previousSourceId = previousSourceId,
@@ -289,10 +260,9 @@ internal class RoomIntentForwardingPlayer(
         val shouldPlay = delegate.playWhenReady
         super.seekToPrevious()
         val changedTrack = delegate.currentMediaItem?.mediaId?.let { it != previousSourceId } == true
-        if (isRoomActive() && shouldPlay && changedTrack) {
-            // MediaSession skip methods act synchronously on the wrapped player. Stop the
-            // newly selected item before the next audio render; the room barrier owns resume.
-            delegate.pause()
+        if (isRoomActive() && changedTrack) {
+            pendingRoomTrackStart = shouldPlay
+            if (shouldPlay) delegate.pause()
         }
         recordIntent(RoomPlayerIntent.SkipToPrevious(
             previousSourceId = previousSourceId,
@@ -307,10 +277,9 @@ internal class RoomIntentForwardingPlayer(
         val shouldPlay = delegate.playWhenReady
         super.seekToPreviousMediaItem()
         val changedTrack = delegate.currentMediaItem?.mediaId?.let { it != previousSourceId } == true
-        if (isRoomActive() && shouldPlay && changedTrack) {
-            // MediaSession skip methods act synchronously on the wrapped player. Stop the
-            // newly selected item before the next audio render; the room barrier owns resume.
-            delegate.pause()
+        if (isRoomActive() && changedTrack) {
+            pendingRoomTrackStart = shouldPlay
+            if (shouldPlay) delegate.pause()
         }
         recordIntent(RoomPlayerIntent.SkipToPrevious(
             previousSourceId = previousSourceId,
@@ -338,8 +307,8 @@ internal class RoomIntentForwardingPlayer(
         val title = mediaItem.mediaMetadata.title?.toString().orEmpty()
         if (canonicalUrl.isBlank() || title.isBlank()) return
         val shouldPlay = delegate.playWhenReady
+        pendingRoomTrackStart = isRoomActive() && shouldPlay
         // Do not let a new item inherit the previous item's active playWhenReady.
-        // The intent is preserved and released only after the room start barrier.
         if (shouldPlay) delegate.pause()
         recordIntent(
             RoomPlayerIntent.SelectTrack(

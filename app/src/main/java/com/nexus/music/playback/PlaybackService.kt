@@ -83,9 +83,8 @@ class PlaybackService : MediaSessionService() {
 
         val exoPlayer = ExoPlayer.Builder(this, renderersFactory)
             .setMediaSourceFactory(mediaSourceFactory)
-            // Music continues with the screen off; local mode holds the CPU wake lock
-            // needed by MediaSessionService background playback without a Wi-Fi lock.
-            .setWakeMode(C.WAKE_MODE_LOCAL)
+            // Keep CPU and Wi-Fi available for streaming while background playback is active.
+            .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
             .apply {
                 setAudioAttributes(musicAudioAttributes, /* handleAudioFocus = */ true)
@@ -117,6 +116,7 @@ class PlaybackService : MediaSessionService() {
             recordIntent = playerPort::recordUserIntent,
             isRoomActive = { controller.state.value.roomId != null }
         )
+        playerPort.setRoomPlaybackStartedListener(sessionPlayer::clearPendingRoomTrackStart)
         mediaSession = MediaSession.Builder(this, sessionPlayer).build()
     }
 

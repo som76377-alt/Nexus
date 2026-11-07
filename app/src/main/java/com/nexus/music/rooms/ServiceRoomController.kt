@@ -72,13 +72,14 @@ internal class ServiceRoomController(
     private var roomScope: CoroutineScope? = null
     private var reconcileJob: Job? = null
     private var reconcileRequested = false
+    private var pendingRealtimeSnapshot: RoomPlaybackSnapshot? = null
     private var publishJob: Job? = null
+    private var localTrackFallbackJob: Job? = null
     private var barrierJob: Job? = null
     private var barrierStartJob: Job? = null
     private var barrierRevision: Long? = null
     private var barrierScheduledStartAt: String? = null
     private var barrierCompletedRevision: Long = 0L
-    private var barrierFallbackRevision: Long? = null
     private var playbackAnchorRevision: Long? = null
     private var playbackAnchorAt: String? = null
     private var playbackAnchorPositionMs: Long? = null
@@ -135,7 +136,6 @@ internal class ServiceRoomController(
         signalSequence = 0L
         barrierRevision = null
         barrierCompletedRevision = 0L
-        barrierFallbackRevision = null
         playbackAnchorRevision = null
         playbackAnchorAt = null
         playbackAnchorPositionMs = null
@@ -184,7 +184,7 @@ internal class ServiceRoomController(
                             "realtime.playback_snapshot",
                             "revision=${signal.snapshot.revision} sequence=$signalSequence"
                         )
-                        refreshRemotePlayback(roomId, generation, signal.snapshot)
+                        requestReconciliation(roomId, generation, signal.snapshot)
                     }
                     RoomRealtimeSignal.ChatInvalidated -> {
                         mutableState.value = mutableState.value.copy(
@@ -295,8 +295,11 @@ internal class ServiceRoomController(
         reconcileJob?.cancel()
         reconcileJob = null
         reconcileRequested = false
+        pendingRealtimeSnapshot = null
         publishJob?.cancel()
         publishJob = null
+        localTrackFallbackJob?.cancel()
+        localTrackFallbackJob = null
         barrierJob?.cancel()
         barrierJob = null
         barrierStartJob?.cancel()
@@ -343,6 +346,8 @@ internal class ServiceRoomController(
             player.pause()
         }
         cancelStartBarrier("new local playback intent")
+        localTrackFallbackJob?.cancel()
+        localTrackFallbackJob = null
         playbackAnchorRevision = null
         playbackAnchorAt = null
         playbackAnchorPositionMs = null
@@ -391,13 +396,15 @@ internal class ServiceRoomController(
                 artist = intent.artist,
                 shouldPlay = intent.shouldPlay
             )
-            RoomPlayerIntent.Play -> if (preserveTrack) {
+            RoomPlayerIntent.Play -> if (preserveTrack && previous!!.shouldPlay) {
                 previous!!.copy(
                     generation = ++localActionGeneration,
                     elapsedMs = elapsed,
                     shouldPlay = true
                 )
             } else {
+                // A track selected while paused is already prepared locally. Treat its
+                // first Play as an immediate PLAY/resume; do not restart a TRACK barrier.
                 pendingFromSnapshot(RoomActionType.PLAY, current, elapsed)
             }
             RoomPlayerIntent.Pause -> if (preserveTrack) {
@@ -421,6 +428,41 @@ internal class ServiceRoomController(
         pendingAction = next
         recordDiagnostic("local.intent", "type=${next.actionType} source=${next.sourceId} generation=${next.generation}")
         val scope = roomScope ?: return
+        if (next.actionType == RoomActionType.TRACK && next.shouldPlay) {
+            // A room/network failure must not keep a locally prepared track silent.
+            // After four seconds, start this device and publish a RECOVERY timeline.
+            val expectedSession = sessionGeneration
+            localTrackFallbackJob = scope.launch {
+                delay(LOCAL_TRACK_FALLBACK_TIMEOUT_MS)
+                if (!isCurrent(roomId, expectedSession) ||
+                    pendingAction?.generation != next.generation
+                ) return@launch
+                val local = player.snapshot()
+                if (local.sourceId != next.canonicalSourceUrl || !local.isReady) return@launch
+
+                player.seekTo(0L)
+                player.resetPlaybackSpeed()
+                player.play()
+                val fallback = next.copy(
+                    generation = ++localActionGeneration,
+                    elapsedMs = clock.elapsedRealtimeMs(),
+                    actionType = RoomActionType.RECOVERY,
+                    shouldPlay = true
+                )
+                pendingAction = fallback
+                recordDiagnostic("local.track_fallback", "source=${fallback.sourceId} reason=room_start_timeout")
+                scope.launch {
+                    delay(50L)
+                    try {
+                        publishPendingAction(roomId, expectedSession)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        recordDiagnostic("local.recovery_publish_failed", error.message.orEmpty())
+                    }
+                }
+            }
+        }
         if (publishJob?.isActive == true) return
         publishJob = scope.launch {
             delay(100L)
@@ -572,23 +614,37 @@ internal class ServiceRoomController(
         }
     }
 
-    private fun requestReconciliation(roomId: String, generation: Long) {
+    private fun requestReconciliation(
+        roomId: String,
+        generation: Long,
+        realtimeSnapshot: RoomPlaybackSnapshot? = null
+    ) {
         if (!isCurrent(roomId, generation)) return
+        if (realtimeSnapshot != null) {
+            val pending = pendingRealtimeSnapshot
+            if (pending == null || realtimeSnapshot.revision >= pending.revision) {
+                pendingRealtimeSnapshot = realtimeSnapshot
+            }
+        }
         reconcileRequested = true
         if (reconcileJob?.isActive == true) return
         val scope = roomScope ?: return
         reconcileJob = scope.launch {
             do {
                 reconcileRequested = false
+                val snapshot = pendingRealtimeSnapshot
+                pendingRealtimeSnapshot = null
                 try {
-                    refreshRemotePlayback(roomId, generation)
+                    // Keep expensive stream resolution and Media3 application out of the
+                    // realtime collector. The collector can continue receiving newer rows.
+                    refreshRemotePlayback(roomId, generation, snapshot)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
                     setError(error, "Playback reconnecting")
                 }
             } while (
-                reconcileRequested &&
+                (reconcileRequested || pendingRealtimeSnapshot != null) &&
                 isCurrent(roomId, generation) &&
                 coroutineContext.isActive
             )
@@ -635,7 +691,7 @@ internal class ServiceRoomController(
                 // New tracks start at zero; never inherit the previous item's position.
                 // The requested play state is retained while the local player stays paused.
                 isPlaying = when (pending.actionType) {
-                    RoomActionType.TRACK, RoomActionType.PLAY -> pending.shouldPlay
+                    RoomActionType.TRACK, RoomActionType.PLAY, RoomActionType.RECOVERY -> pending.shouldPlay
                     RoomActionType.PAUSE -> false
                     else -> local.playWhenReady
                 },
@@ -710,8 +766,16 @@ internal class ServiceRoomController(
         lastRemoteRevision = maxOf(lastRemoteRevision, revision)
         lastAppliedRevision = maxOf(lastAppliedRevision, revision)
         retryPolicy.recordSuccess(revision)
+        val newerRecoveryPending = pendingAction?.let {
+            it.generation != pending.generation &&
+                it.actionType == RoomActionType.RECOVERY &&
+                it.sourceId == command.sourceId &&
+                it.shouldPlay
+        } == true
         if (pendingAction?.generation == pending.generation) {
             pendingAction = null
+            localTrackFallbackJob?.cancel()
+            localTrackFallbackJob = null
         }
         val publishedSnapshot = RoomPlaybackSnapshot(
             roomId = command.roomId,
@@ -742,15 +806,15 @@ internal class ServiceRoomController(
             lastError = null,
             statusMessage = null
         )
-        if (command.isPlaying &&
-            command.actionType in setOf(RoomActionType.TRACK, RoomActionType.PLAY)
-        ) {
+        if (command.isPlaying && command.actionType == RoomActionType.TRACK && !newerRecoveryPending) {
             beginPlaybackStartBarrier(
                 roomId = command.roomId,
                 generation = sessionGeneration,
                 revision = revision,
                 sourceId = command.canonicalSourceUrl
             )
+        } else if (newerRecoveryPending) {
+            requestPublishAfterApplyLock(command.roomId, sessionGeneration)
         }
     }
 
@@ -906,9 +970,13 @@ internal class ServiceRoomController(
         var shouldStartBarrier = false
         try {
             if (remote.isPlaying && !clock.isCalibrated()) {
-                clock.calibrate()
-                if (!clock.isCalibrated()) {
-                    throw IOException("A calibrated server clock is required before synchronized playback.")
+                try {
+                    clock.calibrate()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    // Clock loss disables scheduled sync, not already-prepared local audio.
+                    recordDiagnostic("clock.unavailable", "revision=${remote.revision} ${error.message.orEmpty()}")
                 }
             }
             val before = player.snapshot()
@@ -1000,9 +1068,13 @@ internal class ServiceRoomController(
                 val anchorTime = parseTimestamp(
                     authoritative.commandAt.ifBlank { authoritative.updatedAt }
                 )
-                val elapsed = anchorTime?.let {
-                    (clock.estimatedServerTimeMs() - it).coerceAtLeast(0L)
-                } ?: 0L
+                val elapsed = if (clock.isCalibrated()) {
+                    anchorTime?.let {
+                        (clock.estimatedServerTimeMs() - it).coerceAtLeast(0L)
+                    } ?: 0L
+                } else {
+                    0L
+                }
                 val expected = RoomPlaybackMath.expectedRemotePositionMs(
                     positionMs = authoritative.positionMs,
                     isPlaying = authoritative.isPlaying,
@@ -1011,8 +1083,8 @@ internal class ServiceRoomController(
                 )
                 val isNewTrackStart = authoritative.actionType == RoomActionType.TRACK &&
                     authoritative.isPlaying
-                val shouldUseSharedStart = authoritative.isPlaying &&
-                    authoritative.actionType in setOf(RoomActionType.TRACK, RoomActionType.PLAY)
+                // PLAY resumes an already-loaded item. READY/START is only for a new TRACK.
+                val shouldUseSharedStart = isNewTrackStart
                 if (barrierRevision != null && barrierRevision != authoritative.revision) {
                     cancelStartBarrier("a newer room revision arrived")
                 }
@@ -1106,12 +1178,40 @@ internal class ServiceRoomController(
         barrierJob = scope.launch {
             try {
                 if (!clock.isCalibrated()) {
-                    clock.calibrate()
+                    try {
+                        clock.calibrate()
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        recordDiagnostic("barrier.clock_probe_failed", error.message.orEmpty())
+                    }
                     if (!clock.isCalibrated()) {
-                        throw IOException("A calibrated server clock is required before starting the room.")
+                        val remote = lastRemotePlayback
+                        val local = player.snapshot()
+                        if (remote != null &&
+                            remote.revision == revision &&
+                            remote.canonicalSourceUrl == sourceId &&
+                            remote.isPlaying &&
+                            local.sourceId == sourceId &&
+                            local.isReady
+                        ) {
+                            startLocallyWithoutPeer(
+                                roomId = roomId,
+                                generation = generation,
+                                revision = revision,
+                                remote = remote,
+                                reason = "server_clock_unavailable"
+                            )
+                            return@launch
+                        }
+                        throw IOException("A calibrated server clock is required for a shared start.")
                     }
                 }
-                val localReadyDeadline = clock.elapsedRealtimeMs() + TRACK_READY_TIMEOUT_MS
+                val barrierDeadline = clock.elapsedRealtimeMs() + BARRIER_READY_TIMEOUT_MS
+                val localReadyDeadline = minOf(
+                    barrierDeadline,
+                    clock.elapsedRealtimeMs() + TRACK_READY_TIMEOUT_MS
+                )
                 // Wait for this device's own stream once. A peer that is not ready must
                 // never cause repeated readiness RPCs or leave this device paused forever.
                 while (
@@ -1163,11 +1263,10 @@ internal class ServiceRoomController(
                 // The server expires readiness rows after 45 seconds. Wait slightly
                 // longer before fallback so a late peer cannot schedule a shared start
                 // after this device has already started independently.
-                val peerDeadline = clock.elapsedRealtimeMs() + BARRIER_READY_TIMEOUT_MS
                 while (
                     isCurrent(roomId, generation) &&
                     barrierRevision == revision &&
-                    clock.elapsedRealtimeMs() < peerDeadline
+                    clock.elapsedRealtimeMs() < barrierDeadline
                 ) {
                     delay(BARRIER_READY_RETRY_MS)
                 }
@@ -1214,34 +1313,15 @@ internal class ServiceRoomController(
                     return@launch
                 }
 
-                // The peer did not become ready in time. Start at the authoritative
-                // track-command timeline so a later joiner can calculate the same offset.
-                val commandAt = parseTimestamp(remote.commandAt.ifBlank { remote.updatedAt })
-                val elapsed = commandAt?.let {
-                    (clock.estimatedServerTimeMs() - it).coerceAtLeast(0L)
-                } ?: 0L
-                val target = RoomPlaybackMath.expectedRemotePositionMs(
-                    positionMs = remote.positionMs,
-                    isPlaying = true,
-                    elapsedSinceUpdateMs = elapsed,
-                    durationMs = remote.durationMs
+                // Start from the saved track position now, then publish a fresh RECOVERY
+                // command so late peers receive a new anchor instead of stale command time.
+                startLocallyWithoutPeer(
+                    roomId = roomId,
+                    generation = generation,
+                    revision = revision,
+                    remote = remote,
+                    reason = "peer_ready_timeout"
                 )
-                player.seekTo(target)
-                player.resetPlaybackSpeed()
-                player.play()
-                barrierCompletedRevision = revision
-                barrierFallbackRevision = revision
-                barrierRevision = null
-                barrierScheduledStartAt = null
-                playbackAnchorRevision = revision
-                playbackAnchorAt = remote.commandAt.ifBlank { remote.updatedAt }
-                playbackAnchorPositionMs = remote.positionMs
-                mutableState.value = mutableState.value.copy(
-                    connection = RoomConnectionState.CONNECTED,
-                    lastError = null,
-                    statusMessage = null
-                )
-                recordDiagnostic("barrier.started_without_peer", "revision=$revision offset=${target}ms")
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -1250,6 +1330,139 @@ internal class ServiceRoomController(
                     recordDiagnostic("barrier.error", error.message.orEmpty())
                     barrierRevision = null
                 }
+            }
+        }
+    }
+
+    private fun startLocallyWithoutPeer(
+        roomId: String,
+        generation: Long,
+        revision: Long,
+        remote: RoomPlaybackSnapshot,
+        reason: String
+    ) {
+        if (!isCurrent(roomId, generation) || barrierRevision != revision) return
+        val local = player.snapshot()
+        if (local.sourceId != remote.canonicalSourceUrl || !local.isReady || !remote.isPlaying) {
+            mutableState.value = mutableState.value.copy(
+                lastError = "This device is not ready to start the selected track.",
+                statusMessage = null
+            )
+            recordDiagnostic("barrier.fallback_not_ready", "revision=$revision reason=$reason")
+            barrierRevision = null
+            return
+        }
+
+        val position = remote.positionMs.coerceAtLeast(0L)
+        player.seekTo(position)
+        player.resetPlaybackSpeed()
+        player.play()
+        barrierCompletedRevision = maxOf(barrierCompletedRevision, revision)
+        barrierRevision = null
+        barrierScheduledStartAt = null
+        playbackAnchorRevision = revision
+        playbackAnchorAt = serverTimestamp()
+        playbackAnchorPositionMs = position
+        mutableState.value = mutableState.value.copy(
+            connection = RoomConnectionState.CONNECTED,
+            lastError = null,
+            statusMessage = null
+        )
+        recordDiagnostic(
+            "barrier.started_without_peer",
+            "revision=$revision position=${position}ms reason=$reason"
+        )
+        publishFallbackRecovery(roomId, generation, remote, position)
+    }
+
+    private fun publishFallbackRecovery(
+        roomId: String,
+        generation: Long,
+        remote: RoomPlaybackSnapshot,
+        positionMs: Long
+    ) {
+        val scope = roomScope ?: return
+        val originDeviceId = userId ?: return
+        scope.launch {
+            try {
+                if (!isCurrent(roomId, generation) ||
+                    pendingAction != null ||
+                    lastRemoteRevision > remote.revision
+                ) return@launch
+
+                val actionId = UUID.randomUUID().toString()
+                val command = RoomCommand(
+                    roomId = roomId,
+                    actionId = actionId,
+                    expectedRevision = remote.revision,
+                    originDeviceId = originDeviceId,
+                    actionType = RoomActionType.RECOVERY,
+                    sourceId = remote.sourceId,
+                    canonicalSourceUrl = remote.canonicalSourceUrl,
+                    title = remote.title,
+                    artist = remote.artist,
+                    isPlaying = true,
+                    positionMs = positionMs,
+                    durationMs = remote.durationMs
+                )
+                val result = repository.publishPlayback(command)
+                if (!isCurrent(roomId, generation)) return@launch
+                if (!result.applied) {
+                    val latest = repository.fetchPlaybackSnapshot(roomId)
+                    if (latest != null && latest.revision > remote.revision) {
+                        lastRemotePlayback = latest
+                        lastRemoteRevision = maxOf(lastRemoteRevision, latest.revision)
+                        requestReconciliation(roomId, generation)
+                    }
+                    recordDiagnostic(
+                        "barrier.recovery_publish_conflict",
+                        "revision=${remote.revision} latest=${latest?.revision}"
+                    )
+                    return@launch
+                }
+
+                val fallbackTimestamp = serverTimestamp()
+                val persisted = runCatching {
+                    repository.fetchPlaybackSnapshot(roomId)
+                }.getOrNull()?.takeIf { it.revision == result.revision }
+                val authoritative = persisted ?: remote.copy(
+                    isPlaying = true,
+                    positionMs = positionMs,
+                    revision = result.revision,
+                    updatedBy = originDeviceId,
+                    updatedAt = fallbackTimestamp,
+                    actionId = actionId,
+                    actionType = RoomActionType.RECOVERY,
+                    originDeviceId = originDeviceId,
+                    commandAt = fallbackTimestamp
+                )
+                if (!isCurrent(roomId, generation) ||
+                    pendingAction != null ||
+                    authoritative.revision < lastRemoteRevision
+                ) return@launch
+
+                lastRemoteRevision = maxOf(lastRemoteRevision, authoritative.revision)
+                lastAppliedRevision = maxOf(lastAppliedRevision, authoritative.revision)
+                lastRemotePlayback = authoritative
+                barrierCompletedRevision = maxOf(barrierCompletedRevision, authoritative.revision)
+                playbackAnchorRevision = authoritative.revision
+                playbackAnchorAt = authoritative.commandAt
+                playbackAnchorPositionMs = authoritative.positionMs
+                mutableState.value = mutableState.value.copy(
+                    connection = RoomConnectionState.CONNECTED,
+                    playback = authoritative,
+                    lastError = null,
+                    statusMessage = null
+                )
+                recordDiagnostic(
+                    "barrier.recovery_published",
+                    "revision=${authoritative.revision} anchor=${authoritative.commandAt}"
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                // Local playback already started. A recovery RPC failure must not pause it.
+                recordDiagnostic("barrier.recovery_publish_failed", error.message.orEmpty())
             }
         }
     }
@@ -1267,36 +1480,13 @@ internal class ServiceRoomController(
             (remote.revision != revision || remote.canonicalSourceUrl != sourceId || !remote.isPlaying)
         ) return
 
-        // A START may arrive after this device used its bounded no-peer fallback.
-        // It is then a peer-join signal, not a command to rewind the already-running track.
-        if (revision == barrierCompletedRevision) {
-            if (barrierFallbackRevision != revision) {
-                recordDiagnostic("barrier.duplicate_start_ignored", "revision=$revision")
-                return
-            }
-            val local = player.snapshot()
-            if (local.sourceId != sourceId || !local.isPlaying || remote == null) return
-            val commandAt = parseTimestamp(remote.commandAt.ifBlank { remote.updatedAt })
-            val elapsed = commandAt?.let {
-                (clock.estimatedServerTimeMs() - it).coerceAtLeast(0L)
-            } ?: 0L
-            val expected = RoomPlaybackMath.expectedRemotePositionMs(
-                positionMs = remote.positionMs,
-                isPlaying = true,
-                elapsedSinceUpdateMs = elapsed,
-                durationMs = remote.durationMs
-            )
-            if (RoomPlaybackMath.needsSeek(local.positionMs, expected)) {
-                player.resetPlaybackSpeed()
-                player.seekTo(expected)
-            }
-            playbackAnchorRevision = revision
-            playbackAnchorAt = remote.commandAt.ifBlank { remote.updatedAt }
-            playbackAnchorPositionMs = remote.positionMs
-            recordDiagnostic("barrier.late_shared_anchor", "revision=$revision offset=${expected}ms")
+        // Duplicate or stale STARTs cannot rewind a completed local timeline. A device
+        // that fell back has published a newer RECOVERY revision for any late peer.
+        if (revision <= barrierCompletedRevision) {
+            recordDiagnostic("barrier.duplicate_start_ignored", "revision=$revision")
             return
         }
-        if (barrierRevision != revision || revision < barrierCompletedRevision) return
+        if (barrierRevision != revision) return
 
         val startAtMs = parseTimestamp(startAt) ?: run {
             recordDiagnostic("barrier.invalid_start", "revision=$revision")
@@ -1351,20 +1541,9 @@ internal class ServiceRoomController(
                     return@launch
                 }
 
-                // Project the command's position forward to the scheduled anchor first.
-                // A late peer must join the existing track timeline, not restart at zero.
-                val commandAt = parseTimestamp(
-                    currentRemote.commandAt.ifBlank { currentRemote.updatedAt }
-                )
-                val elapsedBeforeStart = commandAt?.let {
-                    (startAtMs - it).coerceAtLeast(0L)
-                } ?: 0L
-                val positionAtStart = RoomPlaybackMath.expectedRemotePositionMs(
-                    positionMs = currentRemote.positionMs,
-                    isPlaying = true,
-                    elapsedSinceUpdateMs = elapsedBeforeStart,
-                    durationMs = currentRemote.durationMs
-                )
+                // The new stream is staged paused until start_at. The 1.5s lead is not
+                // playback time; only elapsed time after the scheduled start advances it.
+                val positionAtStart = currentRemote.positionMs.coerceAtLeast(0L)
                 val elapsedSinceStart = (
                     clock.estimatedServerTimeMs() - startAtMs
                 ).coerceAtLeast(0L)
@@ -1499,20 +1678,25 @@ internal class ServiceRoomController(
 
     private fun parseTimestamp(value: String): Long? = RoomTimestampParser.parse(value)
 
-    private fun serverTimestamp(): String = SimpleDateFormat(
-        "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
-        Locale.US
-    ).apply {
-        timeZone = TimeZone.getTimeZone("UTC")
-    }.format(Date(clock.estimatedServerTimeMs()))
+    private fun serverTimestamp(): String {
+        val formatter = SERVER_TIMESTAMP_FORMATTER.get() ?: SimpleDateFormat(
+            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+            Locale.US
+        ).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }.also(SERVER_TIMESTAMP_FORMATTER::set)
+        return formatter.format(Date(clock.estimatedServerTimeMs()))
+    }
 
     private companion object {
+        val SERVER_TIMESTAMP_FORMATTER = ThreadLocal<SimpleDateFormat>()
         const val HEARTBEAT_INTERVAL_MS = 25_000L
         const val CLOCK_CALIBRATION_INTERVAL_MS = 300_000L
-        const val TRACK_READY_TIMEOUT_MS = 20_000L
-        const val BARRIER_READY_TIMEOUT_MS = 46_000L
+        const val TRACK_READY_TIMEOUT_MS = 4_000L
+        const val BARRIER_READY_TIMEOUT_MS = 4_000L
         const val BARRIER_READY_RETRY_MS = 100L
-        const val BARRIER_FINAL_READY_TIMEOUT_MS = 20_000L
+        const val BARRIER_FINAL_READY_TIMEOUT_MS = 5_000L
+        const val LOCAL_TRACK_FALLBACK_TIMEOUT_MS = 4_000L
         const val LOCAL_ACTION_WIN_MARGIN_MS = 200L
         const val MAX_DIAGNOSTIC_EVENTS = 120
     }
