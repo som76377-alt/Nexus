@@ -153,6 +153,7 @@ internal class RoomIntentForwardingPlayer(
     override fun seekTo(positionMs: Long) {
         val targetPositionMs = positionMs.coerceAtLeast(0L)
         recordIntent(RoomPlayerIntent.SeekTo(targetPositionMs))
+        pendingRoomTrackStart = false
         super.seekTo(targetPositionMs)
     }
 
