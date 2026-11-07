@@ -425,6 +425,7 @@ class ListeningRoomActivity : Activity() {
                     }
                     if (roomState.chatSignalVersion > lastChatSignalVersion) {
                         lastChatSignalVersion = roomState.chatSignalVersion
+                        if (!isActivityStarted) return@collect
                         try {
                             refreshMessages()
                         } catch (cancelled: CancellationException) {
@@ -747,6 +748,11 @@ class ListeningRoomActivity : Activity() {
         super.onStart()
         isActivityStarted = true
         startChatFallbackSync()
+        if (roomId != null) {
+            scope.launch {
+                runCatching { refreshMessages() }
+            }
+        }
         val snapshot = playback?.snapshot() ?: PlaybackSnapshot(connected = false)
         renderPlayback(snapshot)
         schedulePlayerTicker(snapshot)
