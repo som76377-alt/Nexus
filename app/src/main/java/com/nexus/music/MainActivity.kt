@@ -368,11 +368,11 @@ class MainActivity : Activity() {
         updateCheckJob = activityScope.launch {
             try {
                 when (val result = updateChecker.checkForUpdate(this@MainActivity)) {
-                    is UpdateCheckResult.IncompatibleInstallation -> {
+                    is UpdateCheckResult.UnverifiedInstallation -> {
                         pendingUpdate = null
                         requiresCleanInstall = true
                         updateStatusText.text =
-                            "This copy can't update in place · install the official signed build"
+                            "Signing identity UNKNOWN · official update compatibility is not verified"
                         updateStatusText.setTextColor(Color.rgb(255, 190, 130))
                         updateButton.text = "Install official build"
                         updateButton.isEnabled = true
@@ -425,10 +425,11 @@ class MainActivity : Activity() {
         AlertDialog.Builder(this)
             .setTitle("Install the official Nexus build")
             .setMessage(
-                "This copy was signed with a different key. Android blocks in-place updates " +
-                    "between different signing keys. Back up anything important, uninstall this " +
-                    "copy, then install Nexus from the official GitHub release page. " +
-                    "Uninstalling can erase this device's saved anonymous room identity."
+                "This installation's signing identity is UNKNOWN to the updater; it is not verified against " +
+                    "the official release certificate. Android may reject an in-place update. Open " +
+                    "the official release page first; if Android refuses the update, back up anything " +
+                    "important, then uninstall this copy and install the official build. Uninstalling " +
+                    "can erase this device's saved anonymous room identity."
             )
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Open official release") { _, _ ->

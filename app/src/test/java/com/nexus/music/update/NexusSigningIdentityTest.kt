@@ -1,7 +1,6 @@
 package com.nexus.music.update
 
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class NexusSigningIdentityTest {
@@ -9,17 +8,17 @@ class NexusSigningIdentityTest {
 
     @Test
     fun acceptsTheExactOfficialReleaseCertificate() {
-        assertTrue(isOfficialNexusSigner(setOf(official)))
+        assertEquals(NexusSigningIdentity.OFFICIAL, classifyNexusSigner(setOf(official)))
     }
 
     @Test
-    fun rejectsDebugUnknownOrMissingSigners() {
-        assertFalse(isOfficialNexusSigner(setOf("0".repeat(64))))
-        assertFalse(isOfficialNexusSigner(emptySet()))
+    fun unrecognizedOrMissingSigningIdentityIsUnknownNotWrongKey() {
+        assertEquals(NexusSigningIdentity.UNKNOWN, classifyNexusSigner(setOf("0".repeat(64))))
+        assertEquals(NexusSigningIdentity.UNKNOWN, classifyNexusSigner(emptySet()))
     }
 
     @Test
     fun rejectsUnexpectedAdditionalSigner() {
-        assertFalse(isOfficialNexusSigner(setOf(official, "0".repeat(64))))
+        assertEquals(NexusSigningIdentity.UNKNOWN, classifyNexusSigner(setOf(official, "0".repeat(64))))
     }
 }

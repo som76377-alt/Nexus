@@ -35,7 +35,7 @@ sealed interface UpdateCheckResult {
         val installedVersion: String,
         val latestReleaseVersion: String
     ) : UpdateCheckResult
-    data class IncompatibleInstallation(val installedVersion: String) : UpdateCheckResult
+    data class UnverifiedInstallation(val installedVersion: String) : UpdateCheckResult
 }
 
 /**
@@ -51,7 +51,7 @@ class GitHubReleaseUpdater(
         val installedVersion = installedInfo.versionName
             ?: throw IOException("Android could not read the installed Nexus version.")
         if (!hasOfficialInstalledSigner(installedInfo)) {
-            return@withContext UpdateCheckResult.IncompatibleInstallation(installedVersion)
+            return@withContext UpdateCheckResult.UnverifiedInstallation(installedVersion)
         }
         val installedVersionCode = installedVersionCode(installedInfo)
         val apiUrl = "https://api.github.com/repos/" +
@@ -341,7 +341,7 @@ class GitHubReleaseUpdater(
             @Suppress("DEPRECATION")
             signerFingerprints(packageInfo.signatures)
         }
-        return isOfficialNexusSigner(fingerprints)
+        return classifyNexusSigner(fingerprints) == NexusSigningIdentity.OFFICIAL
     }
 
     @Suppress("DEPRECATION")
@@ -392,8 +392,18 @@ class GitHubReleaseUpdater(
     }
 }
 
-internal fun isOfficialNexusSigner(fingerprints: Set<String>): Boolean =
-    fingerprints == setOf(OFFICIAL_NEXUS_SIGNER_SHA256)
+internal enum class NexusSigningIdentity {
+    OFFICIAL,
+    UNKNOWN
+}
+
+/** A non-matching or unavailable certificate is unverified, not proof of a malicious key. */
+internal fun classifyNexusSigner(fingerprints: Set<String>): NexusSigningIdentity =
+    if (fingerprints == setOf(OFFICIAL_NEXUS_SIGNER_SHA256)) {
+        NexusSigningIdentity.OFFICIAL
+    } else {
+        NexusSigningIdentity.UNKNOWN
+    }
 
 private const val OFFICIAL_NEXUS_SIGNER_SHA256 =
     "c8b263a4b2aecac65df71e6ee9f6e8ab47a33688a46a4cf0f4248506975d6e2b"
@@ -403,7 +413,6 @@ private fun ByteArray.toHexString(): String = joinToString("") { byte ->
 }
 
 class IncompatibleSigningCertificateException : IOException(
-    "This installed copy of Nexus was signed with a different key. Android cannot update it in place. " +
-        "To move to the official release, back up anything important, uninstall this copy, then install the official APK. " +
-        "Uninstalling the app may erase its local data."
+    "The downloaded APK signing identity is not verified as compatible with this installation. " +
+        "Android may refuse an in-place update. Back up important data before changing installations."
 )

@@ -60,6 +60,9 @@ jobs:
         with:
           cache-provider: basic
 
+      - name: Verify release publishing is tag-push only
+        run: bash scripts/test-release-publish-gate.sh
+
       - name: Run Android lint
         run: ./gradlew --no-daemon --stacktrace :app:lintDebug
 
