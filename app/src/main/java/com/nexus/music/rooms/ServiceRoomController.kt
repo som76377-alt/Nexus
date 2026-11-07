@@ -476,8 +476,10 @@ internal class ServiceRoomController(
                 shouldPlay = intent.shouldPlay
             )
             RoomPlayerIntent.Play -> previous?.takeIf { it.actionType == RoomActionType.TRACK }
-                ?.let { updatePendingTrack(it, elapsed, shouldPlay = true) }
-                ?: pendingFromSnapshot(RoomActionType.PLAY, current, elapsed)
+                ?.let {
+                    player.pause()
+                    updatePendingTrack(it, elapsed, shouldPlay = true)
+                } ?: pendingFromSnapshot(RoomActionType.PLAY, current, elapsed)
             RoomPlayerIntent.Pause -> previous?.takeIf { it.actionType == RoomActionType.TRACK }
                 ?.let { updatePendingTrack(it, elapsed, shouldPlay = false) }
                 ?: pendingFromSnapshot(RoomActionType.PAUSE, current, elapsed)
