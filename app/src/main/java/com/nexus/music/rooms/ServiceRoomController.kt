@@ -453,7 +453,7 @@ internal class ServiceRoomController(
         val scope = roomScope ?: return
         if (next.actionType == RoomActionType.TRACK && next.shouldPlay) {
             // A room/network failure must not keep a locally prepared track silent.
-            // After four seconds, start this device and publish a RECOVERY timeline.
+            // After three seconds, start this device and publish a RECOVERY timeline.
             val expectedSession = sessionGeneration
             localTrackFallbackJob = scope.launch {
                 delay(LOCAL_TRACK_FALLBACK_TIMEOUT_MS)
@@ -1323,8 +1323,8 @@ internal class ServiceRoomController(
                 }
 
                 recordDiagnostic("barrier.waiting_for_peer", "revision=$revision")
-                // The database caps readiness to this revision's four-second command
-                // window, so a late peer cannot create a START after local fallback.
+                // A late peer may still emit a stale START after local fallback; the completed
+                // RECOVERY revision prevents that older barrier from rewinding playback.
                 while (
                     isCurrent(roomId, generation) &&
                     barrierRevision == revision &&
@@ -1720,10 +1720,10 @@ internal class ServiceRoomController(
         const val HEARTBEAT_INTERVAL_MS = 25_000L
         const val CLOCK_CALIBRATION_INTERVAL_MS = 300_000L
         const val TRACK_READY_TIMEOUT_MS = 4_000L
-        const val BARRIER_READY_TIMEOUT_MS = 4_000L
+        const val BARRIER_READY_TIMEOUT_MS = 3_000L
         const val BARRIER_READY_RETRY_MS = 100L
         const val BARRIER_FINAL_READY_TIMEOUT_MS = 5_000L
-        const val LOCAL_TRACK_FALLBACK_TIMEOUT_MS = 4_000L
+        const val LOCAL_TRACK_FALLBACK_TIMEOUT_MS = 3_000L
         const val LOCAL_ACTION_WIN_MARGIN_MS = 200L
         const val PUBLISH_RETRY_BASE_MS = 500L
         const val PUBLISH_RETRY_MAX_MS = 8_000L
