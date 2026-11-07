@@ -27,7 +27,6 @@ import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackService
 import com.nexus.music.rooms.domain.RoomConnectionState
 import com.nexus.music.rooms.domain.RoomController
-import com.nexus.music.playback.RoomPlayerAdapter
 import com.nexus.music.playback.PlaybackSnapshot
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -70,7 +69,7 @@ class ListeningRoomActivity : Activity() {
     private lateinit var diagnosticsText: TextView
     private lateinit var copyDiagnosticsButton: Button
 
-    private var playback: RoomPlayerAdapter? = null
+    private var playback: PlaybackConnection? = null
     private var roomId: String? = null
     // Distinguishes a new join session even when the same room ID is re-entered.
     private var roomSessionGeneration = 0L
@@ -84,6 +83,7 @@ class ListeningRoomActivity : Activity() {
     private var diagnosticsJob: Job? = null
     private var lastChatSignalVersion = 0L
     private var isSeeking = false
+    private var isActivityStarted = false
     private var lastSnapshot = PlaybackSnapshot(connected = false)
     private var backInvokedCallback: android.window.OnBackInvokedCallback? = null
 
@@ -96,9 +96,17 @@ class ListeningRoomActivity : Activity() {
 
     private val playerTicker = object : Runnable {
         override fun run() {
+            if (!isActivityStarted || isFinishing || isDestroyed) return
             val snapshot = playback?.snapshot() ?: PlaybackSnapshot(connected = false)
             renderPlayback(snapshot)
-            if (!isFinishing && !isDestroyed) handler.postDelayed(this, 500L)
+            schedulePlayerTicker(snapshot)
+        }
+    }
+
+    private fun schedulePlayerTicker(snapshot: PlaybackSnapshot) {
+        handler.removeCallbacks(playerTicker)
+        if (isActivityStarted && snapshot.isPlaying && !isFinishing && !isDestroyed) {
+            handler.postDelayed(playerTicker, 500L)
         }
     }
 
@@ -417,6 +425,7 @@ class ListeningRoomActivity : Activity() {
                     }
                     if (roomState.chatSignalVersion > lastChatSignalVersion) {
                         lastChatSignalVersion = roomState.chatSignalVersion
+                        if (!isActivityStarted) return@collect
                         try {
                             refreshMessages()
                         } catch (cancelled: CancellationException) {
@@ -428,25 +437,8 @@ class ListeningRoomActivity : Activity() {
                 }
             }
 
-            // Chat remains a UI/data concern. Realtime chat invalidations arrive from the
-            // service-owned subscription; this bounded poll is only the missed-event fallback.
-            syncJob?.cancel()
-            syncJob = scope.launch {
-                while (isActive &&
-                    roomId == id &&
-                    roomSessionGeneration == sessionGeneration
-                ) {
-                    try {
-                        refreshMessages()
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (error: Exception) {
-                        status.text = "Chat reconnecting · ${error.message ?: "connection interrupted"}"
-                    }
-                    val realtimeHealthy = controller.state.value.realtimeConnected
-                    delay(if (realtimeHealthy) 30_000L else 10_000L)
-                }
-            }
+            // Chat polling is a visible-UI fallback only; the service owns playback sync.
+            startChatFallbackSync()
             refreshMessages()
         } catch (cancelled: CancellationException) {
             if (roomId == id && roomSessionGeneration == sessionGeneration) {
@@ -468,6 +460,36 @@ class ListeningRoomActivity : Activity() {
             ClipData.newPlainText("Nexus room diagnostics", diagnostics.exportText())
         )
         Toast.makeText(this, "Synchronization log copied", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun startChatFallbackSync() {
+        val id = roomId ?: return
+        val controller = roomController ?: return
+        val sessionGeneration = roomSessionGeneration
+        if (!isActivityStarted || syncJob?.isActive == true) return
+
+        syncJob = scope.launch {
+            while (isActive &&
+                roomId == id &&
+                roomSessionGeneration == sessionGeneration
+            ) {
+                val realtimeHealthy = controller.state.value.realtimeConnected
+                delay(if (realtimeHealthy) 30_000L else 10_000L)
+                if (roomId != id || roomSessionGeneration != sessionGeneration) break
+                try {
+                    refreshMessages()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    status.text = "Chat reconnecting · ${error.message ?: "connection interrupted"}"
+                }
+            }
+        }
+    }
+
+    private fun stopChatFallbackSync() {
+        syncJob?.cancel()
+        syncJob = null
     }
 
     private suspend fun refreshMessages() {
@@ -549,6 +571,7 @@ class ListeningRoomActivity : Activity() {
     private fun onPlaybackChanged(snapshot: PlaybackSnapshot) {
         lastSnapshot = snapshot
         renderPlayback(snapshot)
+        schedulePlayerTicker(snapshot)
     }
 
     private fun renderPlayback(snapshot: PlaybackSnapshot) {
@@ -591,8 +614,7 @@ class ListeningRoomActivity : Activity() {
         // Detaching cancels only this room session. It never releases the service/player.
         roomSessionGeneration += 1L
         messageRefreshGeneration += 1L
-        syncJob?.cancel()
-        syncJob = null
+        stopChatFallbackSync()
         roomStateJob?.cancel()
         roomStateJob = null
         diagnosticsJob?.cancel()
@@ -724,23 +746,40 @@ class ListeningRoomActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
-        handler.removeCallbacks(playerTicker)
-        handler.post(playerTicker)
+        isActivityStarted = true
+        startChatFallbackSync()
+        if (roomId != null) {
+            scope.launch {
+                try {
+                    refreshMessages()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    status.text = "Chat reconnecting · ${error.message ?: "retrying"}"
+                }
+            }
+        }
+        val snapshot = playback?.snapshot() ?: PlaybackSnapshot(connected = false)
+        renderPlayback(snapshot)
+        schedulePlayerTicker(snapshot)
     }
 
     override fun onStop() {
+        isActivityStarted = false
+        stopChatFallbackSync()
         handler.removeCallbacks(playerTicker)
         super.onStop()
     }
 
     override fun onDestroy() {
+        isActivityStarted = false
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             backInvokedCallback?.let(onBackInvokedDispatcher::unregisterOnBackInvokedCallback)
             backInvokedCallback = null
         }
         // Do not detach the service-owned room controller here. The room must survive
         // Activity navigation/recreation while PlaybackService remains alive.
-        syncJob?.cancel()
+        stopChatFallbackSync()
         roomStateJob?.cancel()
         diagnosticsJob?.cancel()
         handler.removeCallbacks(playerTicker)

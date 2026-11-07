@@ -13,4 +13,4 @@ The project is still compact. Immediate multi-module conversion would add Gradle
 
 ## Revisit when
 
-The room domain, backend adapters, playback integration and UI boundaries are implemented and tested independently, or when another feature genuinely needs a reusable module.
+A second feature needs a reusable module or independent build lifecycle, and measured build/ownership costs justify the split.

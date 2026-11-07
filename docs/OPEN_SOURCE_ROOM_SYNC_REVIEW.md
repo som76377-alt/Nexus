@@ -6,7 +6,7 @@ Reviewed 5 November 2026 against the upstream repositories and their current arc
 
 Keep Nexus's existing native Android playback engine (Media3/ExoPlayer), NewPipe-based local resolver, and Supabase room backend. Adopt the strongest parts of the native listening-room architecture reviewed below, but do not add a second room backend or a media-relay server to the current two-phone prototype.
 
-The room coordinator now talks through `RoomPlayerAdapter` and `RoomMediaResolver` ports. This is the integration boundary: each Android device uses its own player and resolver, while room membership, chat, playback authority, revisions, and drift correction stay independent of those implementations.
+The initial integration used a UI-side `RoomPlayerAdapter`. The current service-owned implementation uses `RoomPlayerPort` / `Media3RoomPlayerPort` and `RoomMediaResolver`: each phone owns one local player and resolves its own stream while room membership, chat, playback authority, revisions and drift policy remain separate.
 
 ## Candidate review
 

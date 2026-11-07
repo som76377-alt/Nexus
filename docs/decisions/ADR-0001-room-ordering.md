@@ -5,19 +5,19 @@
 
 ## Decision
 
-Keep the existing membership-checked Supabase RPC, monotonically increasing playback revision and idempotent action UUID as the only authoritative command-ordering mechanism.
+Keep the membership-checked Supabase RPC, monotonically increasing playback revision and idempotent action UUID as the only authoritative command-ordering mechanism.
 
-Postgres Changes are wake-up signals. After a signal, clients fetch the authoritative row and apply only a newer revision.
+Private Realtime Broadcast carries the authoritative row snapshot and scheduled-start signal for low-latency delivery. It does not order commands or replace the database revision. Clients validate room identity and apply only newer revisions; authenticated REST reads remain the reconnect and recovery path. Chat uses a separate membership-protected Postgres Changes subscription.
 
 ## Why
 
 - The live database already enforces the RPC-only write path.
 - PR #6 improves local action protection, conflict handling and retry behavior around this mechanism.
-- Adding Lamport ordering and a Broadcast command path at the same time would create two competing ordering authorities and make failures harder to diagnose.
+- A separate Broadcast command path would create a second ordering authority. Broadcast is therefore used only to deliver database-committed state, never to accept commands.
 - The current design can be measured on real devices before replacing its transport.
 
 ## Revisit when
 
-Measured command latency or event delivery failures remain unacceptable after the service-owned controller is implemented and tested.
+Physical-device measurements show that database-committed broadcast delivery still has unacceptable latency or event-loss rates.
 
-Any future Broadcast design must define membership authorization, concurrent command tie-breaks, durable command IDs, reconnect snapshots and atomic idempotent persistence before rollout.
+Revisit only if measured database-committed broadcast delivery remains insufficient; do not turn Broadcast into an independent command-write path.

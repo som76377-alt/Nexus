@@ -12,7 +12,7 @@ The previous periodic and push-triggered background download jobs are cancelled.
 
 ## Release publishing
 
-Push a stable version tag such as `v0.1.4`, or use the configured release commit trigger, to build and verify the signed APK and publish it with its SHA-256 digest. The app reads only public stable GitHub Releases; no GitHub token is embedded in the APK.
+Push a stable semantic version tag such as `v0.1.8` to build, verify and publish the signed APK with its SHA-256 digest. A manual workflow dispatch or push to `main` performs signing validation only; only a version-tag push publishes a public release. The app reads only public stable GitHub Releases; no GitHub token is embedded in the APK.
 
 ## Important Android limits
 

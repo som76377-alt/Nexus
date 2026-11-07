@@ -1,13 +1,12 @@
 package com.nexus.music.rooms.domain
 
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Backend boundary for room playback.
  *
- * Realtime notifications are invalidation/wake-up signals only. Callers fetch the
- * authoritative snapshot and compare its revision before applying it.
+ * Realtime may carry an authoritative row snapshot or a scheduled-start signal.
+ * Callers still validate room identity and monotonically increasing revisions.
  */
 interface RoomRepository {
     suspend fun currentUserId(): String
@@ -20,7 +19,6 @@ interface RoomRepository {
     ): RoomPlaybackReadyResult
     fun observeRealtimeSignals(roomId: String): Flow<RoomRealtimeSignal>
     suspend fun touchRoom(roomId: String): Boolean
-    suspend fun leaveRoom(roomId: String)
 }
 
 /**
@@ -30,15 +28,13 @@ interface RoomRepository {
  * It must never create a second player for room playback.
  */
 interface RoomPlayerPort {
-    val playback: StateFlow<LocalPlaybackSnapshot>
     val userIntents: Flow<RoomPlayerIntent>
 
-    /** Read a fresh position/state; StateFlow is for observation, not a clock. */
+    /** Read a fresh player position/state; it is not a clock. */
     fun snapshot(): LocalPlaybackSnapshot
 
     /** Resolve externally, then replace the item in the one local player. */
     suspend fun prepareCanonicalSource(
-        sourceId: String,
         canonicalSourceUrl: String,
         streamUrl: String,
         title: String,

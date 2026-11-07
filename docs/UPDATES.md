@@ -38,7 +38,7 @@ Tags must use `vMAJOR.MINOR.PATCH`. Never reuse a published tag for a different 
 
 The first update may ask you to allow Nexus to install apps from this source in Android settings. Android then asks you to approve each installation; Nexus cannot bypass those system prompts.
 
-During playback, Media3 runs the media foreground service and maintains the media notification with playback controls. A local wake lock is held only while playback is ready or buffering and is released when playback is not active.
+During playback, Media3 runs the media foreground service and maintains the media notification with playback controls. The player is configured with network wake mode for screen-off streaming. This does not promise that Android will keep an idle, paused service alive indefinitely; verify screen-off and network behavior on physical devices.
 
 Android 13+ also has a notification permission. Declining it does not block playback, although notification visibility can be limited by Android.
 

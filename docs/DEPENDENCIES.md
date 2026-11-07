@@ -9,7 +9,7 @@ Versions are pinned; do not replace them with floating versions.
 | Gradle | 9.6.0 | Minimum version required by AGP 9.5 |
 | JDK | 17+ (Codespaces image uses JDK 21) | Build runtime |
 | Android SDK | API 36 / Build Tools 36.0.0 | Compile and package |
-| AndroidX Media3 | 1.11.1 stable | ExoPlayer, MediaSession, player UI, DASH, HLS and SmoothStreaming playback |
+| AndroidX Media3 | 1.11.1 stable | ExoPlayer, MediaSession, DASH and HLS playback |
 | NewPipe Extractor | Upstream-pinned commit `e8f89145a830b4d6cae32412007f24ea8b36c73a` | Community-maintained catalogue/stream extraction adapter |
 | OkHttp | 4.12.0 | Extractor HTTP transport |
 | Kotlin coroutines | 1.10.2 | Off-main-thread extraction |
