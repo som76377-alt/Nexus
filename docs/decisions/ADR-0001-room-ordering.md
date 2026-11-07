@@ -18,6 +18,6 @@ Private Realtime Broadcast carries the authoritative row snapshot and scheduled-
 
 ## Revisit when
 
-Measured command latency or event delivery failures remain unacceptable after the service-owned controller is implemented and tested.
+Physical-device measurements show that database-committed broadcast delivery still has unacceptable latency or event-loss rates.
 
 Revisit only if measured database-committed broadcast delivery remains insufficient; do not turn Broadcast into an independent command-write path.
