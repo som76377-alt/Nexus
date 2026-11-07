@@ -1354,7 +1354,23 @@ internal class ServiceRoomController(
                 if (isCurrent(roomId, generation) && barrierRevision == revision) {
                     setError(error, "Synchronized start could not be scheduled")
                     recordDiagnostic("barrier.error", error.message.orEmpty())
-                    barrierRevision = null
+                    val remote = lastRemotePlayback
+                    if (remote != null &&
+                        remote.revision == revision &&
+                        remote.sourceId == sourceId &&
+                        remote.isPlaying
+                    ) {
+                        startLocallyWithoutPeer(
+                            roomId = roomId,
+                            generation = generation,
+                            revision = revision,
+                            remote = remote,
+                            reason = "readiness_rpc_failed"
+                        )
+                    } else {
+                        barrierRevision = null
+                        barrierScheduledStartAt = null
+                    }
                 }
             }
         }
@@ -1608,11 +1624,26 @@ internal class ServiceRoomController(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                if (isCurrent(roomId, generation)) {
+                if (isCurrent(roomId, generation) && barrierRevision == revision) {
                     setError(error, "Synchronized playback could not start")
                     recordDiagnostic("barrier.start_error", error.message.orEmpty())
-                    barrierRevision = null
-                    barrierScheduledStartAt = null
+                    val remote = lastRemotePlayback
+                    if (remote != null &&
+                        remote.revision == revision &&
+                        remote.sourceId == sourceId &&
+                        remote.isPlaying
+                    ) {
+                        startLocallyWithoutPeer(
+                            roomId = roomId,
+                            generation = generation,
+                            revision = revision,
+                            remote = remote,
+                            reason = "scheduled_start_failed"
+                        )
+                    } else {
+                        barrierRevision = null
+                        barrierScheduledStartAt = null
+                    }
                 }
             }
         }
