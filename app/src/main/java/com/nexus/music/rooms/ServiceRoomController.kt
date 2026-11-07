@@ -393,10 +393,6 @@ internal class ServiceRoomController(
                 else if (!roomActive) PlaybackPhase.LOCAL
                 else if (phase.shouldPlay) PlaybackPhase.ROOM_PLAYING
                 else PlaybackPhase.ROOM_PAUSED
-            is RoomPlayerIntent.SkipToNext, is RoomPlayerIntent.SkipToPrevious ->
-                if (!roomActive) PlaybackPhase.LOCAL
-                else if (intent.shouldPlay) PlaybackPhase.TRACK_PENDING_PLAYING
-                else PlaybackPhase.TRACK_PENDING_PAUSED
         }
         return playbackPhase
     }
@@ -523,39 +519,12 @@ internal class ServiceRoomController(
             // Keep the requested state in the pending TRACK command for the shared barrier.
             player.pause()
         }
-        val isSkipIntent = intent is RoomPlayerIntent.SkipToNext ||
-            intent is RoomPlayerIntent.SkipToPrevious
-        if (!isPendingTrackPlay && !isSkipIntent) cancelStartBarrier("new local playback intent")
-        if (!isSkipIntent) {
-            localTrackFallbackJob?.cancel()
-            localTrackFallbackJob = null
-            playbackAnchorRevision = null
-            playbackAnchorAt = null
-            playbackAnchorPositionMs = null
-        }
-        when (intent) {
-            is RoomPlayerIntent.SkipToNext -> {
-                captureSkipIntent(
-                    roomId,
-                    intent.previousSourceId,
-                    intent.previousPositionMs,
-                    shouldPlay = intent.shouldPlay,
-                    next = true
-                )
-                return
-            }
-            is RoomPlayerIntent.SkipToPrevious -> {
-                captureSkipIntent(
-                    roomId,
-                    intent.previousSourceId,
-                    intent.previousPositionMs,
-                    shouldPlay = intent.shouldPlay,
-                    next = false
-                )
-                return
-            }
-            else -> Unit
-        }
+        if (!isPendingTrackPlay) cancelStartBarrier("new local playback intent")
+        localTrackFallbackJob?.cancel()
+        localTrackFallbackJob = null
+        playbackAnchorRevision = null
+        playbackAnchorAt = null
+        playbackAnchorPositionMs = null
         val elapsed = clock.elapsedRealtimeMs()
         val current = player.snapshot()
         val previous = pendingAction
@@ -611,8 +580,6 @@ internal class ServiceRoomController(
                     requestedPositionMs = intent.positionMs
                 )
             }
-            is RoomPlayerIntent.SkipToNext,
-            is RoomPlayerIntent.SkipToPrevious,
             RoomPlayerIntent.SystemPause,
             RoomPlayerIntent.SystemResume -> null
         } ?: return
@@ -701,43 +668,6 @@ internal class ServiceRoomController(
 
     private fun publishRetryDelay(attempt: Int): Long =
         (PUBLISH_RETRY_BASE_MS * (1L shl (attempt - 1))).coerceAtMost(PUBLISH_RETRY_MAX_MS)
-
-    private fun captureSkipIntent(
-        roomId: String,
-        previousSourceId: String,
-        previousPositionMs: Long,
-        shouldPlay: Boolean,
-        next: Boolean
-    ) {
-        val scope = roomScope ?: return
-        val session = sessionGeneration
-        val generation = ++localActionGeneration
-        recordDiagnostic(
-            "local.skip_requested",
-            "direction=${if (next) "next" else "previous"} source=$previousSourceId"
-        )
-        scope.launch {
-            // The MediaSession wrapper emits after the synchronous skip command.
-            // Yield for the collector; do not infer intent from an arbitrary time window.
-            kotlinx.coroutines.yield()
-            if (!isCurrent(roomId, session) || localActionGeneration != generation) return@launch
-            val after = player.snapshot()
-            val intent = if (after.sourceId.isNotBlank() && after.sourceId != previousSourceId) {
-                RoomPlayerIntent.SelectTrack(
-                    sourceId = after.sourceId,
-                    canonicalSourceUrl = after.canonicalSourceUrl.ifBlank { after.sourceId },
-                    title = after.title,
-                    artist = after.artist,
-                    shouldPlay = shouldPlay
-                )
-            } else if (after.positionMs != previousPositionMs) {
-                RoomPlayerIntent.SeekTo(after.positionMs)
-            } else {
-                return@launch
-            }
-            captureLocalIntent(intent)
-        }
-    }
 
     private fun pendingFromSnapshot(
         type: RoomActionType,
