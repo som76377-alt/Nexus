@@ -457,6 +457,7 @@ internal class ServiceRoomController(
                 player.resetPlaybackSpeed()
                 player.play()
                 val fallback = next.copy(
+                    actionId = UUID.randomUUID().toString(),
                     generation = ++localActionGeneration,
                     elapsedMs = clock.elapsedRealtimeMs(),
                     actionType = RoomActionType.RECOVERY,
