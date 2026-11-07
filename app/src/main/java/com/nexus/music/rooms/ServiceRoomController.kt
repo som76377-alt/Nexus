@@ -1327,7 +1327,7 @@ internal class ServiceRoomController(
                 val readyLocal = player.snapshot()
                 if (remote == null ||
                     remote.revision != revision ||
-                    remote.canonicalSourceUrl != sourceId ||
+                    remote.sourceId != sourceId ||
                     !remote.isPlaying ||
                     readyLocal.sourceId != sourceId ||
                     !readyLocal.isReady
@@ -1548,7 +1548,7 @@ internal class ServiceRoomController(
                 val currentRemote = lastRemotePlayback
                 if (currentRemote == null ||
                     currentRemote.revision != revision ||
-                    currentRemote.canonicalSourceUrl != sourceId ||
+                    currentRemote.sourceId != sourceId ||
                     !currentRemote.isPlaying
                 ) return@launch
 
