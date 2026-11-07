@@ -1687,12 +1687,12 @@ internal class ServiceRoomController(
         if (scheduledStartAt == startAt && startJob?.isActive == true) return
 
         startJob?.cancel()
+        startJob = null
         scheduledStartAt = startAt
         playbackPhase = PlaybackPhase.START_SCHEDULED
         playbackAnchorRevision = revision
         playbackAnchorAt = startAt
         val scope = roomScope ?: return
-        startJob?.cancel()
         startJob = scope.launch {
             try {
                 recordDiagnostic(
@@ -1891,25 +1891,7 @@ internal class ServiceRoomController(
             )
         ) return
 
-        val anchorTime = if (playbackAnchorRevision == remote.revision) {
-            playbackAnchorAt?.let(::parseTimestamp)
-        } else {
-            null
-        } ?: parseTimestamp(remote.commandAt.ifBlank { remote.updatedAt })
-        val elapsed = anchorTime?.let {
-            (clock.estimatedServerTimeMs() - it).coerceAtLeast(0L)
-        } ?: 0L
-        val anchorPosition = if (playbackAnchorRevision == remote.revision) {
-            playbackAnchorPositionMs ?: remote.positionMs
-        } else {
-            remote.positionMs
-        }
-        val expected = RoomPlaybackMath.expectedRemotePositionMs(
-            positionMs = anchorPosition,
-            isPlaying = remote.isPlaying,
-            elapsedSinceUpdateMs = elapsed,
-            durationMs = remote.durationMs
-        )
+        val expected = expectedRoomPosition(remote)
         val drift = local.positionMs - expected
         val correction = driftController.evaluate(
             driftMs = drift,
