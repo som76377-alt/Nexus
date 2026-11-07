@@ -143,7 +143,8 @@ internal class Media3RoomPlayerPort(
 internal class RoomIntentForwardingPlayer(
     private val delegate: Player,
     private val recordIntent: (RoomPlayerIntent) -> Unit,
-    private val isRoomActive: () -> Boolean = { false }
+    private val isRoomActive: () -> Boolean = { false },
+    private val shouldHoldRoomPlay: () -> Boolean = { false }
 ) : androidx.media3.common.ForwardingPlayer(delegate) {
     private var pendingRoomTrackStart = false
 
@@ -153,8 +154,8 @@ internal class RoomIntentForwardingPlayer(
 
     override fun play() {
         recordIntent(RoomPlayerIntent.Play)
-        if (isRoomActive() && pendingRoomTrackStart) {
-            // Hold only the initial Play for a newly selected track; resume is local.
+        if (isRoomActive() && (pendingRoomTrackStart || shouldHoldRoomPlay())) {
+            // A newly selected track or an active shared-start barrier must stay staged.
             delegate.pause()
         } else {
             super.play()
@@ -213,7 +214,9 @@ internal class RoomIntentForwardingPlayer(
 
     override fun setPlayWhenReady(playWhenReady: Boolean) {
         recordIntent(if (playWhenReady) RoomPlayerIntent.Play else RoomPlayerIntent.Pause)
-        if (playWhenReady && isRoomActive() && pendingRoomTrackStart) {
+        if (playWhenReady && isRoomActive() &&
+            (pendingRoomTrackStart || shouldHoldRoomPlay())
+        ) {
             delegate.pause()
         } else {
             super.setPlayWhenReady(playWhenReady)
