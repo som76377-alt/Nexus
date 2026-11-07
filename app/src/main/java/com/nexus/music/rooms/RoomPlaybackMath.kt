@@ -1,6 +1,7 @@
 package com.nexus.music.rooms
 
 import java.text.SimpleDateFormat
+import java.text.ParsePosition
 import java.util.Locale
 import java.util.TimeZone
 
@@ -71,7 +72,11 @@ internal class DriftCorrectionController(
         roundTripMs: Long = 0L
     ): DriftCorrection {
         // Never interpret a buffering position as real playback drift.
-        if (isBuffering) return DriftCorrection(DriftCorrectionType.NONE)
+        if (isBuffering) {
+            consecutiveDriftSamples = 0
+            hasDriftSample = false
+            return DriftCorrection(DriftCorrectionType.NONE)
+        }
 
         filteredDriftMs = if (hasDriftSample) {
             emaAlpha * driftMs.toDouble() + (1.0 - emaAlpha) * filteredDriftMs
@@ -317,7 +322,9 @@ internal object RoomTimestampParser {
             match.groupValues[1]
         }
         return formatters.get().firstNotNullOfOrNull { formatter ->
-            runCatching { formatter.parse(normalized)?.time }.getOrNull()
+            val position = ParsePosition(0)
+            val parsed = formatter.parse(normalized, position)
+            parsed?.time?.takeIf { position.index == normalized.length && position.errorIndex < 0 }
         }
     }
 }
