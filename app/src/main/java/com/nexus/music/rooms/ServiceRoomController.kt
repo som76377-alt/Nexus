@@ -324,6 +324,12 @@ internal class ServiceRoomController(
         )
     }
 
+    /** Current room intent, including the temporary pause used while a shared start is pending. */
+    fun shouldRoomBePlaying(): Boolean {
+        pendingAction?.let { return it.shouldPlay }
+        return lastRemotePlayback?.isPlaying ?: player.snapshot().playWhenReady
+    }
+
     /** MediaSession guard: never let a user Play escape a pending shared TRACK start. */
     fun shouldHoldUserPlay(): Boolean {
         if (barrierRevision != null || pendingAction?.actionType == RoomActionType.TRACK) return true
