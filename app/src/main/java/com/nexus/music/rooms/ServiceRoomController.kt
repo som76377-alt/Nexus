@@ -1024,7 +1024,6 @@ internal class ServiceRoomController(
                     return
                 }
                 player.prepareCanonicalSource(
-                    sourceId = remote.sourceId,
                     canonicalSourceUrl = remote.canonicalSourceUrl,
                     streamUrl = audio.audioUrl,
                     title = audio.title,
