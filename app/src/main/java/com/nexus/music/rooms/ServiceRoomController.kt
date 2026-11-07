@@ -1012,10 +1012,7 @@ internal class ServiceRoomController(
             val needsFreshStream = before.sourceId != remote.canonicalSourceUrl ||
                 (!before.isReady && !before.isBuffering)
             if (needsFreshStream) {
-                val audio = mediaResolver.resolve(
-                    remote.sourceId,
-                    remote.canonicalSourceUrl
-                )
+                val audio = mediaResolver.resolve(remote.canonicalSourceUrl)
                 if (!isCurrent(roomId, generation) ||
                     localActionGeneration != localGeneration ||
                     signalSequence != startingSignal
