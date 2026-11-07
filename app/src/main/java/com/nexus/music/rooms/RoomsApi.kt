@@ -248,7 +248,7 @@ class RoomsApi(context: Context) {
             sourceId = row.getString("source_id"),
             sourceUrl = row.getString("source_url"),
             title = row.getString("title"),
-            artist = row.optString("artist").takeIf(String::isNotBlank),
+            artist = row.optString("artist").takeIf { it.isNotBlank() && it != "null" },
             isPlaying = row.optBoolean("is_playing"),
             positionMs = row.optLong("position_ms"),
             durationMs = row.optLong("duration_ms"),
@@ -257,7 +257,8 @@ class RoomsApi(context: Context) {
             updatedAt = row.optString("updated_at"),
             actionId = row.optString("action_id"),
             actionType = row.optString("action_type", "STATE"),
-            originDeviceId = row.optString("origin_device_id").takeIf(String::isNotBlank),
+            originDeviceId = row.optString("origin_device_id")
+                .takeIf { it.isNotBlank() && it != "null" },
             commandAt = row.optString("command_at")
         )
     }
@@ -317,7 +318,7 @@ class RoomsApi(context: Context) {
         }
         val row = rows.getJSONObject(0)
         PlaybackReadyResult(
-            startAt = row.optString("start_at").takeIf(String::isNotBlank),
+            startAt = row.optString("start_at").takeIf { it.isNotBlank() && it != "null" },
             activeMembers = row.optInt("active_members"),
             readyMembers = row.optInt("ready_members")
         )
@@ -507,7 +508,12 @@ private class EncryptedRoomSessionStore(context: Context) {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, getKey())
         val encrypted = cipher.iv + cipher.doFinal(json.toByteArray(Charsets.UTF_8))
-        preferences.edit().putString("session", Base64.encodeToString(encrypted, Base64.NO_WRAP)).apply()
+        if (!preferences.edit()
+                .putString("session", Base64.encodeToString(encrypted, Base64.NO_WRAP))
+                .commit()
+        ) {
+            throw IOException("Nexus could not persist the refreshed room identity.")
+        }
     }
 
     private fun getKey(): SecretKey {
