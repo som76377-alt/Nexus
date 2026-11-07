@@ -95,10 +95,10 @@ internal class ServiceRoomController(
     private var pendingRealtimeSnapshot: RoomPlaybackSnapshot? = null
     private var publishJob: Job? = null
     private var localTrackFallbackJob: Job? = null
+    private data class StartState(val revision: Long, val scheduledAt: String? = null)
     private var startJob: Job? = null
-    private var startRevision: Long? = null
-    private var scheduledStartAt: String? = null
-    private var completedStartRevision: Long = 0L
+    private var start: StartState? = null
+    private var completedStartRevision = 0L
     private var playbackAnchorRevision: Long? = null
     private var playbackAnchorAt: String? = null
     private var playbackAnchorPositionMs: Long? = null
@@ -156,7 +156,7 @@ internal class ServiceRoomController(
         driftController.reset()
         driftSeekGate.reset()
         signalSequence = 0L
-        startRevision = null
+        start = null
         completedStartRevision = 0L
         playbackAnchorRevision = null
         playbackAnchorAt = null
@@ -316,8 +316,8 @@ internal class ServiceRoomController(
     private fun clearStart(cancelJob: Boolean = true) {
         if (cancelJob) startJob?.cancel()
         startJob = null
-        startRevision = null
-        scheduledStartAt = null
+        start?.revision = null
+        start = null
     }
 
     private fun isCurrent(roomId: String, generation: Long): Boolean =
@@ -398,7 +398,7 @@ internal class ServiceRoomController(
         pendingAction != null ->
             if (pendingAction?.shouldPlay == true) PlaybackPhase.ROOM_PLAYING
             else PlaybackPhase.ROOM_PAUSED
-        startRevision != null && scheduledStartAt == null -> PlaybackPhase.START_PREPARING
+        start != null && start?.scheduledAt == null -> PlaybackPhase.START_PREPARING
         startRevision != null -> PlaybackPhase.START_SCHEDULED
         lastRemotePlayback?.isPlaying == true -> PlaybackPhase.ROOM_PLAYING
         else -> PlaybackPhase.ROOM_PAUSED
@@ -462,7 +462,7 @@ internal class ServiceRoomController(
             // The room already has a new-track start in progress. Keep the player staged;
             // a local Play button must not cancel the peer barrier or publish a plain PLAY.
             player.pause()
-            recordDiagnostic("local.play_held_for_barrier", "revision=$startRevision")
+            recordDiagnostic("local.play_held_for_barrier", "revision=${start?.revision}")
             return
         }
         if (intent is RoomPlayerIntent.SelectTrack && intent.shouldPlay) {
@@ -1260,13 +1260,12 @@ internal class ServiceRoomController(
         val remoteAtStart = lastRemotePlayback ?: return
         if (remoteAtStart.revision != revision || remoteAtStart.sourceId != sourceId) return
         val canonicalSourceUrl = remoteAtStart.canonicalSourceUrl
-        if (startRevision == revision &&
+        if (start?.revision == revision &&
             (startJob?.isActive == true || player.snapshot().playWhenReady)
         ) return
 
         clearStart()
-        startRevision = revision
-        scheduledStartAt = null
+        start = StartState(revision)
         playbackPhase = PlaybackPhase.START_PREPARING
         player.pause()
         val isNewTrackRevision = lastRemotePlayback?.let {
@@ -1328,7 +1327,7 @@ internal class ServiceRoomController(
                     delay(BARRIER_READY_RETRY_MS)
                 }
 
-                if (!isCurrent(roomId, generation) || startRevision != revision) return@launch
+                if (!isCurrent(roomId, generation) || start?.revision != revision) return@launch
                 val local = player.snapshot()
                 if (local.sourceId != canonicalSourceUrl || !local.isReady) {
                     mutableState.value = mutableState.value.copy(
@@ -1547,11 +1546,11 @@ internal class ServiceRoomController(
             recordDiagnostic("barrier.invalid_start", "revision=$revision")
             return
         }
-        if (scheduledStartAt == startAt && startJob?.isActive == true) return
+        if (start?.scheduledAt == startAt && startJob?.isActive == true) return
 
         startJob?.cancel()
         startJob = null
-        scheduledStartAt = startAt
+        start = start?.copy(scheduledAt = startAt) ?: return
         playbackPhase = PlaybackPhase.START_SCHEDULED
         playbackAnchorRevision = revision
         playbackAnchorAt = startAt
@@ -1662,7 +1661,7 @@ internal class ServiceRoomController(
     }
 
     private fun cancelStartBarrier(reason: String) {
-        if (startRevision == null) return
+        if (start == null) return
         recordDiagnostic("barrier.cancelled", "revision=$startRevision reason=$reason")
         clearStart()
         refreshPlaybackPhase()
