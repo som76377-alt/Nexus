@@ -736,14 +736,26 @@ internal class ServiceRoomController(
             if (!isCurrent(roomId, generation)) return
             lastRemotePlayback = latest
             lastRemoteRevision = maxOf(lastRemoteRevision, latest.revision)
+            val currentPending = pendingAction
+            val newerPending = currentPending != null &&
+                currentPending.generation != pending.generation
+            val candidate = if (newerPending) currentPending else pending
             val localActionServerMs = clock.estimatedServerTimeMs() -
-                (clock.elapsedRealtimeMs() - pending.elapsedMs).coerceAtLeast(0L)
+                (clock.elapsedRealtimeMs() - candidate.elapsedMs).coerceAtLeast(0L)
             val remoteActionServerMs = parseTimestamp(
                 latest.commandAt.ifBlank { latest.updatedAt }
             ) ?: Long.MAX_VALUE
-            val localStillCurrent = pendingAction?.generation == pending.generation
-            val localWins = localStillCurrent &&
-                localActionServerMs > remoteActionServerMs + LOCAL_ACTION_WIN_MARGIN_MS
+            val localWins = localActionServerMs >
+                remoteActionServerMs + LOCAL_ACTION_WIN_MARGIN_MS
+
+            if (newerPending) {
+                // Never retry the stale command captured before a newer local action.
+                // Let the newest intent compete against the refreshed revision instead.
+                if (!localWins) pendingAction = null
+                requestReconciliation(roomId, generation)
+                if (localWins) requestPublishAfterApplyLock(roomId, generation)
+                return
+            }
 
             if (localWins) {
                 val rebased = command.copy(expectedRevision = latest.revision)
@@ -780,12 +792,7 @@ internal class ServiceRoomController(
         lastRemoteRevision = maxOf(lastRemoteRevision, revision)
         lastAppliedRevision = maxOf(lastAppliedRevision, revision)
         retryPolicy.recordSuccess(revision)
-        val newerRecoveryPending = pendingAction?.let {
-            it.generation != pending.generation &&
-                it.actionType == RoomActionType.RECOVERY &&
-                it.sourceId == command.sourceId &&
-                it.shouldPlay
-        } == true
+        val newerPending = pendingAction?.generation?.let { it != pending.generation } == true
         if (pendingAction?.generation == pending.generation) {
             pendingAction = null
             localTrackFallbackJob?.cancel()
@@ -820,14 +827,14 @@ internal class ServiceRoomController(
             lastError = null,
             statusMessage = null
         )
-        if (command.isPlaying && command.actionType == RoomActionType.TRACK && !newerRecoveryPending) {
+        if (command.isPlaying && command.actionType == RoomActionType.TRACK && !newerPending) {
             beginPlaybackStartBarrier(
                 roomId = command.roomId,
                 generation = sessionGeneration,
                 revision = revision,
                 sourceId = command.canonicalSourceUrl
             )
-        } else if (newerRecoveryPending) {
+        } else if (newerPending) {
             requestPublishAfterApplyLock(command.roomId, sessionGeneration)
         }
     }
