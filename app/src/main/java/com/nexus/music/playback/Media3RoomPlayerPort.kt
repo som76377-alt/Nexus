@@ -237,28 +237,36 @@ internal class RoomIntentForwardingPlayer(
         shouldPlay = playbackPhase(null).let { if (it.isRoomActive) it.shouldPlay else delegate.playWhenReady }
     )
 
-    private fun finishSkip(previous: SkipState, next: Boolean) {
-        val changedTrack = delegate.currentMediaItem?.mediaId?.let { it != previous.sourceId } == true
-        if (playbackPhase(null).isRoomActive && changedTrack) delegate.pause()
-        emitIntent(
-            if (next) {
-                RoomPlayerIntent.SkipToNext(previous.sourceId, previous.positionMs, previous.shouldPlay)
-            } else {
-                RoomPlayerIntent.SkipToPrevious(previous.sourceId, previous.positionMs, previous.shouldPlay)
-            }
-        )
+    private fun finishSkip(previous: SkipState) {
+        val item = delegate.currentMediaItem
+        val sourceId = item?.mediaId.orEmpty()
+        if (sourceId.isNotBlank() && sourceId != previous.sourceId) {
+            if (playbackPhase(null).isRoomActive) delegate.pause()
+            emitIntent(
+                RoomPlayerIntent.SelectTrack(
+                    sourceId = sourceId,
+                    canonicalSourceUrl = sourceId,
+                    title = item.mediaMetadata.title?.toString().orEmpty(),
+                    artist = item.mediaMetadata.artist?.toString(),
+                    shouldPlay = previous.shouldPlay
+                )
+            )
+        } else {
+            val position = delegate.currentPosition.coerceAtLeast(0L)
+            if (position != previous.positionMs) emitIntent(RoomPlayerIntent.SeekTo(position))
+        }
     }
 
-    private inline fun skip(next: Boolean, action: () -> Unit) {
+    private inline fun skip(action: () -> Unit) {
         val previous = captureSkipState()
         action()
-        finishSkip(previous, next)
+        finishSkip(previous)
     }
 
-    override fun seekToNext() = skip(true) { delegate.seekToNext() }
-    override fun seekToNextMediaItem() = skip(true) { delegate.seekToNextMediaItem() }
-    override fun seekToPrevious() = skip(false) { delegate.seekToPrevious() }
-    override fun seekToPreviousMediaItem() = skip(false) { delegate.seekToPreviousMediaItem() }
+    override fun seekToNext() = skip { delegate.seekToNext() }
+    override fun seekToNextMediaItem() = skip { delegate.seekToNextMediaItem() }
+    override fun seekToPrevious() = skip { delegate.seekToPrevious() }
+    override fun seekToPreviousMediaItem() = skip { delegate.seekToPreviousMediaItem() }
 
     override fun stop() {
         emitIntent(RoomPlayerIntent.Pause)
