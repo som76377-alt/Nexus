@@ -61,10 +61,21 @@ class RoomSkipIntentTest {
         assertNull(
             resolveSkipIntent(
                 previousSourceId = "current",
-                previousPositionMs = 0L,
+                previousPositionMs = 12_000L,
                 shouldPlay = true,
                 currentSourceId = "next",
                 currentTitle = "",
+                currentArtist = null,
+                currentPositionMs = 0L
+            )
+        )
+        assertNull(
+            resolveSkipIntent(
+                previousSourceId = "current",
+                previousPositionMs = 12_000L,
+                shouldPlay = true,
+                currentSourceId = "",
+                currentTitle = "Missing source",
                 currentArtist = null,
                 currentPositionMs = 0L
             )
