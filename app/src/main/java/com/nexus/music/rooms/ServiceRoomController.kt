@@ -356,6 +356,20 @@ internal class ServiceRoomController(
             return
         }
 
+        if (intent == RoomPlayerIntent.SystemResume) {
+            if (localInterruptionState == LocalInterruptionState.SYSTEM_PAUSED) {
+                localInterruptionState = LocalInterruptionState.NONE
+                val remote = lastRemotePlayback
+                if (remote?.isPlaying == true) {
+                    rejoinRoomTimelineLocally(roomId, remote, "system_resume")
+                } else {
+                    player.pause()
+                    recordDiagnostic("local.system_resume_held", "room is not playing; no room publish")
+                }
+            }
+            return
+        }
+
         if (intent == RoomPlayerIntent.Play &&
             localInterruptionState == LocalInterruptionState.SYSTEM_PAUSED
         ) {
@@ -364,14 +378,7 @@ internal class ServiceRoomController(
                 val local = player.snapshot()
                 localInterruptionState = LocalInterruptionState.NONE
                 if (local.sourceId == remote.canonicalSourceUrl) {
-                    val expected = expectedRoomPosition(remote)
-                    player.seekTo(expected)
-                    player.resetPlaybackSpeed()
-                    player.play()
-                    recordDiagnostic(
-                        "local.system_pause_rejoined",
-                        "revision=${remote.revision} position=${expected}ms; no room publish"
-                    )
+                    rejoinRoomTimelineLocally(roomId, remote, "explicit_play")
                 } else {
                     // Do not publish PLAY for a stale local item over a room that has moved on.
                     recordDiagnostic(
@@ -491,7 +498,8 @@ internal class ServiceRoomController(
             }
             is RoomPlayerIntent.SkipToNext,
             is RoomPlayerIntent.SkipToPrevious,
-            RoomPlayerIntent.SystemPause -> null
+            RoomPlayerIntent.SystemPause,
+            RoomPlayerIntent.SystemResume -> null
         } ?: return
 
         pendingAction = next
@@ -1673,6 +1681,31 @@ internal class ServiceRoomController(
         barrierRevision = null
         barrierScheduledStartAt = null
         mutableState.value = mutableState.value.copy(statusMessage = null)
+    }
+
+    private fun rejoinRoomTimelineLocally(
+        roomId: String,
+        remote: RoomPlaybackSnapshot,
+        source: String
+    ) {
+        val local = player.snapshot()
+        if (local.sourceId != remote.canonicalSourceUrl) {
+            player.pause()
+            recordDiagnostic(
+                "local.system_pause_reconcile",
+                "local source differs from playing room revision=${remote.revision}"
+            )
+            requestReconciliation(roomId, sessionGeneration)
+            return
+        }
+        val expected = expectedRoomPosition(remote)
+        player.seekTo(expected)
+        player.resetPlaybackSpeed()
+        player.play()
+        recordDiagnostic(
+            "local.system_pause_rejoined",
+            "source=$source revision=${remote.revision} position=${expected}ms; no room publish"
+        )
     }
 
     private fun expectedRoomPosition(remote: RoomPlaybackSnapshot): Long {
