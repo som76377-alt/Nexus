@@ -217,7 +217,7 @@ internal class RoomIntentForwardingPlayer(
     private fun captureSkipState() = SkipState(
         sourceId = delegate.currentMediaItem?.mediaId.orEmpty(),
         positionMs = delegate.currentPosition.coerceAtLeast(0L),
-        shouldPlay = delegate.playWhenReady
+        shouldPlay = if (isRoomActive()) shouldRoomBePlaying() else delegate.playWhenReady
     )
 
     private fun finishSkip(previous: SkipState, next: Boolean) {
@@ -278,7 +278,7 @@ internal class RoomIntentForwardingPlayer(
         val canonicalUrl = mediaItem.mediaId.takeIf(String::isNotBlank) ?: return
         val title = mediaItem.mediaMetadata.title?.toString().orEmpty()
         if (canonicalUrl.isBlank() || title.isBlank()) return
-        val shouldPlay = delegate.playWhenReady
+        val shouldPlay = if (isRoomActive()) shouldRoomBePlaying() else delegate.playWhenReady
         pendingRoomTrackStart = isRoomActive() && shouldPlay
         // Do not let a new item inherit the previous item's active playWhenReady.
         if (shouldPlay) delegate.pause()
