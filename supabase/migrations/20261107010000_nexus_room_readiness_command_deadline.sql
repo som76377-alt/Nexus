@@ -16,7 +16,9 @@ begin
     where playback.room_id = new.room_id
       and playback.revision = new.revision;
 
-    if v_command_at is not null then
+    if v_command_at is null then
+        new.expires_at := clock_timestamp();
+    else
         new.expires_at := least(
             new.expires_at,
             v_command_at + interval '4 seconds'
