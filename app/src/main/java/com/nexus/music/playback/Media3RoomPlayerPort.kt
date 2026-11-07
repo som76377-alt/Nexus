@@ -66,7 +66,7 @@ internal class Media3RoomPlayerPort(
         onRoomPlaybackStarted = listener
     }
 
-    /** Called by the MediaSession-facing ForwardingPlayer for a genuine controller action. */
+    /** Emit a user command or platform interruption observed at the player boundary. */
     fun recordUserIntent(intent: RoomPlayerIntent) {
         mutableUserIntents.tryEmit(intent)
     }
