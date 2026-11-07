@@ -253,6 +253,17 @@ class ServiceRoomControllerTest {
             assertEquals("barrier progress is not an error", null, controller.state.value.lastError)
             assertEquals("Preparing synchronized start…", controller.state.value.statusMessage)
 
+            // A MediaSession Play press while the new track is waiting must not
+            // cancel the barrier or publish a plain PLAY revision.
+            player.emitIntent(RoomPlayerIntent.Play)
+            runCurrent()
+            advanceTimeBy(150L)
+            runCurrent()
+            assertEquals(1, repository.published.size)
+            assertEquals(1, repository.readinessCalls)
+            assertEquals("Preparing synchronized start…", controller.state.value.statusMessage)
+            assertFalse(player.snapshot().playWhenReady)
+
             clock.advance(1_501L)
             advanceTimeBy(250L)
             runCurrent()
