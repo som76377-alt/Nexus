@@ -1216,7 +1216,7 @@ class ServiceRoomControllerTest {
 
             assertTrue("explicit Play rejoins the room timeline locally", player.snapshot().playWhenReady)
             assertTrue(player.snapshot().isPlaying)
-            assertEquals("resume seeks to the current shared position", 11_500L, player.snapshot().positionMs)
+            assertEquals("resume seeks to the current shared position including attach calibration", 11_501L, player.snapshot().positionMs)
             assertTrue("rejoining must not publish a room PLAY", repository.published.isEmpty())
             assertTrue(controller.diagnostics.value.events.any {
                 it.contains("local.system_pause_rejoined")
@@ -1274,7 +1274,7 @@ class ServiceRoomControllerTest {
 
             assertTrue("transient focus regain resumes local playback", player.snapshot().playWhenReady)
             assertTrue(player.snapshot().isPlaying)
-            assertEquals("automatic release rejoins the current room position", 22_000L, player.snapshot().positionMs)
+            assertEquals("automatic release rejoins the current room position including attach calibration", 22_001L, player.snapshot().positionMs)
             assertTrue("automatic interruption release must not publish", repository.published.isEmpty())
         } finally {
             controller.close()
