@@ -1228,7 +1228,7 @@ internal class ServiceRoomController(
             statusMessage = "Preparing synchronized start…"
         )
         recordDiagnostic("barrier.prepare", "revision=$revision source=$sourceId")
-        val scope = roomScope ?: return
+        val scope = roomScope ?: run { clearStart(); refreshPlaybackPhase(); return }
         startJob = scope.launch {
             try {
                 if (!clock.isCalibrated()) {
@@ -1485,10 +1485,8 @@ internal class ServiceRoomController(
         if (playbackAnchorAt == startAt && playbackPhase == PlaybackPhase.START_SCHEDULED && startJob?.isActive == true) return
         startJob?.cancel()
         startJob = null
-        if (start?.revision != revision) return
         playbackPhase = PlaybackPhase.START_SCHEDULED
         playbackAnchorRevision = revision
-        playbackAnchorAt = startAt
         playbackAnchorAt = startAt
         val scope = roomScope ?: return
         startJob = scope.launch {
