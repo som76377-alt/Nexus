@@ -475,25 +475,76 @@ internal class ServiceRoomController(
                 )
                 pendingAction = fallback
                 recordDiagnostic("local.track_fallback", "source=${fallback.sourceId} reason=room_start_timeout")
-                scope.launch {
+                schedulePendingPublish(roomId, expectedSession)
+            }
+        }
+        schedulePendingPublish(roomId, sessionGeneration)
+    }
+
+    private fun schedulePendingPublish(roomId: String, generation: Long) {
+        val scope = roomScope ?: return
+        if (publishJob?.isActive == true) return
+        publishJob = scope.launch {
+            val publishingJob = coroutineContext[Job]
+            var retryGeneration = Long.MIN_VALUE
+            var retryCount = 0
+            try {
+                val first = pendingAction
+                if (first != null && (first.actionType != RoomActionType.TRACK || !first.shouldPlay)) {
+                    delay(100L)
+                }
+                while (isCurrent(roomId, generation)) {
+                    val pending = pendingAction ?: break
+                    if (pending.generation != retryGeneration) {
+                        retryGeneration = pending.generation
+                        retryCount = 0
+                    }
                     try {
-                        publishPendingAction(roomId, expectedSession)
+                        publishPendingAction(roomId, generation)
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (error: Exception) {
-                        recordDiagnostic("local.recovery_publish_failed", error.message.orEmpty())
+                        if (pendingAction?.generation != pending.generation) {
+                            retryGeneration = pendingAction?.generation ?: Long.MIN_VALUE
+                            retryCount = 0
+                            continue
+                        }
+                        retryCount = (retryCount + 1).coerceAtMost(5)
+                        val retryIn = publishRetryDelay(retryCount)
+                        setError(error, "Playback command could not be published")
+                        recordDiagnostic(
+                            "rpc.publish_retry_scheduled",
+                            "generation=${pending.generation} attempt=$retryCount delay=${retryIn}ms"
+                        )
+                        delay(retryIn)
+                        continue
+                    }
+                    if (pendingAction?.generation == pending.generation) {
+                        retryCount = (retryCount + 1).coerceAtMost(5)
+                        val retryIn = publishRetryDelay(retryCount)
+                        recordDiagnostic(
+                            "rpc.publish_retry_scheduled",
+                            "generation=${pending.generation} attempt=$retryCount delay=${retryIn}ms reason=unresolved"
+                        )
+                        delay(retryIn)
+                    } else {
+                        retryGeneration = pendingAction?.generation ?: Long.MIN_VALUE
+                        retryCount = 0
+                    }
+                }
+            } finally {
+                if (publishJob === publishingJob) {
+                    publishJob = null
+                    if (isCurrent(roomId, generation) && pendingAction != null) {
+                        schedulePendingPublish(roomId, generation)
                     }
                 }
             }
         }
-        if (publishJob?.isActive == true) return
-        publishJob = scope.launch {
-            // Start a playing local TRACK immediately; paused TRACK selection keeps the
-            // debounce window so a following Play can replace it before publication.
-            if (next.actionType != RoomActionType.TRACK || !next.shouldPlay) delay(100L)
-            publishPendingAction(roomId, sessionGeneration)
-        }
     }
+
+    private fun publishRetryDelay(attempt: Int): Long =
+        (PUBLISH_RETRY_BASE_MS * (1L shl (attempt - 1))).coerceAtMost(PUBLISH_RETRY_MAX_MS)
 
     private fun captureSkipIntent(
         roomId: String,
@@ -608,18 +659,6 @@ internal class ServiceRoomController(
             } catch (error: Exception) {
                 failed = true
                 setError(error, "Playback reconciliation failed")
-            }
-
-            // Do not let polling publish a stale command while the intent debounce is open.
-            if (publishJob?.isActive != true) {
-                try {
-                    publishPendingAction(roomId, generation)
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (error: Exception) {
-                    failed = true
-                    setError(error, "Playback command could not be published")
-                }
             }
 
             consecutiveFailures = if (failed) {
@@ -832,7 +871,13 @@ internal class ServiceRoomController(
             commandAt = serverTimestamp()
         )
         lastRemotePlayback = publishedSnapshot
-        if (command.actionType != RoomActionType.TRACK) {
+        if (command.actionType == RoomActionType.RECOVERY && command.isPlaying) {
+            barrierCompletedRevision = maxOf(barrierCompletedRevision, revision)
+            playbackAnchorRevision = revision
+            playbackAnchorAt = publishedSnapshot.commandAt
+            playbackAnchorPositionMs = command.positionMs
+            recordDiagnostic("barrier.recovery_published", "revision=$revision anchor=${publishedSnapshot.commandAt}")
+        } else if (command.actionType != RoomActionType.TRACK) {
             playbackAnchorRevision = null
             playbackAnchorAt = null
             playbackAnchorPositionMs = null
@@ -964,7 +1009,7 @@ internal class ServiceRoomController(
     private fun requestPublishAfterApplyLock(roomId: String, generation: Long) {
         roomScope?.launch {
             applyMutex.withLock { }
-            if (isCurrent(roomId, generation)) publishPendingAction(roomId, generation)
+            if (isCurrent(roomId, generation)) schedulePendingPublish(roomId, generation)
         }
     }
 
@@ -1428,90 +1473,23 @@ internal class ServiceRoomController(
         remote: RoomPlaybackSnapshot,
         positionMs: Long
     ) {
-        val scope = roomScope ?: return
-        val originDeviceId = userId ?: return
-        scope.launch {
-            try {
-                if (!isCurrent(roomId, generation) ||
-                    pendingAction != null ||
-                    lastRemoteRevision > remote.revision
-                ) return@launch
-
-                val actionId = UUID.randomUUID().toString()
-                val command = RoomCommand(
-                    roomId = roomId,
-                    actionId = actionId,
-                    expectedRevision = remote.revision,
-                    originDeviceId = originDeviceId,
-                    actionType = RoomActionType.RECOVERY,
-                    sourceId = remote.sourceId,
-                    canonicalSourceUrl = remote.canonicalSourceUrl,
-                    title = remote.title,
-                    artist = remote.artist,
-                    isPlaying = true,
-                    positionMs = positionMs,
-                    durationMs = remote.durationMs
-                )
-                val result = repository.publishPlayback(command)
-                if (!isCurrent(roomId, generation)) return@launch
-                if (!result.applied) {
-                    val latest = repository.fetchPlaybackSnapshot(roomId)
-                    if (latest != null && latest.revision > remote.revision) {
-                        lastRemotePlayback = latest
-                        lastRemoteRevision = maxOf(lastRemoteRevision, latest.revision)
-                        requestReconciliation(roomId, generation)
-                    }
-                    recordDiagnostic(
-                        "barrier.recovery_publish_conflict",
-                        "revision=${remote.revision} latest=${latest?.revision}"
-                    )
-                    return@launch
-                }
-
-                val fallbackTimestamp = serverTimestamp()
-                val persisted = runCatching {
-                    repository.fetchPlaybackSnapshot(roomId)
-                }.getOrNull()?.takeIf { it.revision == result.revision }
-                val authoritative = persisted ?: remote.copy(
-                    isPlaying = true,
-                    positionMs = positionMs,
-                    revision = result.revision,
-                    updatedBy = originDeviceId,
-                    updatedAt = fallbackTimestamp,
-                    actionId = actionId,
-                    actionType = RoomActionType.RECOVERY,
-                    originDeviceId = originDeviceId,
-                    commandAt = fallbackTimestamp
-                )
-                if (!isCurrent(roomId, generation) ||
-                    pendingAction != null ||
-                    authoritative.revision < lastRemoteRevision
-                ) return@launch
-
-                lastRemoteRevision = maxOf(lastRemoteRevision, authoritative.revision)
-                lastAppliedRevision = maxOf(lastAppliedRevision, authoritative.revision)
-                lastRemotePlayback = authoritative
-                barrierCompletedRevision = maxOf(barrierCompletedRevision, authoritative.revision)
-                playbackAnchorRevision = authoritative.revision
-                playbackAnchorAt = authoritative.commandAt
-                playbackAnchorPositionMs = authoritative.positionMs
-                mutableState.value = mutableState.value.copy(
-                    connection = RoomConnectionState.CONNECTED,
-                    playback = authoritative,
-                    lastError = null,
-                    statusMessage = null
-                )
-                recordDiagnostic(
-                    "barrier.recovery_published",
-                    "revision=${authoritative.revision} anchor=${authoritative.commandAt}"
-                )
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                // Local playback already started. A recovery RPC failure must not pause it.
-                recordDiagnostic("barrier.recovery_publish_failed", error.message.orEmpty())
-            }
-        }
+        if (!isCurrent(roomId, generation) || userId == null ||
+            pendingAction != null || lastRemoteRevision > remote.revision
+        ) return
+        pendingAction = PendingLocalAction(
+            actionId = UUID.randomUUID().toString(),
+            generation = ++localActionGeneration,
+            elapsedMs = clock.elapsedRealtimeMs(),
+            actionType = RoomActionType.RECOVERY,
+            sourceId = remote.sourceId,
+            canonicalSourceUrl = remote.canonicalSourceUrl,
+            title = remote.title,
+            artist = remote.artist,
+            shouldPlay = true,
+            requestedPositionMs = positionMs
+        )
+        recordDiagnostic("barrier.recovery_publish_queued", "revision=$revision position=${positionMs}ms")
+        schedulePendingPublish(roomId, generation)
     }
 
     private fun onBarrierStartScheduled(
@@ -1762,6 +1740,8 @@ internal class ServiceRoomController(
         const val BARRIER_FINAL_READY_TIMEOUT_MS = 5_000L
         const val LOCAL_TRACK_FALLBACK_TIMEOUT_MS = 4_000L
         const val LOCAL_ACTION_WIN_MARGIN_MS = 200L
+        const val PUBLISH_RETRY_BASE_MS = 500L
+        const val PUBLISH_RETRY_MAX_MS = 8_000L
         const val MAX_DIAGNOSTIC_EVENTS = 120
     }
 }
