@@ -27,7 +27,6 @@ import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackService
 import com.nexus.music.rooms.domain.RoomConnectionState
 import com.nexus.music.rooms.domain.RoomController
-import com.nexus.music.playback.RoomPlayerAdapter
 import com.nexus.music.playback.PlaybackSnapshot
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -70,7 +69,7 @@ class ListeningRoomActivity : Activity() {
     private lateinit var diagnosticsText: TextView
     private lateinit var copyDiagnosticsButton: Button
 
-    private var playback: RoomPlayerAdapter? = null
+    private var playback: PlaybackConnection? = null
     private var roomId: String? = null
     // Distinguishes a new join session even when the same room ID is re-entered.
     private var roomSessionGeneration = 0L

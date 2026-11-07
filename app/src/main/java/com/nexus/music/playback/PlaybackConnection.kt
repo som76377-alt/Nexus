@@ -35,7 +35,7 @@ class PlaybackConnection(
     private val onReady: () -> Unit,
     private val onStateChanged: (PlaybackSnapshot) -> Unit,
     private val onError: (String) -> Unit
-) : RoomPlayerAdapter {
+) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val mainExecutor = Executor { command ->
         if (Looper.myLooper() == Looper.getMainLooper()) command.run()
@@ -44,7 +44,7 @@ class PlaybackConnection(
 
     private var closed = false
     private var controller: MediaController? = null
-    private var pendingRequest: PlaybackRequest? = null
+    private var pendingRequest: ResolvedAudio? = null
     private var pendingPlayWhenReady = true
 
     private val controllerFuture = MediaController.Builder(
@@ -90,11 +90,11 @@ class PlaybackConnection(
         }, mainExecutor)
     }
 
-    override fun play(
+    fun play(
         audio: ResolvedAudio,
         shouldPlay: Boolean
     ): Boolean {
-        val request = PlaybackRequest.from(audio)
+        val request = audio
         val activeController = controller
         if (activeController == null) {
             pendingRequest = request
@@ -107,20 +107,20 @@ class PlaybackConnection(
     }
 
     private fun startPlayback(
-        request: PlaybackRequest,
+        audio: ResolvedAudio,
         shouldPlay: Boolean
     ): Boolean {
         val activeController = controller ?: return false
         return try {
             val metadata = MediaMetadata.Builder()
-                .setTitle(request.title)
-                .setArtist(request.artist ?: "")
-                .setArtworkUri(request.thumbnailUrl?.let(Uri::parse))
+                .setTitle(audio.title)
+                .setArtist(audio.artist ?: "")
+                .setArtworkUri(audio.thumbnailUrl?.let(Uri::parse))
                 .build()
             val item = MediaItem.Builder()
-                .setMediaId(request.sourceId)
-                .setUri(request.streamUrl)
-                .setMimeType(request.mimeType)
+                .setMediaId(audio.sourceUrl)
+                .setUri(audio.audioUrl)
+                .setMimeType(audio.mimeType)
                 .setMediaMetadata(metadata)
                 .build()
 
@@ -135,7 +135,7 @@ class PlaybackConnection(
         }
     }
 
-    override fun togglePlayback() {
+    fun togglePlayback() {
         val activeController = controller ?: return
         if (activeController.playWhenReady) {
             activeController.pause()
@@ -153,7 +153,7 @@ class PlaybackConnection(
         publishState()
     }
 
-    override fun seekTo(positionMs: Long): Boolean {
+    fun seekTo(positionMs: Long): Boolean {
         val activeController = controller ?: return false
         if (!activeController.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)) {
             return false
@@ -162,7 +162,7 @@ class PlaybackConnection(
         return true
     }
 
-    override fun snapshot(): PlaybackSnapshot {
+    fun snapshot(): PlaybackSnapshot {
         val activeController = controller ?: return PlaybackSnapshot(connected = false)
         val item = activeController.currentMediaItem
         val duration = activeController.duration.let {
@@ -186,7 +186,7 @@ class PlaybackConnection(
         if (!closed) onStateChanged(snapshot())
     }
 
-    override fun close() {
+    fun close() {
         if (closed) return
         closed = true
         controller?.removeListener(playerListener)
