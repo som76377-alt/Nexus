@@ -1216,6 +1216,61 @@ class ServiceRoomControllerTest {
     }
 
     @Test
+    fun transientAudioFocusReleaseRejoinsRoomTimelineWithoutPublishing() = runTest {
+        val canonical = "https://www.youtube.com/watch?v=focus-release-rejoin"
+        val remote = RoomPlaybackSnapshot(
+            roomId = "room-focus-release",
+            sourceId = canonical,
+            canonicalSourceUrl = canonical,
+            title = "Focus release",
+            artist = "Artist",
+            isPlaying = true,
+            positionMs = 20_000L,
+            durationMs = 90_000L,
+            revision = 9L,
+            updatedBy = "other-device",
+            updatedAt = "1970-01-01T00:00:10.000Z",
+            actionId = "remote-play",
+            actionType = RoomActionType.PLAY,
+            originDeviceId = "other-device",
+            commandAt = "1970-01-01T00:00:10.000Z"
+        )
+        val repository = FakeRoomRepository(initialSnapshot = remote)
+        val player = FakeRoomPlayer(
+            LocalPlaybackSnapshot(
+                sourceId = canonical,
+                canonicalSourceUrl = canonical,
+                title = "Focus release",
+                artist = "Artist",
+                playWhenReady = true,
+                isPlaying = true,
+                isReady = true,
+                positionMs = 20_000L,
+                durationMs = 90_000L
+            )
+        )
+        val clock = FakeRoomClock()
+        val controller = newController(repository, player, clock = clock)
+
+        try {
+            controller.attach("room-focus-release")
+            runCurrent()
+            player.emitIntent(RoomPlayerIntent.SystemPause)
+            runCurrent()
+            clock.advance(2_000L)
+            player.emitIntent(RoomPlayerIntent.SystemResume)
+            runCurrent()
+
+            assertTrue("transient focus regain resumes local playback", player.snapshot().playWhenReady)
+            assertTrue(player.snapshot().isPlaying)
+            assertEquals("automatic release rejoins the current room position", 22_000L, player.snapshot().positionMs)
+            assertTrue("automatic interruption release must not publish", repository.published.isEmpty())
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
     fun chatInvalidationUpdatesUiStateWithoutTouchingPlaybackRevision() = runTest {
         val repository = FakeRoomRepository()
         val player = FakeRoomPlayer()
