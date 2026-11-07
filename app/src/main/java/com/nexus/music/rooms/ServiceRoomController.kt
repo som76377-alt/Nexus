@@ -373,7 +373,7 @@ internal class ServiceRoomController(
                     // A focus-release callback must not undo an explicit user Pause.
                     val local = player.snapshot()
                     if (remote != null && !remote.isPlaying &&
-                        local.sourceId == remote.canonicalSourceUrl && local.isReady
+                        local.sourceId == remote.canonicalSourceUrl
                     ) {
                         player.seekTo(expectedRoomPosition(remote))
                     } else if (remote != null && local.sourceId != remote.canonicalSourceUrl) {
@@ -1727,11 +1727,11 @@ internal class ServiceRoomController(
         source: String
     ) {
         val local = player.snapshot()
-        if (local.sourceId != remote.canonicalSourceUrl || !local.isReady) {
+        if (local.sourceId != remote.canonicalSourceUrl) {
             player.pause()
             recordDiagnostic(
                 "local.system_pause_reconcile",
-                "local source/stream is not ready for room revision=${remote.revision}"
+                "local source differs from room revision=${remote.revision}"
             )
             requestReconciliation(roomId, sessionGeneration)
             return
