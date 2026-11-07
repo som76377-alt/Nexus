@@ -48,6 +48,8 @@ import java.util.Locale
 class ListeningRoomActivity : Activity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
+    private lateinit var introPanel: LinearLayout
+    private lateinit var bottomNavigation: LinearLayout
     private lateinit var status: TextView
     private lateinit var codeInput: EditText
     private lateinit var joinButton: Button
@@ -93,18 +95,21 @@ class ListeningRoomActivity : Activity() {
             setBackgroundColor(this@ListeningRoomActivity.background)
             setPadding(dp(20), dp(24), dp(20), dp(18))
         }
+        introPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
         header.addView(label("NEXUS", 12f, accent, true), LinearLayout.LayoutParams(0, -2, 1f))
-        root.addView(header)
-
-        root.addView(label("Listening room", 28f, foreground, true), params(16))
-        root.addView(label(
+        introPanel.addView(header)
+        introPanel.addView(label("Listening room", 28f, foreground, true), params(16))
+        introPanel.addView(label(
             "Private rooms for two. Chat history is kept separately in each room.",
             13f, muted
         ), params(6))
+        root.addView(introPanel)
 
         status = label("Connect to create a room or enter an invite code.", 12f, muted)
         status.setPadding(dp(12), dp(12), dp(12), dp(12))
@@ -212,7 +217,8 @@ class ListeningRoomActivity : Activity() {
         root.addView(roomPanel, LinearLayout.LayoutParams(-1, 0, 1f).apply {
             topMargin = dp(12)
         })
-        root.addView(buildBottomNavigation(), LinearLayout.LayoutParams(-1, dp(62)))
+        bottomNavigation = buildBottomNavigation()
+        root.addView(bottomNavigation, LinearLayout.LayoutParams(-1, dp(62)))
 
         setContentView(root)
         registerBackNavigation()
@@ -266,7 +272,7 @@ class ListeningRoomActivity : Activity() {
                 inviteCode = created.inviteCode
                 enterRoom(created.roomId)
                 status.text = "Room created. Share the invite code with the other person."
-                inviteText.text = "Invite code: ${created.inviteCode}"
+                inviteText.text = "Room code: ${created.inviteCode}"
                 android.app.AlertDialog.Builder(this@ListeningRoomActivity)
                     .setTitle("Room created")
                     .setMessage("Share this invite code:\n\n${created.inviteCode}\n\nThe other person can enter it in Nexus.")
@@ -316,6 +322,8 @@ class ListeningRoomActivity : Activity() {
         roomSessionGeneration += 1L
         val sessionGeneration = roomSessionGeneration
         roomId = id
+        introPanel.visibility = View.GONE
+        bottomNavigation.visibility = View.GONE
         roomPanel.visibility = View.VISIBLE
         roomActions.visibility = View.GONE
         createButton.visibility = View.GONE
@@ -555,6 +563,8 @@ class ListeningRoomActivity : Activity() {
         userId = null
         if (clearPersistedRoom) ActiveRoomSessionStore.clear(this)
         lastChatSignalVersion = 0L
+        introPanel.visibility = View.VISIBLE
+        bottomNavigation.visibility = View.VISIBLE
         roomPanel.visibility = View.GONE
         roomActions.visibility = View.VISIBLE
         createButton.visibility = View.VISIBLE
