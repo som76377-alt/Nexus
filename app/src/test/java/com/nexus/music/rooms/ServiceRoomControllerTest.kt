@@ -212,9 +212,12 @@ class ServiceRoomControllerTest {
                 )
             )
             player.emitIntent(
-                RoomPlayerIntent.SkipToNext(
-                    previousSourceId = first,
-                    previousPositionMs = 12_000L
+                RoomPlayerIntent.SelectTrack(
+                    sourceId = second,
+                    canonicalSourceUrl = second,
+                    title = "Second track",
+                    artist = null,
+                    shouldPlay = true
                 )
             )
             runCurrent()
@@ -234,9 +237,12 @@ class ServiceRoomControllerTest {
                 )
             )
             player.emitIntent(
-                RoomPlayerIntent.SkipToPrevious(
-                    previousSourceId = second,
-                    previousPositionMs = 0L
+                RoomPlayerIntent.SelectTrack(
+                    sourceId = third,
+                    canonicalSourceUrl = third,
+                    title = "Third track",
+                    artist = null,
+                    shouldPlay = true
                 )
             )
             runCurrent()
@@ -299,13 +305,7 @@ class ServiceRoomControllerTest {
             assertEquals("Preparing synchronized start…", controller.state.value.statusMessage)
             assertFalse(player.snapshot().playWhenReady)
 
-            // A no-op Next command must not tear down the current shared start.
-            player.emitIntent(
-                RoomPlayerIntent.SkipToNext(
-                    previousSourceId = canonical,
-                    previousPositionMs = player.snapshot().positionMs
-                )
-            )
+            // No local track or seek change means the player wrapper emits no room intent.
             runCurrent()
             assertEquals(1, repository.published.size)
             assertEquals(1, repository.readinessCalls)
@@ -632,9 +632,11 @@ class ServiceRoomControllerTest {
                 )
             )
             player.emitIntent(
-                RoomPlayerIntent.SkipToNext(
-                    previousSourceId = first,
-                    previousPositionMs = 0L,
+                RoomPlayerIntent.SelectTrack(
+                    sourceId = second,
+                    canonicalSourceUrl = second,
+                    title = "Second track",
+                    artist = null,
                     shouldPlay = controller.playbackPhase().shouldPlay
                 )
             )
