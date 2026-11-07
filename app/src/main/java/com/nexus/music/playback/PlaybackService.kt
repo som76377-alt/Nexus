@@ -1,5 +1,6 @@
 package com.nexus.music.playback
 
+import android.os.Build
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
@@ -15,7 +16,9 @@ import com.nexus.music.rooms.YoutubeRoomMediaResolver
 import com.nexus.music.rooms.RoomsApi
 import com.nexus.music.rooms.data.SupabaseRoomClock
 import com.nexus.music.rooms.data.SupabaseRoomRepository
+import com.nexus.music.BuildConfig
 import com.nexus.music.rooms.domain.RoomController
+import com.nexus.music.rooms.domain.RoomDiagnosticsDeviceInfo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -104,7 +107,13 @@ class PlaybackService : MediaSessionService() {
             repository = repository,
             player = playerPort,
             clock = clock,
-            mediaResolver = mediaResolver
+            mediaResolver = mediaResolver,
+            diagnosticsDeviceInfo = RoomDiagnosticsDeviceInfo(
+                appVersion = BuildConfig.VERSION_NAME,
+                deviceModel = Build.MODEL,
+                apiLevel = Build.VERSION.SDK_INT,
+                wakeMode = "NETWORK"
+            )
         )
         roomController = controller
         activeRoomController.value = controller
