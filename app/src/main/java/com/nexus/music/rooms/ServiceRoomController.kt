@@ -1488,7 +1488,7 @@ internal class ServiceRoomController(
         playbackPhase = PlaybackPhase.START_SCHEDULED
         playbackAnchorRevision = revision
         playbackAnchorAt = startAt
-        val scope = roomScope ?: return
+        val scope = roomScope ?: run { clearStart(); refreshPlaybackPhase(); return }
         startJob = scope.launch {
             try {
                 recordDiagnostic("barrier.start_scheduled", "revision=$revision server_start=$startAt")
