@@ -1089,7 +1089,7 @@ class ServiceRoomControllerTest {
             mimeType: String?
         ) {
             mutablePlayback.value = mutablePlayback.value.copy(
-                sourceId = sourceId,
+                sourceId = canonicalSourceUrl,
                 canonicalSourceUrl = canonicalSourceUrl,
                 title = title,
                 artist = artist,
