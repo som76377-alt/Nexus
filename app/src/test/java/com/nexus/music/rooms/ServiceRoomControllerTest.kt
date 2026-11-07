@@ -12,6 +12,7 @@ import com.nexus.music.rooms.domain.RoomPlayerPort
 import com.nexus.music.rooms.domain.RoomPublishResult
 import com.nexus.music.rooms.domain.RoomRealtimeSignal
 import com.nexus.music.rooms.domain.RoomRepository
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -397,6 +398,66 @@ class ServiceRoomControllerTest {
 
             assertEquals(RoomActionType.SEEK, repository.published.last().actionType)
             assertEquals(45_000L, repository.published.last().positionMs)
+        } finally {
+            controller.close()
+        }
+    }
+
+
+    @Test
+    fun playDuringInFlightPausedTrackPublishIsRepublishedAsTrackPlay() = runTest {
+        val canonical = "https://www.youtube.com/watch?v=inflight-track-play"
+        val repository = FakeRoomRepository()
+        val player = FakeRoomPlayer()
+        val controller = newController(repository, player)
+        val publishGate = CompletableDeferred<Unit>()
+
+        try {
+            controller.attach("room-inflight-track")
+            runCurrent()
+            repository.publishGate = publishGate
+            player.setSnapshot(
+                LocalPlaybackSnapshot(
+                    sourceId = canonical,
+                    canonicalSourceUrl = canonical,
+                    title = "In-flight track",
+                    playWhenReady = false,
+                    isPlaying = false,
+                    isReady = true,
+                    durationMs = 90_000L
+                )
+            )
+            player.emitIntent(
+                RoomPlayerIntent.SelectTrack(
+                    sourceId = canonical,
+                    canonicalSourceUrl = canonical,
+                    title = "In-flight track",
+                    shouldPlay = false
+                )
+            )
+            runCurrent()
+            advanceTimeBy(100L)
+            runCurrent()
+
+            // The paused TRACK RPC is in flight. Play must update the pending action,
+            // not get lost behind the active publish job.
+            player.setSnapshot(player.snapshot().copy(playWhenReady = true, isPlaying = true))
+            player.emitIntent(RoomPlayerIntent.Play)
+            runCurrent()
+            assertFalse(player.snapshot().playWhenReady)
+
+            publishGate.complete(Unit)
+            runCurrent()
+            advanceTimeBy(60L)
+            runCurrent()
+
+            assertEquals(2, repository.published.size)
+            assertEquals(RoomActionType.TRACK, repository.published[0].actionType)
+            assertFalse(repository.published[0].isPlaying)
+            assertEquals(RoomActionType.TRACK, repository.published[1].actionType)
+            assertTrue(repository.published[1].isPlaying)
+            assertEquals(1, repository.readinessCalls)
+            assertFalse(player.snapshot().playWhenReady)
         } finally {
             controller.close()
         }
@@ -932,6 +993,7 @@ class ServiceRoomControllerTest {
         var snapshot: RoomPlaybackSnapshot? = initialSnapshot
         var scheduledStartAt: String? = null
         var readinessCalls = 0
+        var publishGate: CompletableDeferred<Unit>? = null
         var serverNowMs: Long = 10_000L
 
         override suspend fun currentUserId(): String = "device-1"
@@ -940,6 +1002,9 @@ class ServiceRoomControllerTest {
             snapshot?.takeIf { it.roomId == roomId }
 
         override suspend fun publishPlayback(command: RoomCommand): RoomPublishResult {
+            val gate = publishGate
+            publishGate = null
+            gate?.await()
             published += command
             val revision = command.expectedRevision + 1L
             val timestamp = "1970-01-01T00:00:%02d.%03dZ".format(
