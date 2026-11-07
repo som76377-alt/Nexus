@@ -1,11 +1,9 @@
 package com.nexus.music
 
-import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
@@ -79,8 +77,6 @@ class MainActivity : Activity() {
     private var downloadJob: Job? = null
     private var pendingUpdate: NexusUpdate? = null
     private var requiresCleanInstall = false
-    private var pendingNotificationTrack: CatalogTrack? = null
-    private var notificationPermissionRequested = false
     private var selectedScope = YoutubeSearchScope.EVERYTHING
     private var searchJob: Job? = null
     private var searchGeneration = 0L
@@ -766,7 +762,7 @@ class MainActivity : Activity() {
             setPadding(dp(10), dp(10), dp(12), dp(10))
             isClickable = true
             isFocusable = true
-            setOnClickListener { resolve(track) }
+            setOnClickListener { startResolvingTrack(track) }
         }
         val thumbnail = ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
@@ -793,41 +789,6 @@ class MainActivity : Activity() {
         })
         card.addView(details, LinearLayout.LayoutParams(0, -2, 1f))
         return card
-    }
-
-    private fun resolve(track: CatalogTrack) {
-        if (isResolving) return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            !notificationPermissionRequested &&
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            notificationPermissionRequested = true
-            pendingNotificationTrack = track
-            requestPermissions(
-                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                REQUEST_POST_NOTIFICATIONS
-            )
-            return
-        }
-        startResolvingTrack(track)
-    }
-
-    @Deprecated("Use the system notification permission result to continue the user's playback action.")
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQUEST_POST_NOTIFICATIONS) {
-            val track = pendingNotificationTrack
-            pendingNotificationTrack = null
-            if (track != null && !isFinishing) {
-                // Playback is allowed even when notification permission is declined. Android may
-                // show media controls in its media area rather than the regular notification drawer.
-                startResolvingTrack(track)
-            }
-        }
     }
 
     private fun startResolvingTrack(track: CatalogTrack) {
@@ -932,6 +893,5 @@ class MainActivity : Activity() {
     }
 
     companion object {
-        private const val REQUEST_POST_NOTIFICATIONS = 1001
     }
 }
