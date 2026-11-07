@@ -55,6 +55,11 @@ data class RoomPlayback(
 )
 
 data class PlaybackPublishResult(val applied: Boolean, val revision: Long)
+data class PlaybackReadyResult(
+    val startAt: String?,
+    val activeMembers: Int,
+    val readyMembers: Int
+)
 
 /**
  * Small REST client for the two-person room prototype.
@@ -83,6 +88,8 @@ class RoomsApi(context: Context) {
         ?: System.currentTimeMillis()
 
     fun serverClockRoundTripMillis(): Long = serverClockRoundTripMs
+
+    fun hasServerClockEstimate(): Boolean = serverClockOffsetFromElapsedMs != null
 
     /**
      * Estimate the Supabase clock from several request/response samples.
@@ -153,6 +160,20 @@ class RoomsApi(context: Context) {
 
     suspend fun realtimeAccessToken(): String = withContext(Dispatchers.IO) {
         ensureSession().accessToken
+    }
+
+    /**
+     * Refresh the signed JWT during a long-lived Realtime connection. Refresh-token
+     * rotation is persisted atomically with the new session before it is returned.
+     */
+    suspend fun refreshRealtimeAccessToken(): String = withContext(Dispatchers.IO) {
+        synchronized(sessionLock) {
+            val current = ensureSession()
+            if (current.refreshToken.isBlank()) {
+                throw IOException("The room session cannot refresh its Realtime token.")
+            }
+            refreshSession(current).accessToken
+        }
     }
 
     suspend fun identity(): RoomIdentity = withContext(Dispatchers.IO) {
@@ -309,6 +330,29 @@ class RoomsApi(context: Context) {
         PlaybackPublishResult(
             applied = row.optBoolean("applied"),
             revision = row.optLong("revision")
+        )
+    }
+
+    suspend fun markPlaybackReady(
+        roomId: String,
+        revision: Long,
+        sourceId: String
+    ): PlaybackReadyResult = withContext(Dispatchers.IO) {
+        val payload = JSONObject()
+            .put("p_room_id", roomId)
+            .put("p_revision", revision)
+            .put("p_source_id", sourceId)
+        val rows = JSONArray(
+            apiRequest("POST", "/rest/v1/rpc/mark_room_playback_ready", payload.toString())
+        )
+        if (rows.length() == 0) {
+            throw IOException("The server did not confirm playback readiness.")
+        }
+        val row = rows.getJSONObject(0)
+        PlaybackReadyResult(
+            startAt = row.optString("start_at").takeIf(String::isNotBlank),
+            activeMembers = row.optInt("active_members"),
+            readyMembers = row.optInt("ready_members")
         )
     }
 

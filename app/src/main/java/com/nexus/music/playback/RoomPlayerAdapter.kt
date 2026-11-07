@@ -7,9 +7,9 @@ import com.nexus.music.catalog.ResolvedAudio
  * Each Android build can supply its own adapter while keeping the room protocol unchanged.
  */
 interface RoomPlayerAdapter : AutoCloseable {
-    fun play(audio: ResolvedAudio, shouldPlay: Boolean = true, userInitiated: Boolean = true): Boolean
+    fun play(audio: ResolvedAudio, shouldPlay: Boolean = true): Boolean
     fun togglePlayback()
-    fun seekTo(positionMs: Long, userInitiated: Boolean = true): Boolean
+    fun seekTo(positionMs: Long): Boolean
     fun setPlaying(shouldPlay: Boolean, positionMs: Long? = null)
     fun setPlaybackSpeed(speed: Float)
     fun resetPlaybackSpeed()

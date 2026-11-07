@@ -1,6 +1,8 @@
 package com.nexus.music.rooms
 
 import com.nexus.music.BuildConfig
+import com.nexus.music.rooms.domain.RoomActionType
+import com.nexus.music.rooms.domain.RoomPlaybackSnapshot
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -22,27 +24,28 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Authenticated Supabase Realtime Postgres Changes subscription for one room.
+ * Authenticated Supabase Realtime private Broadcast subscription for one room.
  *
- * The database row remains authoritative. A Realtime event is only a fast signal to
- * re-read that row; it is never applied as an unverified command. The caller retains
- * a REST polling fallback for missed events and reconnect gaps.
+ * Playback broadcasts carry the authoritative row produced by a database trigger.
+ * The receiver validates the room identity and revision before applying the snapshot.
+ * Chat remains a Postgres Changes subscription protected by the room-membership RLS policy.
  */
 internal class RoomRealtimeClient(
     private val api: RoomsApi,
     private val roomId: String,
     private val scope: CoroutineScope,
-    private val onPlaybackSignal: () -> Unit,
+    private val onPlaybackSignal: (RoomPlaybackSnapshot?) -> Unit,
     private val onChatSignal: () -> Unit,
+    private val onStartScheduled: (Long, String, String) -> Unit,
     private val onConnectionChanged: (Boolean) -> Unit
 ) {
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(0, TimeUnit.MILLISECONDS)
-        .pingInterval(20, TimeUnit.SECONDS)
-        .build()
+    // Shared across room lifetimes. The Phoenix heartbeat loop below is the application
+    // heartbeat; a second OkHttp ping interval adds traffic without adding room semantics.
+    private val client = SHARED_CLIENT
+    private val connectionState = AtomicBoolean(false)
 
     private var job: Job? = null
     @Volatile private var activeSocket: WebSocket? = null
@@ -60,7 +63,7 @@ internal class RoomRealtimeClient(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
-                    onConnectionChanged(false)
+                    setConnectionState(false)
                 }
                 if (currentCoroutineContext().isActive) {
                     val wasStable = lastSuccessfulJoinElapsedMs > 0L &&
@@ -90,11 +93,6 @@ internal class RoomRealtimeClient(
 
         val listener = object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                val filter = JSONObject()
-                    .put("event", "*")
-                    .put("schema", "public")
-                    .put("table", "room_playback")
-                    .put("filter", "room_id=eq.$roomId")
                 val chatFilter = JSONObject()
                     .put("event", "INSERT")
                     .put("schema", "public")
@@ -103,8 +101,10 @@ internal class RoomRealtimeClient(
                 val config = JSONObject()
                     .put("broadcast", JSONObject().put("ack", false).put("self", false))
                     .put("presence", JSONObject().put("enabled", false))
-                    .put("postgres_changes", JSONArray().put(filter).put(chatFilter))
-                    .put("private", false)
+                    // Playback changes arrive only on the membership-authorized private topic.
+                    // Chat remains a Postgres Changes subscription protected by table RLS.
+                    .put("postgres_changes", JSONArray().put(chatFilter))
+                    .put("private", true)
                 val payload = JSONObject()
                     .put("config", config)
                     .put("access_token", accessToken)
@@ -144,8 +144,28 @@ internal class RoomRealtimeClient(
                             val data = message.optJSONObject("payload")
                                 ?.optJSONObject("data")
                             when (data?.optString("table")) {
-                                "room_playback" -> onPlaybackSignal()
                                 "room_messages" -> onChatSignal()
+                            }
+                        }
+                        "broadcast" -> {
+                            val payload = message.optJSONObject("payload")
+                            when (payload?.optString("event")) {
+                                "playback_invalidated" -> {
+                                    val row = payload.optJSONObject("payload")
+                                    onPlaybackSignal(row?.let(::parsePlaybackSnapshot))
+                                }
+                                "playback_start_scheduled" -> {
+                                    val data = payload.optJSONObject("payload")
+                                    val revision = data?.optLong("revision", -1L) ?: -1L
+                                    val sourceId = data?.optString("source_id").orEmpty()
+                                    val startAt = data?.optString("start_at").orEmpty()
+                                    if (revision >= 0L &&
+                                        sourceId.isNotBlank() &&
+                                        startAt.isNotBlank()
+                                    ) {
+                                        onStartScheduled(revision, sourceId, startAt)
+                                    }
+                                }
                             }
                         }
                         "system" -> {
@@ -185,9 +205,11 @@ internal class RoomRealtimeClient(
                 throw rejection ?: IOException("Realtime subscription did not become ready.")
             }
             lastSuccessfulJoinElapsedMs = android.os.SystemClock.elapsedRealtime()
-            onConnectionChanged(true)
+            setConnectionState(true)
 
             var heartbeatRef = 2
+            var nextTokenRefreshAt = android.os.SystemClock.elapsedRealtime() +
+                TOKEN_REFRESH_INTERVAL_MS
             while (currentCoroutineContext().isActive) {
                 val endError = withTimeoutOrNull(20_000L) { ended.await() }
                 if (endError != null) throw endError
@@ -199,11 +221,64 @@ internal class RoomRealtimeClient(
                 if (!socket.send(heartbeat.toString())) {
                     throw IOException("Realtime heartbeat could not be sent.")
                 }
+
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (now >= nextTokenRefreshAt) {
+                    // Supabase closes private channels when their JWT expires unless an
+                    // access_token event updates the channel's authorization cache.
+                    val refreshedToken = api.refreshRealtimeAccessToken()
+                    val tokenUpdate = JSONObject()
+                        .put("topic", topic)
+                        .put("event", "access_token")
+                        .put("payload", JSONObject().put("access_token", refreshedToken))
+                        .put("ref", (heartbeatRef++).toString())
+                        .put("join_ref", joinRef)
+                    if (!socket.send(tokenUpdate.toString())) {
+                        throw IOException("Realtime authentication token could not be refreshed.")
+                    }
+                    nextTokenRefreshAt = now + TOKEN_REFRESH_INTERVAL_MS
+                }
             }
         } finally {
-            onConnectionChanged(false)
+            setConnectionState(false)
             if (activeSocket === socket) activeSocket = null
             socket.close(1000, "Room screen closed")
+        }
+    }
+
+    private fun parsePlaybackSnapshot(row: JSONObject): RoomPlaybackSnapshot? {
+        val incomingRoomId = row.optString("room_id")
+        if (incomingRoomId != roomId) return null
+        val sourceId = row.optString("source_id")
+        val sourceUrl = row.optString("source_url")
+        val title = row.optString("title")
+        val revision = row.optLong("revision", -1L)
+        if (sourceId.isBlank() || sourceUrl.isBlank() || title.isBlank() || revision < 1L) return null
+        val artistValue = row.optString("artist")
+        val originValue = row.optString("origin_device_id")
+        return runCatching {
+            RoomPlaybackSnapshot(
+                roomId = incomingRoomId,
+                sourceId = sourceId,
+                canonicalSourceUrl = sourceUrl,
+                title = title,
+                artist = artistValue.takeIf { it.isNotBlank() && it != "null" },
+                isPlaying = row.optBoolean("is_playing", false),
+                positionMs = row.optLong("position_ms", -1L),
+                durationMs = row.optLong("duration_ms", -1L),
+                revision = revision,
+                updatedBy = row.optString("updated_by"),
+                updatedAt = row.optString("updated_at"),
+                actionId = row.optString("action_id"),
+                actionType = RoomActionType.fromWireValue(row.optString("action_type")) ?: RoomActionType.STATE,
+                originDeviceId = originValue.takeIf { it.isNotBlank() && it != "null" },
+                commandAt = row.optString("command_at")
+            )
+        }.getOrNull()?.takeIf { it.positionMs >= 0L && it.durationMs >= 0L }
+    }
+    private fun setConnectionState(connected: Boolean) {
+        if (connectionState.getAndSet(connected) != connected) {
+            onConnectionChanged(connected)
         }
     }
 
@@ -212,6 +287,16 @@ internal class RoomRealtimeClient(
         job = null
         activeSocket?.close(1000, "Room screen closed")
         activeSocket = null
-        onConnectionChanged(false)
+        setConnectionState(false)
+    }
+
+    private companion object {
+        // Supabase JWTs default to a one-hour lifetime. Refresh with a 15-minute safety
+        // margin, then repeat using the newly rotated refresh token.
+        const val TOKEN_REFRESH_INTERVAL_MS = 45L * 60L * 1_000L
+        val SHARED_CLIENT: OkHttpClient = OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(0, TimeUnit.MILLISECONDS)
+            .build()
     }
 }

@@ -156,7 +156,7 @@ jobs:
 
       - name: Upload validation APK artifact
         if: github.ref_type != 'tag'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: nexus-signed-release-validation
           path: |

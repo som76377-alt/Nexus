@@ -2,14 +2,20 @@ name: Nexus Web Room Test
 
 on:
   push:
-    branches: [main, feature/web-room-test-client]
+    branches: [main, feature/web-room-test-client, fix/room-sync-intent-diagnostics]
     paths:
       - "web-room-test/**"
       - ".github/workflows/web-room-test.yml"
+      - "app/src/main/java/com/nexus/music/rooms/**"
+      - "app/src/main/java/com/nexus/music/playback/**"
+      - "supabase/migrations/**"
   pull_request:
     paths:
       - "web-room-test/**"
       - ".github/workflows/web-room-test.yml"
+      - "app/src/main/java/com/nexus/music/rooms/**"
+      - "app/src/main/java/com/nexus/music/playback/**"
+      - "supabase/migrations/**"
   workflow_dispatch:
 
 permissions:
@@ -28,3 +34,9 @@ jobs:
           node-version: 22
       - run: npm install --no-audit --no-fund
       - run: npm run build
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: nexus-web-room-test
+          path: web-room-test/dist/**
+          if-no-files-found: error
+          retention-days: 14

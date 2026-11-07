@@ -11,7 +11,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
 
 const $ = (id) => document.getElementById(id);
 const state = {
-  user: null, roomId: null, roomCode: null, playback: null, messages: [], peerDetected: false,
+  user: null, roomId: null, roomCode: null, playback: null, messages: [], activeMemberCount: 1,
   channel: null, realtimeConnected: false, pollTimer: null, heartbeatTimer: null,
   lastRefresh: null, lastEvent: "—", busy: false
 };
@@ -120,7 +120,7 @@ async function joinRoom(code) {
 async function enterRoom(roomId, roomCode) {
   state.roomId = roomId;
   state.roomCode = roomCode;
-  state.peerDetected = false;
+  state.activeMemberCount = 1;
   $("room-code-label").textContent = roomCode;
   $("room-status").textContent = "Connected · loading room state…";
   showRoom();
@@ -179,7 +179,7 @@ function stopTimers() {
 }
 async function refreshAll() {
   if (!state.roomId) return;
-  await Promise.all([refreshPlayback(), refreshMessages()]);
+  await Promise.all([refreshPlayback(), refreshMessages(), refreshPresence()]);
   state.lastRefresh = new Date().toLocaleTimeString();
   $("last-refresh-value").textContent = state.lastRefresh;
 }
@@ -190,8 +190,20 @@ async function refreshPlayback() {
     .eq("room_id", state.roomId).maybeSingle();
   if (error) throw error;
   state.playback = data;
-  if (data?.updated_by && data.updated_by !== state.user?.id) state.peerDetected = true;
   renderPlayback();
+  renderMembers();
+}
+async function refreshPresence() {
+  if (!state.roomId) return;
+  const { data, error } = await supabase.rpc("get_room_active_member_count", {
+    p_room_id: state.roomId
+  });
+  if (error) throw error;
+  const count = Number(data);
+  if (!Number.isInteger(count) || count < 1 || count > 2) {
+    throw new Error("The room server returned an invalid active-member count.");
+  }
+  state.activeMemberCount = count;
   renderMembers();
 }
 async function refreshMessages() {
@@ -201,7 +213,6 @@ async function refreshMessages() {
     .order("created_at", { ascending: false }).order("id", { ascending: false }).limit(100);
   if (error) throw error;
   state.messages = (data || []).reverse();
-  if (state.messages.some((message) => message.sender_id !== state.user?.id)) state.peerDetected = true;
   renderMessages();
   renderMembers();
 }
@@ -268,7 +279,8 @@ function renderMessages() {
 function renderMembers() {
   const list = $("members-list");
   list.replaceChildren();
-  $("member-count").textContent = state.peerDetected ? "2 PARTICIPANTS SEEN" : "1 PARTICIPANT SEEN";
+  const count = state.activeMemberCount;
+  $("member-count").textContent = count + (count === 1 ? " ACTIVE PARTICIPANT" : " ACTIVE PARTICIPANTS");
 
   const own = document.createElement("div");
   own.className = "member";
@@ -288,26 +300,27 @@ function renderMembers() {
   own.append(ownAvatar, ownInfo, ownStatus);
   list.append(own);
 
-  const peer = document.createElement("div");
-  peer.className = "member";
-  const peerAvatar = document.createElement("div");
-  peerAvatar.className = "avatar";
-  peerAvatar.textContent = "P";
-  const peerInfo = document.createElement("div");
-  peerInfo.className = "member-info";
-  const peerName = document.createElement("strong");
-  peerName.textContent = state.peerDetected ? "Other participant · activity received" : "Other participant · awaiting activity";
-  const peerDetail = document.createElement("span");
-  peerDetail.textContent = state.peerDetected
-    ? "Detected from a room chat or playback event"
-    : "Waiting for a message or playback update";
-  peerInfo.append(peerName, peerDetail);
-  const peerStatus = document.createElement("span");
-  peerStatus.className = "member-state";
-  peerStatus.textContent = state.peerDetected ? "SEEN" : "WAITING";
-  peer.append(peerAvatar, peerInfo, peerStatus);
-  list.append(peer);
+  if (count > 1) {
+    const peer = document.createElement("div");
+    peer.className = "member";
+    const peerAvatar = document.createElement("div");
+    peerAvatar.className = "avatar";
+    peerAvatar.textContent = "P";
+    const peerInfo = document.createElement("div");
+    peerInfo.className = "member-info";
+    const peerName = document.createElement("strong");
+    peerName.textContent = "Other room member";
+    const peerDetail = document.createElement("span");
+    peerDetail.textContent = "Confirmed active by the room server";
+    peerInfo.append(peerName, peerDetail);
+    const peerStatus = document.createElement("span");
+    peerStatus.className = "member-state";
+    peerStatus.textContent = "ACTIVE";
+    peer.append(peerAvatar, peerInfo, peerStatus);
+    list.append(peer);
+  }
 }
+
 async function sendMessage(event) {
   event?.preventDefault();
   const body = $("chat-input").value.trim();
@@ -440,7 +453,7 @@ async function leaveRoom() {
   state.roomCode = null;
   state.playback = null;
   state.messages = [];
-    state.peerDetected = false;
+  state.activeMemberCount = 1;
   $("event-log").replaceChildren();
   $("room-code-label").textContent = "—";
   $("room-status").textContent = "Disconnected";
