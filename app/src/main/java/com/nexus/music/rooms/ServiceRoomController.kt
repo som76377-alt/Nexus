@@ -540,46 +540,15 @@ internal class ServiceRoomController(
                 artist = intent.artist,
                 shouldPlay = intent.shouldPlay
             )
-            RoomPlayerIntent.Play -> if (previous?.actionType == RoomActionType.TRACK) {
-                // The selected TRACK is still unpublished. Keep it a TRACK command so
-                // peers prepare the new source and enter the shared start barrier too.
-                player.pause()
-                previous.copy(
-                    actionId = UUID.randomUUID().toString(),
-                    generation = ++localActionGeneration,
-                    elapsedMs = elapsed,
-                    shouldPlay = true
-                )
-            } else {
-                // The TRACK was already published: every peer has the canonical item,
-                // so this is a normal immediate resume rather than a new-track barrier.
-                pendingFromSnapshot(RoomActionType.PLAY, current, elapsed)
-            }
-            RoomPlayerIntent.Pause -> if (previous?.actionType == RoomActionType.TRACK) {
-                previous!!.copy(
-                    actionId = UUID.randomUUID().toString(),
-                    generation = ++localActionGeneration,
-                    elapsedMs = elapsed,
-                    shouldPlay = false
-                )
-            } else {
-                pendingFromSnapshot(RoomActionType.PAUSE, current, elapsed)
-            }
-            is RoomPlayerIntent.SeekTo -> if (previous?.actionType == RoomActionType.TRACK) {
-                previous!!.copy(
-                    actionId = UUID.randomUUID().toString(),
-                    generation = ++localActionGeneration,
-                    elapsedMs = elapsed,
-                    requestedPositionMs = intent.positionMs
-                )
-            } else {
-                pendingFromSnapshot(
-                    RoomActionType.SEEK,
-                    current,
-                    elapsed,
-                    requestedPositionMs = intent.positionMs
-                )
-            }
+            RoomPlayerIntent.Play -> previous?.takeIf { it.actionType == RoomActionType.TRACK }
+                ?.let { updatePendingTrack(it, elapsed, shouldPlay = true) }
+                ?: pendingFromSnapshot(RoomActionType.PLAY, current, elapsed)
+            RoomPlayerIntent.Pause -> previous?.takeIf { it.actionType == RoomActionType.TRACK }
+                ?.let { updatePendingTrack(it, elapsed, shouldPlay = false) }
+                ?: pendingFromSnapshot(RoomActionType.PAUSE, current, elapsed)
+            is RoomPlayerIntent.SeekTo -> previous?.takeIf { it.actionType == RoomActionType.TRACK }
+                ?.let { updatePendingTrack(it, elapsed, requestedPositionMs = intent.positionMs) }
+                ?: pendingFromSnapshot(RoomActionType.SEEK, current, elapsed, intent.positionMs)
             RoomPlayerIntent.SystemPause,
             RoomPlayerIntent.SystemResume -> null
         } ?: return
@@ -668,6 +637,19 @@ internal class ServiceRoomController(
 
     private fun publishRetryDelay(attempt: Int): Long =
         (PUBLISH_RETRY_BASE_MS * (1L shl (attempt - 1))).coerceAtMost(PUBLISH_RETRY_MAX_MS)
+
+    private fun updatePendingTrack(
+        previous: PendingLocalAction,
+        elapsed: Long,
+        shouldPlay: Boolean = previous.shouldPlay,
+        requestedPositionMs: Long? = previous.requestedPositionMs
+    ) = previous.copy(
+        actionId = UUID.randomUUID().toString(),
+        generation = ++localActionGeneration,
+        elapsedMs = elapsed,
+        shouldPlay = shouldPlay,
+        requestedPositionMs = requestedPositionMs
+    )
 
     private fun pendingFromSnapshot(
         type: RoomActionType,
