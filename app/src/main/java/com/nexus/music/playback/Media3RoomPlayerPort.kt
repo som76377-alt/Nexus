@@ -125,7 +125,8 @@ internal class RoomIntentForwardingPlayer(
     private val delegate: Player,
     private val recordIntent: (RoomPlayerIntent) -> Unit,
     private val isRoomActive: () -> Boolean = { false },
-    private val shouldHoldRoomPlay: () -> Boolean = { false }
+    private val shouldHoldRoomPlay: () -> Boolean = { false },
+    private val shouldRoomBePlaying: () -> Boolean = { delegate.playWhenReady }
 ) : androidx.media3.common.ForwardingPlayer(delegate) {
     private var pendingRoomTrackStart = false
 
