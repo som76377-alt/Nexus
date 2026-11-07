@@ -739,7 +739,7 @@ internal class ServiceRoomController(
             val currentPending = pendingAction
             val newerPending = currentPending != null &&
                 currentPending.generation != pending.generation
-            val candidate = if (newerPending) currentPending else pending
+            val candidate = if (newerPending) checkNotNull(currentPending) else pending
             val localActionServerMs = clock.estimatedServerTimeMs() -
                 (clock.elapsedRealtimeMs() - candidate.elapsedMs).coerceAtLeast(0L)
             val remoteActionServerMs = parseTimestamp(
