@@ -162,39 +162,6 @@ class PlaybackConnection(
         return true
     }
 
-    override fun setPlaying(shouldPlay: Boolean, positionMs: Long?) {
-        val activeController = controller ?: return
-        if (shouldPlay) {
-            if (activeController.playbackState == Player.STATE_IDLE ||
-                activeController.playbackState == Player.STATE_ENDED
-            ) {
-                val restartPosition = positionMs ?: 0L
-                if (activeController.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)) {
-                    seekTo(restartPosition)
-                }
-                activeController.prepare()
-            }
-            activeController.play()
-        } else {
-            activeController.pause()
-        }
-        publishState()
-    }
-
-    override fun setPlaybackSpeed(speed: Float) {
-        val activeController = controller ?: return
-        if (!activeController.isCommandAvailable(Player.COMMAND_SET_SPEED_AND_PITCH)) return
-        val safeSpeed = speed.coerceIn(0.97f, 1.03f)
-        activeController.setPlaybackSpeed(safeSpeed)
-    }
-
-    override fun resetPlaybackSpeed() {
-        val activeController = controller ?: return
-        if (activeController.isCommandAvailable(Player.COMMAND_SET_SPEED_AND_PITCH)) {
-            activeController.setPlaybackSpeed(1f)
-        }
-    }
-
     override fun snapshot(): PlaybackSnapshot {
         val activeController = controller ?: return PlaybackSnapshot(connected = false)
         val item = activeController.currentMediaItem

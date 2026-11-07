@@ -207,9 +207,6 @@ internal class RemoteApplyRetryPolicy(
     private var failureCount = 0
     private var retryAtElapsedMs = 0L
 
-    fun shouldRetry(revision: Long, nowElapsedMs: Long): Boolean =
-        failedRevision == revision && nowElapsedMs >= retryAtElapsedMs
-
     /**
      * A failed revision must wait for its backoff even though it remains unapplied.
      * A newer revision is still attempted immediately rather than inheriting old delay.
@@ -288,8 +285,6 @@ internal object ServerClockEstimator {
         )
     }
 
-    fun estimateOffset(samples: List<ClockOffsetSample>): Long? =
-        estimate(samples)?.offsetMs
 }
 
 

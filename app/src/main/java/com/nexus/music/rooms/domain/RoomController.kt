@@ -14,5 +14,4 @@ interface RoomController {
     val diagnostics: StateFlow<RoomDiagnosticsSnapshot>
     suspend fun attach(roomId: String)
     suspend fun detach()
-    suspend fun submit(command: RoomCommand): RoomPublishResult
 }

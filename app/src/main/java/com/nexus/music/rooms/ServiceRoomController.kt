@@ -11,7 +11,6 @@ import com.nexus.music.rooms.domain.RoomPlayerIntent
 import com.nexus.music.rooms.domain.RoomPlayerPort
 import com.nexus.music.rooms.domain.RoomPlaybackSnapshot
 import com.nexus.music.rooms.domain.RoomPlaybackReadyResult
-import com.nexus.music.rooms.domain.RoomPublishResult
 import com.nexus.music.rooms.domain.RoomRealtimeSignal
 import com.nexus.music.rooms.domain.RoomRepository
 import kotlinx.coroutines.CancellationException
@@ -262,20 +261,6 @@ internal class ServiceRoomController(
         driftController.reset()
         driftSeekGate.reset()
         player.resetPlaybackSpeed()
-    }
-
-    override suspend fun submit(command: RoomCommand): RoomPublishResult {
-        val activeId = activeRoomId
-            ?: throw IOException("There is no active listening room.")
-        require(command.roomId == activeId) { "Command belongs to a different room." }
-        val result = repository.publishPlayback(command)
-        if (result.applied) {
-            lastRemoteRevision = maxOf(lastRemoteRevision, result.revision)
-            lastAppliedRevision = maxOf(lastAppliedRevision, result.revision)
-        } else {
-            requestReconciliation(activeId, sessionGeneration)
-        }
-        return result
     }
 
     fun close() {

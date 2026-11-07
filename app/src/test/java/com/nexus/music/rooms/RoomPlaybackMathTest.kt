@@ -8,7 +8,7 @@ import org.junit.Test
 class RoomPlaybackMathTest {
     @Test
     fun serverClockEstimatorUsesMedianOfThreeFastestSamples() {
-        val estimate = ServerClockEstimator.estimateOffset(
+        val estimate = ServerClockEstimator.estimate(
             listOf(
                 ClockOffsetSample(offsetMs = 1_000L, roundTripMs = 20L),
                 ClockOffsetSample(offsetMs = 1_040L, roundTripMs = 30L),
@@ -17,19 +17,19 @@ class RoomPlaybackMathTest {
                 ClockOffsetSample(offsetMs = -8_000L, roundTripMs = 1_200L)
             )
         )
-        assertEquals(1_020L, estimate)
+        assertEquals(1_020L, estimate?.offsetMs)
     }
 
     @Test
     fun serverClockEstimatorRejectsInsufficientSamples() {
         assertEquals(
             null,
-            ServerClockEstimator.estimateOffset(
+            ServerClockEstimator.estimate(
                 listOf(
                     ClockOffsetSample(offsetMs = 1_000L, roundTripMs = 20L),
                     ClockOffsetSample(offsetMs = 1_020L, roundTripMs = 30L)
                 )
-            )
+            )?.offsetMs
         )
     }
 
@@ -222,31 +222,23 @@ class RoomPlaybackMathTest {
     @Test
     fun failedRemoteApplyUsesBoundedBackoff() {
         val policy = RemoteApplyRetryPolicy()
-        assertFalse(policy.shouldRetry(4L, 0L))
-        assertEquals(1_000L, policy.recordFailure(4L, 0L))
-        assertFalse(policy.shouldRetry(4L, 999L))
-        assertTrue(policy.shouldRetry(4L, 1_000L))
-        assertEquals(2_000L, policy.recordFailure(4L, 1_000L))
-        assertFalse(policy.shouldRetry(4L, 2_999L))
-        assertTrue(policy.shouldRetry(4L, 3_000L))
-    }
-
-    @Test
-    fun stillUnappliedRevisionCannotBypassItsRetryBackoff() {
-        val policy = RemoteApplyRetryPolicy()
         assertTrue(policy.shouldAttempt(4L, 0L, hasUnappliedChanges = true))
         assertEquals(1_000L, policy.recordFailure(4L, 0L))
         assertFalse(policy.shouldAttempt(4L, 999L, hasUnappliedChanges = true))
         assertTrue(policy.shouldAttempt(4L, 1_000L, hasUnappliedChanges = true))
+        assertEquals(2_000L, policy.recordFailure(4L, 1_000L))
+        assertFalse(policy.shouldAttempt(4L, 2_999L, hasUnappliedChanges = true))
+        assertTrue(policy.shouldAttempt(4L, 3_000L, hasUnappliedChanges = true))
     }
 
     @Test
     fun newerRevisionIsNeverBlockedByOlderRetry() {
         val policy = RemoteApplyRetryPolicy()
         policy.recordFailure(4L, 0L)
-        assertFalse(policy.shouldRetry(5L, 100L))
+        assertTrue(policy.shouldAttempt(5L, 100L, hasUnappliedChanges = true))
         assertEquals(1_000L, policy.recordFailure(5L, 100L))
-        assertTrue(policy.shouldRetry(5L, 1_100L))
+        assertFalse(policy.shouldAttempt(5L, 1_099L, hasUnappliedChanges = true))
+        assertTrue(policy.shouldAttempt(5L, 1_100L, hasUnappliedChanges = true))
     }
 
     @Test
@@ -254,7 +246,7 @@ class RoomPlaybackMathTest {
         val policy = RemoteApplyRetryPolicy()
         policy.recordFailure(4L, 0L)
         policy.recordSuccess(4L)
-        assertFalse(policy.shouldRetry(4L, 10_000L))
+        assertTrue(policy.shouldAttempt(4L, 10_000L, hasUnappliedChanges = true))
         assertEquals(1_000L, policy.recordFailure(4L, 10_000L))
     }
     @Test
