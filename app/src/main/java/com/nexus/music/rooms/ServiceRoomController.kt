@@ -6,6 +6,8 @@ import com.nexus.music.rooms.domain.RoomCommand
 import com.nexus.music.rooms.domain.RoomConnectionState
 import com.nexus.music.rooms.domain.RoomController
 import com.nexus.music.rooms.domain.RoomControllerState
+import com.nexus.music.rooms.domain.RoomDiagnosticsDeviceInfo
+import com.nexus.music.rooms.domain.RoomDiagnosticsFormatter
 import com.nexus.music.rooms.domain.RoomDiagnosticsSnapshot
 import com.nexus.music.rooms.domain.RoomPlayerIntent
 import com.nexus.music.rooms.domain.RoomPlayerPort
@@ -48,7 +50,8 @@ internal class ServiceRoomController(
     private val repository: RoomRepository,
     private val player: RoomPlayerPort,
     private val clock: RoomClock,
-    private val mediaResolver: RoomMediaResolver
+    private val mediaResolver: RoomMediaResolver,
+    private val diagnosticsDeviceInfo: RoomDiagnosticsDeviceInfo = RoomDiagnosticsDeviceInfo()
 ) : RoomController {
 
     private val controllerJob = SupervisorJob(parentScope.coroutineContext[Job])
@@ -57,7 +60,7 @@ internal class ServiceRoomController(
     )
     private val mutableState = MutableStateFlow(RoomControllerState())
     override val state: StateFlow<RoomControllerState> = mutableState.asStateFlow()
-    private val mutableDiagnostics = MutableStateFlow(RoomDiagnosticsSnapshot())
+    private val mutableDiagnostics = MutableStateFlow(RoomDiagnosticsSnapshot(device = diagnosticsDeviceInfo))
     override val diagnostics: StateFlow<RoomDiagnosticsSnapshot> = mutableDiagnostics.asStateFlow()
 
     private val publishMutex = Mutex()
@@ -112,6 +115,7 @@ internal class ServiceRoomController(
     private var lastRemotePlayback: RoomPlaybackSnapshot? = null
     private var pendingAction: PendingLocalAction? = null
     private var signalSequence = 0L
+    private var lastDriftSampleElapsedMs = 0L
 
     private data class PendingLocalAction(
         val actionId: String,
@@ -141,7 +145,7 @@ internal class ServiceRoomController(
         localActionGeneration = 0L
         activeRoomId = roomId
         playbackPhase = PlaybackPhase.ROOM_PAUSED
-        mutableDiagnostics.value = RoomDiagnosticsSnapshot()
+        mutableDiagnostics.value = RoomDiagnosticsSnapshot(device = diagnosticsDeviceInfo)
         recordDiagnostic("room.attach", "room=$roomId")
         mutableState.value = RoomControllerState(
             roomId = roomId,
@@ -155,6 +159,7 @@ internal class ServiceRoomController(
         retryPolicy.reset()
         driftController.reset()
         driftSeekGate.reset()
+        lastDriftSampleElapsedMs = clock.elapsedRealtimeMs()
         signalSequence = 0L
         start = null
         completedStartRevision = 0L
@@ -325,8 +330,10 @@ internal class ServiceRoomController(
         val elapsed = clock.elapsedRealtimeMs()
         val wall = System.currentTimeMillis()
         val serverNow = runCatching { clock.estimatedServerTimeMs() }.getOrNull()
+        val clockOffset = if (clock.isCalibrated()) serverNow?.minus(wall) else null
         val measuredRtt = clock.estimatedRoundTripTimeMs().takeIf { it >= 0L }
-        val line = "wall=$wall mono=$elapsed server=${serverNow ?: "unknown"} $event" +
+        val phase = playbackPhase.name
+        val line = "wall=$wall mono=$elapsed server=${serverNow ?: "unknown"} phase=$phase $event" +
             detail.takeIf(String::isNotBlank)?.let { " | $it" }.orEmpty()
         val previous = mutableDiagnostics.value
         mutableDiagnostics.value = previous.copy(
@@ -336,7 +343,9 @@ internal class ServiceRoomController(
             lastDriftMs = driftMs ?: previous.lastDriftMs,
             lastRoundTripMs = measuredRtt ?: previous.lastRoundTripMs,
             lastCommandAgeMs = commandAgeMs ?: previous.lastCommandAgeMs,
-            events = (previous.events + line).takeLast(MAX_DIAGNOSTIC_EVENTS)
+            clockOffsetMs = clockOffset ?: previous.clockOffsetMs,
+            playbackPhase = phase,
+            events = (previous.events + line).takeLast(RoomDiagnosticsFormatter.MAX_ENTRIES)
         )
     }
 
@@ -490,7 +499,7 @@ internal class ServiceRoomController(
             RoomPlayerIntent.SystemResume -> null
         } ?: return
         setPendingAction(next)
-        recordDiagnostic("local.intent", "type=${next.actionType} source=${next.sourceId} generation=${next.generation}")
+        recordDiagnostic("local.intent", "action_id=${next.actionId} action_type=${next.actionType} intent_time_elapsed_ms=${next.elapsedMs} source=${next.sourceId} generation=${next.generation}")
         val scope = roomScope ?: return
         if (next.actionType == RoomActionType.TRACK && next.shouldPlay) {
             // A room/network failure must not keep a locally prepared track silent.
@@ -674,7 +683,21 @@ internal class ServiceRoomController(
 
     private suspend fun driftLoop(roomId: String, generation: Long) {
         while (isCurrent(roomId, generation) && coroutineContext.isActive) {
-            lastRemotePlayback?.let(::correctLocalDrift)
+            lastRemotePlayback?.let { remote ->
+                val now = clock.elapsedRealtimeMs()
+                if (now - lastDriftSampleElapsedMs >= DRIFT_SAMPLE_INTERVAL_MS) {
+                    val local = player.snapshot()
+                    val drift = local.positionMs - expectedRoomPosition(remote)
+                    recordDiagnostic(
+                        "drift.sample",
+                        "action_id=${remote.actionId} action_type=${remote.actionType} " +
+                            "intent_time_server=${remote.commandAt} sample_elapsed_ms=$now resulting_drift_ms=$drift",
+                        driftMs = drift
+                    )
+                    lastDriftSampleElapsedMs = now
+                }
+                correctLocalDrift(remote)
+            }
             delay(1_000L)
         }
     }
@@ -771,8 +794,10 @@ internal class ServiceRoomController(
             val publishLatency = (clock.elapsedRealtimeMs() - publishStarted).coerceAtLeast(0L)
             recordDiagnostic(
                 "rpc.publish",
-                "type=${pending.actionType} applied=${result.applied} revision=${result.revision} " +
-                    "intent_to_request=${(publishStarted - pending.elapsedMs).coerceAtLeast(0L)}ms",
+                "action_id=${pending.actionId} action_type=${pending.actionType} " +
+                    "intent_time_elapsed_ms=${pending.elapsedMs} publish_ack_elapsed_ms=${clock.elapsedRealtimeMs()} " +
+                    "publish_acknowledged=${result.applied} revision=${result.revision} " +
+                    "intent_to_request_ms=${(publishStarted - pending.elapsedMs).coerceAtLeast(0L)}",
                 publishLatencyMs = publishLatency
             )
             if (!isCurrent(roomId, generation)) return
@@ -909,6 +934,11 @@ internal class ServiceRoomController(
             recordDiagnostic("realtime.snapshot_apply", "revision=${remote.revision}")
         }
         if (!isCurrent(roomId, generation) || remote.roomId != roomId) return
+        recordDiagnostic(
+            "action.received",
+            "action_id=${remote.actionId} action_type=${remote.actionType} " +
+                "intent_time_server=${remote.commandAt} received_elapsed_ms=${clock.elapsedRealtimeMs()}"
+        )
         var shouldApply = false
         var shouldPublishLocal = false
         applyMutex.withLock {
@@ -974,6 +1004,15 @@ internal class ServiceRoomController(
         }
         try {
             applyRemoteSnapshot(remote, roomId, generation)
+            val appliedAt = clock.elapsedRealtimeMs()
+            val resultingDrift = player.snapshot().positionMs - expectedRoomPosition(remote)
+            recordDiagnostic(
+                "action.applied",
+                "action_id=${remote.actionId} action_type=${remote.actionType} " +
+                    "intent_time_server=${remote.commandAt} applied_elapsed_ms=$appliedAt " +
+                    "resulting_drift_ms=$resultingDrift",
+                driftMs = resultingDrift
+            )
             retryPolicy.recordSuccess(remote.revision)
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -1754,6 +1793,6 @@ internal class ServiceRoomController(
         const val LOCAL_ACTION_WIN_MARGIN_MS = 200L
         const val PUBLISH_RETRY_BASE_MS = 500L
         const val PUBLISH_RETRY_MAX_MS = 8_000L
-        const val MAX_DIAGNOSTIC_EVENTS = 120
+        const val DRIFT_SAMPLE_INTERVAL_MS = 60_000L
     }
 }
