@@ -456,6 +456,8 @@ class ServiceRoomControllerTest {
             assertFalse(repository.published[0].isPlaying)
             assertEquals(RoomActionType.TRACK, repository.published[1].actionType)
             assertTrue(repository.published[1].isPlaying)
+            assertTrue("changed payloads need a new idempotency key",
+                repository.published[0].actionId != repository.published[1].actionId)
             assertEquals(1, repository.readinessCalls)
             assertFalse(player.snapshot().playWhenReady)
         } finally {
@@ -994,6 +996,7 @@ class ServiceRoomControllerTest {
         var scheduledStartAt: String? = null
         var readinessCalls = 0
         var publishGate: CompletableDeferred<Unit>? = null
+        private val actionRevisions = mutableMapOf<String, Long>()
         var serverNowMs: Long = 10_000L
 
         override suspend fun currentUserId(): String = "device-1"
@@ -1005,8 +1008,12 @@ class ServiceRoomControllerTest {
             val gate = publishGate
             publishGate = null
             gate?.await()
+            actionRevisions[command.actionId]?.let { existingRevision ->
+                return RoomPublishResult(applied = true, revision = existingRevision)
+            }
             published += command
             val revision = command.expectedRevision + 1L
+            actionRevisions[command.actionId] = revision
             val timestamp = "1970-01-01T00:00:%02d.%03dZ".format(
                 serverNowMs / 1_000L,
                 serverNowMs % 1_000L
