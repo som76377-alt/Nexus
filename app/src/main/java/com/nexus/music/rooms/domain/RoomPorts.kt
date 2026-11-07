@@ -19,7 +19,6 @@ interface RoomRepository {
     ): RoomPlaybackReadyResult
     fun observeRealtimeSignals(roomId: String): Flow<RoomRealtimeSignal>
     suspend fun touchRoom(roomId: String): Boolean
-    suspend fun leaveRoom(roomId: String)
 }
 
 /**
