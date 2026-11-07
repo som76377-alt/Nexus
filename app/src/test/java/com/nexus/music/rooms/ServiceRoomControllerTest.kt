@@ -960,7 +960,6 @@ class ServiceRoomControllerTest {
         private val mutablePlayback = MutableStateFlow(initial)
         private val mutableIntents = MutableSharedFlow<RoomPlayerIntent>(extraBufferCapacity = 16)
 
-        override val playback: StateFlow<LocalPlaybackSnapshot> = mutablePlayback
         override val userIntents: SharedFlow<RoomPlayerIntent> = mutableIntents
 
         override fun snapshot(): LocalPlaybackSnapshot = mutablePlayback.value
