@@ -1289,9 +1289,8 @@ internal class ServiceRoomController(
                 }
 
                 recordDiagnostic("barrier.waiting_for_peer", "revision=$revision")
-                // The server expires readiness rows after 45 seconds. Wait slightly
-                // longer before fallback so a late peer cannot schedule a shared start
-                // after this device has already started independently.
+                // The database caps readiness to this revision's four-second command
+                // window, so a late peer cannot create a START after local fallback.
                 while (
                     isCurrent(roomId, generation) &&
                     barrierRevision == revision &&
