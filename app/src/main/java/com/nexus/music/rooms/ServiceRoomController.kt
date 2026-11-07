@@ -465,7 +465,9 @@ internal class ServiceRoomController(
         }
         if (publishJob?.isActive == true) return
         publishJob = scope.launch {
-            delay(100L)
+            // A playing local track must enter its start barrier immediately; paused
+            // selections keep the debounce window so a following Play can replace TRACK.
+            if (next.actionType != RoomActionType.TRACK || !next.shouldPlay) delay(100L)
             publishPendingAction(roomId, sessionGeneration)
         }
     }
