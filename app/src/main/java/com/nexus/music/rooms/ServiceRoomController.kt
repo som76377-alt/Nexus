@@ -95,7 +95,7 @@ internal class ServiceRoomController(
     private var pendingRealtimeSnapshot: RoomPlaybackSnapshot? = null
     private var publishJob: Job? = null
     private var localTrackFallbackJob: Job? = null
-    private data class StartState(val revision: Long, val scheduledAt: String? = null)
+    private data class StartState(val revision: Long)
     private var startJob: Job? = null
     private var start: StartState? = null
     private var completedStartRevision = 0L
@@ -397,8 +397,7 @@ internal class ServiceRoomController(
         pendingAction != null ->
             if (pendingAction?.shouldPlay == true) PlaybackPhase.ROOM_PLAYING
             else PlaybackPhase.ROOM_PAUSED
-        start != null && start?.scheduledAt == null -> PlaybackPhase.START_PREPARING
-        start != null -> PlaybackPhase.START_SCHEDULED
+        start != null -> if (playbackPhase == PlaybackPhase.START_SCHEDULED || playbackAnchorAt != null) PlaybackPhase.START_SCHEDULED else PlaybackPhase.START_PREPARING
         lastRemotePlayback?.isPlaying == true -> PlaybackPhase.ROOM_PLAYING
         else -> PlaybackPhase.ROOM_PAUSED
     }
@@ -1546,13 +1545,14 @@ internal class ServiceRoomController(
             recordDiagnostic("barrier.invalid_start", "revision=$revision")
             return
         }
-        if (start?.scheduledAt == startAt && startJob?.isActive == true) return
+        if (playbackAnchorAt == startAt && playbackPhase == PlaybackPhase.START_SCHEDULED && startJob?.isActive == true) return
 
         startJob?.cancel()
         startJob = null
-        start = start?.copy(scheduledAt = startAt) ?: return
+        if (start?.revision != revision) return
         playbackPhase = PlaybackPhase.START_SCHEDULED
         playbackAnchorRevision = revision
+        playbackAnchorAt = startAt
         playbackAnchorAt = startAt
         val scope = roomScope ?: return
         startJob = scope.launch {
