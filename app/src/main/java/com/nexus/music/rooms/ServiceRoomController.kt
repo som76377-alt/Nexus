@@ -361,9 +361,6 @@ internal class ServiceRoomController(
                 is RoomPlayerIntent.SelectTrack ->
                     if (intent.shouldPlay) PlaybackPhase.SYSTEM_PAUSED_TRACK_PENDING_PLAYING
                     else PlaybackPhase.SYSTEM_PAUSED_TRACK_PENDING_PAUSED
-                is RoomPlayerIntent.SkipToNext, is RoomPlayerIntent.SkipToPrevious ->
-                    if (intent.shouldPlay) PlaybackPhase.SYSTEM_PAUSED_TRACK_PENDING_PLAYING
-                    else PlaybackPhase.SYSTEM_PAUSED_TRACK_PENDING_PAUSED
                 else -> playbackPhase
             }
             return playbackPhase
