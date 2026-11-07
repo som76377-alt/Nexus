@@ -949,7 +949,7 @@ internal class ServiceRoomController(
     /** Schedule a current local command after the reconciliation decision has released its mutex. */
     private fun requestPublishAfterApplyLock(roomId: String, generation: Long) {
         roomScope?.launch {
-            delay(50L)
+            applyMutex.withLock { }
             if (isCurrent(roomId, generation)) publishPendingAction(roomId, generation)
         }
     }
