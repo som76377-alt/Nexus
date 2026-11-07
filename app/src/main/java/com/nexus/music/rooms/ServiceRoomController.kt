@@ -323,14 +323,33 @@ internal class ServiceRoomController(
         )
     }
 
+    /** MediaSession guard: never let a user Play escape a pending shared TRACK start. */
+    fun shouldHoldUserPlay(): Boolean {
+        if (barrierRevision != null || pendingAction?.actionType == RoomActionType.TRACK) return true
+        val remote = lastRemotePlayback ?: return false
+        return remote.actionType == RoomActionType.TRACK &&
+            remote.isPlaying &&
+            remote.revision > lastAppliedRevision
+    }
+
     private fun captureLocalIntent(intent: RoomPlayerIntent) {
         val roomId = activeRoomId ?: return
+        val previousAction = pendingAction
+        val isPendingTrackPlay = intent is RoomPlayerIntent.Play &&
+            previousAction?.actionType == RoomActionType.TRACK
+        if (intent is RoomPlayerIntent.Play && !isPendingTrackPlay && shouldHoldUserPlay()) {
+            // The room already has a new-track start in progress. Keep the player staged;
+            // a local Play button must not cancel the peer barrier or publish a plain PLAY.
+            player.pause()
+            recordDiagnostic("local.play_held_for_barrier", "revision=$barrierRevision")
+            return
+        }
         if (intent is RoomPlayerIntent.SelectTrack && intent.shouldPlay) {
             // Stop the previous item before the selected item can inherit playWhenReady.
             // Keep the requested state in the pending TRACK command for the shared barrier.
             player.pause()
         }
-        cancelStartBarrier("new local playback intent")
+        if (!isPendingTrackPlay) cancelStartBarrier("new local playback intent")
         localTrackFallbackJob?.cancel()
         localTrackFallbackJob = null
         playbackAnchorRevision = null
@@ -381,11 +400,11 @@ internal class ServiceRoomController(
                 artist = intent.artist,
                 shouldPlay = intent.shouldPlay
             )
-            RoomPlayerIntent.Play -> if (preserveTrack) {
+            RoomPlayerIntent.Play -> if (previous?.actionType == RoomActionType.TRACK) {
                 // The selected TRACK is still unpublished. Keep it a TRACK command so
                 // peers prepare the new source and enter the shared start barrier too.
                 player.pause()
-                previous!!.copy(
+                previous.copy(
                     generation = ++localActionGeneration,
                     elapsedMs = elapsed,
                     shouldPlay = true
