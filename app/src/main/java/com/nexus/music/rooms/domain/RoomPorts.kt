@@ -5,8 +5,8 @@ import kotlinx.coroutines.flow.Flow
 /**
  * Backend boundary for room playback.
  *
- * Realtime notifications are invalidation/wake-up signals only. Callers fetch the
- * authoritative snapshot and compare its revision before applying it.
+ * Realtime may carry an authoritative row snapshot or a scheduled-start signal.
+ * Callers still validate room identity and monotonically increasing revisions.
  */
 interface RoomRepository {
     suspend fun currentUserId(): String
