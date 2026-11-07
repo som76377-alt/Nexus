@@ -9,6 +9,8 @@ on:
 permissions:
   contents: read
 
+# Keep only the newest validation run for a PR/branch; superseded commits do not
+# need to consume another full Android SDK + Gradle build.
 concurrency:
   group: nexus-android-ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
