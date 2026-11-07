@@ -12,9 +12,7 @@ import com.nexus.music.rooms.domain.RoomPlayerIntent
 import com.nexus.music.rooms.domain.RoomPlayerPort
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 
 /**
@@ -25,29 +23,17 @@ import kotlinx.coroutines.withContext
 @OptIn(UnstableApi::class)
 internal class Media3RoomPlayerPort(
     private val player: ExoPlayer
-) : RoomPlayerPort, AutoCloseable {
-    private val mutablePlayback = MutableStateFlow(readSnapshot())
+) : RoomPlayerPort {
     private val mutableUserIntents = MutableSharedFlow<RoomPlayerIntent>(
         extraBufferCapacity = 32
     )
 
-    override val playback: StateFlow<LocalPlaybackSnapshot> = mutablePlayback
     override val userIntents: SharedFlow<RoomPlayerIntent> = mutableUserIntents
 
     private var onRoomPlaybackStarted: (() -> Unit)? = null
 
     fun setRoomPlaybackStartedListener(listener: () -> Unit) {
         onRoomPlaybackStarted = listener
-    }
-
-    private val listener = object : Player.Listener {
-        override fun onEvents(player: Player, events: Player.Events) {
-            mutablePlayback.value = readSnapshot()
-        }
-    }
-
-    init {
-        player.addListener(listener)
     }
 
     /** Called by the MediaSession-facing ForwardingPlayer for a genuine controller action. */
@@ -98,7 +84,6 @@ internal class Media3RoomPlayerPort(
                 .build()
             player.setMediaItem(mediaItem)
             player.prepare()
-            mutablePlayback.value = readSnapshot()
         }
     }
 
@@ -130,9 +115,6 @@ internal class Media3RoomPlayerPort(
         player.setPlaybackSpeed(1f)
     }
 
-    override fun close() {
-        player.removeListener(listener)
-    }
 }
 
 /**
