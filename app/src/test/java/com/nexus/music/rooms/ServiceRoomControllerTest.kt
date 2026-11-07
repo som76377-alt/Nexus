@@ -1098,6 +1098,124 @@ class ServiceRoomControllerTest {
     }
 
     @Test
+    fun systemPauseIsLocalOnlyAndDriftCorrectionStaysSuspended() = runTest {
+        val canonical = "https://www.youtube.com/watch?v=system-pause-local"
+        val remote = RoomPlaybackSnapshot(
+            roomId = "room-system-pause",
+            sourceId = canonical,
+            canonicalSourceUrl = canonical,
+            title = "System pause",
+            artist = "Artist",
+            isPlaying = true,
+            positionMs = 10_000L,
+            durationMs = 90_000L,
+            revision = 4L,
+            updatedBy = "other-device",
+            updatedAt = "1970-01-01T00:00:10.000Z",
+            actionId = "remote-play",
+            actionType = RoomActionType.PLAY,
+            originDeviceId = "other-device",
+            commandAt = "1970-01-01T00:00:10.000Z"
+        )
+        val repository = FakeRoomRepository(initialSnapshot = remote)
+        val player = FakeRoomPlayer(
+            LocalPlaybackSnapshot(
+                sourceId = canonical,
+                canonicalSourceUrl = canonical,
+                title = "System pause",
+                artist = "Artist",
+                playWhenReady = true,
+                isPlaying = true,
+                isReady = true,
+                positionMs = 10_000L,
+                durationMs = 90_000L
+            )
+        )
+        val clock = FakeRoomClock()
+        val controller = newController(repository, player, clock = clock)
+
+        try {
+            controller.attach("room-system-pause")
+            runCurrent()
+            assertTrue(repository.published.isEmpty())
+
+            player.pause()
+            player.emitIntent(RoomPlayerIntent.SystemPause)
+            runCurrent()
+            clock.advance(5_000L)
+            advanceTimeBy(5_000L)
+            runCurrent()
+
+            assertTrue("Android system pause must not publish a room PAUSE", repository.published.isEmpty())
+            assertFalse("system interruption must leave local audio paused", player.snapshot().playWhenReady)
+            assertFalse(player.snapshot().isPlaying)
+            assertTrue(controller.diagnostics.value.events.any { it.contains("local.system_pause") })
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
+    fun explicitPlayAfterSystemPauseRejoinsPlayingRoomTimelineWithoutPublishing() = runTest {
+        val canonical = "https://www.youtube.com/watch?v=system-pause-rejoin"
+        val remote = RoomPlaybackSnapshot(
+            roomId = "room-system-rejoin",
+            sourceId = canonical,
+            canonicalSourceUrl = canonical,
+            title = "Rejoin track",
+            artist = "Artist",
+            isPlaying = true,
+            positionMs = 10_000L,
+            durationMs = 90_000L,
+            revision = 7L,
+            updatedBy = "other-device",
+            updatedAt = "1970-01-01T00:00:10.000Z",
+            actionId = "remote-play",
+            actionType = RoomActionType.PLAY,
+            originDeviceId = "other-device",
+            commandAt = "1970-01-01T00:00:10.000Z"
+        )
+        val repository = FakeRoomRepository(initialSnapshot = remote)
+        val player = FakeRoomPlayer(
+            LocalPlaybackSnapshot(
+                sourceId = canonical,
+                canonicalSourceUrl = canonical,
+                title = "Rejoin track",
+                artist = "Artist",
+                playWhenReady = true,
+                isPlaying = true,
+                isReady = true,
+                positionMs = 10_000L,
+                durationMs = 90_000L
+            )
+        )
+        val clock = FakeRoomClock()
+        val controller = newController(repository, player, clock = clock)
+
+        try {
+            controller.attach("room-system-rejoin")
+            runCurrent()
+            player.pause()
+            player.emitIntent(RoomPlayerIntent.SystemPause)
+            runCurrent()
+
+            clock.advance(1_500L)
+            player.emitIntent(RoomPlayerIntent.Play)
+            runCurrent()
+
+            assertTrue("explicit Play rejoins the room timeline locally", player.snapshot().playWhenReady)
+            assertTrue(player.snapshot().isPlaying)
+            assertEquals("resume seeks to the current shared position", 11_500L, player.snapshot().positionMs)
+            assertTrue("rejoining must not publish a room PLAY", repository.published.isEmpty())
+            assertTrue(controller.diagnostics.value.events.any {
+                it.contains("local.system_pause_rejoined")
+            })
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
     fun chatInvalidationUpdatesUiStateWithoutTouchingPlaybackRevision() = runTest {
         val repository = FakeRoomRepository()
         val player = FakeRoomPlayer()
