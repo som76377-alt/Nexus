@@ -1,6 +1,6 @@
 # ADR-0002: PlaybackService owns RoomController
 
-- Status: Accepted; implementation added in `feature/service-owned-room-controller` (pending CI and physical-device verification)
+- Status: Accepted; implemented (CI and physical-device verification remain separate gates)
 - Date: 2026-11-06
 
 ## Decision
