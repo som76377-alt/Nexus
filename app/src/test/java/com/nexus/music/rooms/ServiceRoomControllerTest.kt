@@ -391,9 +391,9 @@ class ServiceRoomControllerTest {
 
             // The MediaSession wrapper records SeekTo before delegating to ExoPlayer,
             // so the fresh snapshot can still contain the old position here.
-            player.emitIntent(RoomPlayerIntent.SeekTo(30_000L))
-            player.emitIntent(RoomPlayerIntent.SeekTo(35_000L))
-            player.emitIntent(RoomPlayerIntent.SeekTo(45_000L))
+            listOf(30_000L, 35_000L, 45_000L).forEach {
+                player.emitIntent(RoomPlayerIntent.SeekTo(it))
+            }
             runCurrent()
             advanceTimeBy(150L)
             runCurrent()
@@ -411,19 +411,15 @@ class ServiceRoomControllerTest {
     @Test
     fun failedPublishRetriesWithBackoffFromTheSinglePublishJob() = runTest {
         val canonical = "https://www.youtube.com/watch?v=publish-retry"
-        val repository = FakeRoomRepository().apply { publishFailuresRemaining = 1 }
-        val player = FakeRoomPlayer(
-            LocalPlaybackSnapshot(
-                sourceId = canonical,
-                canonicalSourceUrl = canonical,
-                title = "Publish retry",
-                artist = "Artist",
-                isReady = true,
-                durationMs = 90_000L
-            )
-        )
+        val repository = FakeRoomRepository().apply {
+            publishGate = CompletableDeferred<Unit>().apply {
+                completeExceptionally(IOException("Temporary publish failure"))
+            }
+        }
+        val player = FakeRoomPlayer(LocalPlaybackSnapshot(
+            sourceId = canonical, canonicalSourceUrl = canonical, title = "Retry", isReady = true
+        ))
         val controller = newController(repository, player)
-
         try {
             controller.attach("room-publish-retry")
             runCurrent()
@@ -1152,7 +1148,6 @@ class ServiceRoomControllerTest {
         var readinessCalls = 0
         val readinessSourceIds = mutableListOf<String>()
         var publishGate: CompletableDeferred<Unit>? = null
-        var publishFailuresRemaining = 0
         private val actionRevisions = mutableMapOf<String, Long>()
         var serverNowMs: Long = 10_000L
 
@@ -1162,10 +1157,6 @@ class ServiceRoomControllerTest {
             snapshot?.takeIf { it.roomId == roomId }
 
         override suspend fun publishPlayback(command: RoomCommand): RoomPublishResult {
-            if (publishFailuresRemaining > 0) {
-                publishFailuresRemaining -= 1
-                throw IOException("Temporary publish failure")
-            }
             val gate = publishGate
             publishGate = null
             gate?.await()

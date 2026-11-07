@@ -504,11 +504,7 @@ internal class ServiceRoomController(
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (error: Exception) {
-                        if (pendingAction?.generation != pending.generation) {
-                            retryGeneration = pendingAction?.generation ?: Long.MIN_VALUE
-                            retryCount = 0
-                            continue
-                        }
+                        if (pendingAction?.generation != pending.generation) continue
                         retryCount = (retryCount + 1).coerceAtMost(5)
                         val retryIn = publishRetryDelay(retryCount)
                         setError(error, "Playback command could not be published")
@@ -527,9 +523,6 @@ internal class ServiceRoomController(
                             "generation=${pending.generation} attempt=$retryCount delay=${retryIn}ms reason=unresolved"
                         )
                         delay(retryIn)
-                    } else {
-                        retryGeneration = pendingAction?.generation ?: Long.MIN_VALUE
-                        retryCount = 0
                     }
                 }
             } finally {
@@ -1488,7 +1481,7 @@ internal class ServiceRoomController(
             shouldPlay = true,
             requestedPositionMs = positionMs
         )
-        recordDiagnostic("barrier.recovery_publish_queued", "revision=$revision position=${positionMs}ms")
+        recordDiagnostic("barrier.recovery_publish_queued", "revision=${remote.revision} position=${positionMs}ms")
         schedulePendingPublish(roomId, generation)
     }
 
