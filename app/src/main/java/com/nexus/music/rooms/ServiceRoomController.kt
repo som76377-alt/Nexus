@@ -381,15 +381,18 @@ internal class ServiceRoomController(
                 artist = intent.artist,
                 shouldPlay = intent.shouldPlay
             )
-            RoomPlayerIntent.Play -> if (preserveTrack && previous!!.shouldPlay) {
+            RoomPlayerIntent.Play -> if (preserveTrack) {
+                // The selected TRACK is still unpublished. Keep it a TRACK command so
+                // peers prepare the new source and enter the shared start barrier too.
+                player.pause()
                 previous!!.copy(
                     generation = ++localActionGeneration,
                     elapsedMs = elapsed,
                     shouldPlay = true
                 )
             } else {
-                // A track selected while paused is already prepared locally. Treat its
-                // first Play as an immediate PLAY/resume; do not restart a TRACK barrier.
+                // The TRACK was already published: every peer has the canonical item,
+                // so this is a normal immediate resume rather than a new-track barrier.
                 pendingFromSnapshot(RoomActionType.PLAY, current, elapsed)
             }
             RoomPlayerIntent.Pause -> if (preserveTrack) {
