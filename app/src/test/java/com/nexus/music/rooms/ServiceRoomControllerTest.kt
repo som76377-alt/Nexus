@@ -342,7 +342,7 @@ class ServiceRoomControllerTest {
     }
 
     @Test
-    fun playImmediatelyAfterPausedTrackSelectionDoesNotReenterTrackBarrier() = runTest {
+    fun playImmediatelyAfterPausedTrackSelectionKeepsTrackBarrier() = runTest {
         val canonical = "https://www.youtube.com/watch?v=paused-selection-play"
         val repository = FakeRoomRepository()
         val player = FakeRoomPlayer()
@@ -353,7 +353,8 @@ class ServiceRoomControllerTest {
             runCurrent()
 
             // Select a prepared track, then press Play before the debounce can publish
-            // the TRACK command. The queued intent should collapse to one PLAY command.
+            // the TRACK command. The command must retain TRACK semantics and the shared
+            // start barrier because the peer may not have prepared this source yet.
             player.setSnapshot(
                 LocalPlaybackSnapshot(
                     sourceId = canonical,
@@ -383,11 +384,11 @@ class ServiceRoomControllerTest {
             runCurrent()
 
             assertEquals(1, repository.published.size)
-            assertEquals(RoomActionType.PLAY, repository.published.single().actionType)
+            assertEquals(RoomActionType.TRACK, repository.published.single().actionType)
             assertTrue(repository.published.single().isPlaying)
-            assertTrue(player.snapshot().playWhenReady)
-            assertTrue(player.snapshot().isPlaying)
-            assertEquals("already-prepared resume must not call READY", 0, repository.readinessCalls)
+            assertEquals("new source must enter the shared READY barrier", 1, repository.readinessCalls)
+            assertFalse("local audio remains staged until START", player.snapshot().playWhenReady)
+            assertFalse(player.snapshot().isPlaying)
         } finally {
             controller.close()
         }
