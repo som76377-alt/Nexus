@@ -376,6 +376,8 @@ internal class ServiceRoomController(
                         local.sourceId == remote.canonicalSourceUrl
                     ) {
                         player.seekTo(expectedRoomPosition(remote))
+                        lastAppliedRevision = maxOf(lastAppliedRevision, remote.revision)
+                        retryPolicy.recordSuccess(remote.revision)
                     } else if (remote != null && local.sourceId != remote.canonicalSourceUrl) {
                         requestReconciliation(roomId, sessionGeneration)
                     }
@@ -1743,7 +1745,12 @@ internal class ServiceRoomController(
         barrierRevision = null
         barrierScheduledStartAt = null
         barrierCompletedRevision = maxOf(barrierCompletedRevision, remote.revision)
-        mutableState.value = mutableState.value.copy(statusMessage = null)
+        lastAppliedRevision = maxOf(lastAppliedRevision, remote.revision)
+        retryPolicy.recordSuccess(remote.revision)
+        mutableState.value = mutableState.value.copy(
+            playback = remote,
+            statusMessage = null
+        )
         val expected = expectedRoomPosition(remote)
         player.seekTo(expected)
         player.resetPlaybackSpeed()
