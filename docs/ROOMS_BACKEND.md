@@ -20,7 +20,7 @@ Public room tables use RLS and membership checks. Each room accepts at most two 
 - Chat inserts are separate signals and never trigger playback application.
 - Each Android device resolves the canonical track locally. Expiring stream URLs never enter shared room state.
 
-A new playing TRACK can use the database readiness/start anchor. The wait is bounded on the client; a ready device starts locally if its peer does not become ready, then publishes a RECOVERY revision so a late peer joins the current timeline. A PLAY on an already prepared track does not re-enter the new-track barrier.
+A new playing TRACK can use the database readiness/start anchor. Readiness leases are capped at the command's four-second start window, so a late peer cannot create a new START after another device has fallen back. An already-created start anchor remains available for recovery. A ready device starts locally if its peer does not become ready, then publishes a RECOVERY revision so a late peer joins the current timeline. A PLAY on an already prepared track does not re-enter the new-track barrier.
 
 ## Presence and expiry
 
