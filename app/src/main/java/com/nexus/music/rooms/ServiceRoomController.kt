@@ -431,74 +431,34 @@ internal class ServiceRoomController(
             playbackPhase(intent)
         }
         if (intent == RoomPlayerIntent.SystemPause) {
-            playbackPhase = if (playbackPhase.shouldPlay || player.snapshot().playWhenReady) PlaybackPhase.SYSTEM_PAUSED_PLAYING else PlaybackPhase.SYSTEM_PAUSED_PAUSED
+            playbackPhase = if (playbackPhase.shouldPlay || player.snapshot().playWhenReady) {
+                PlaybackPhase.SYSTEM_PAUSED_PLAYING
+            } else PlaybackPhase.SYSTEM_PAUSED_PAUSED
             clearStart()
             mutableState.value = mutableState.value.copy(statusMessage = null)
             player.resetPlaybackSpeed()
             driftController.reset()
             driftSeekGate.reset()
-            recordDiagnostic("local.system_pause", "local-only; room timeline unchanged; pending barrier suspended")
+            recordDiagnostic("local.system_pause", "local-only; room timeline unchanged; pending start suspended")
             return
         }
-
-        if (intent == RoomPlayerIntent.SystemResume) {
-            if (playbackPhase.isSystemPaused) {
-                playbackPhase = phaseFromRoomState()
-                val remote = lastRemotePlayback
-                if (remote?.isPlaying == true && player.snapshot().playWhenReady) {
-                    rejoinRoomTimelineLocally(roomId, remote, "system_resume")
-                } else {
-                    // A focus-release callback must not undo an explicit user Pause.
-                    val local = player.snapshot()
-                    if (remote != null && !remote.isPlaying &&
-                        local.sourceId == remote.canonicalSourceUrl
-                    ) {
-                        player.seekTo(expectedRoomPosition(remote))
-                        lastAppliedRevision = maxOf(lastAppliedRevision, remote.revision)
-                        retryPolicy.recordSuccess(remote.revision)
-                    } else if (remote != null && local.sourceId != remote.canonicalSourceUrl) {
-                        requestReconciliation(roomId, sessionGeneration)
-                    }
-                    player.pause()
-                    recordDiagnostic(
-                        "local.system_resume_held",
-                        "room is paused or local play intent was cleared; no room publish"
-                    )
-                }
-            }
-            return
-        }
-
-        if (intent == RoomPlayerIntent.Play &&
-            playbackPhase.isSystemPaused
-        ) {
+        if (playbackPhase.isSystemPaused) {
             val remote = lastRemotePlayback
-            if (remote?.isPlaying == true) {
-                val local = player.snapshot()
-                playbackPhase = phaseFromRoomState()
-                if (local.sourceId == remote.canonicalSourceUrl) {
-                    rejoinRoomTimelineLocally(roomId, remote, "explicit_play")
-                } else {
-                    // Do not publish PLAY for a stale local item over a room that has moved on.
-                    recordDiagnostic(
-                        "local.system_pause_reconcile",
-                        "local source differs from playing room revision=${remote.revision}"
-                    )
-                    requestReconciliation(roomId, sessionGeneration)
+            playbackPhase = phaseFromRoomState()
+            when (intent) {
+                RoomPlayerIntent.SystemResume -> {
+                    resumeAfterInterruption(roomId, remote, "system_resume", requirePlayWhenReady = true)
+                    return
                 }
-                return
+                RoomPlayerIntent.Play -> if (remote?.isPlaying == true) {
+                    resumeAfterInterruption(roomId, remote, "explicit_play", requirePlayWhenReady = false)
+                    return
+                } else recordDiagnostic(
+                    "local.system_pause_released",
+                    "room is not playing; explicit Play may publish"
+                )
+                else -> recordDiagnostic("local.system_pause_overridden", "explicit user intent=$intent")
             }
-            playbackPhase = phaseFromRoomState()
-            recordDiagnostic("local.system_pause_released", "room is not playing; explicit Play may publish")
-        }
-
-        if (intent != RoomPlayerIntent.Play &&
-            playbackPhase.isSystemPaused
-        ) {
-            // A later explicit Pause/Seek/track selection supersedes the interruption;
-            // a delayed focus-gain callback must not undo that user decision.
-            playbackPhase = phaseFromRoomState()
-            recordDiagnostic("local.system_pause_overridden", "explicit user intent=$intent")
         }
 
         val previousAction = pendingAction
@@ -1713,6 +1673,31 @@ internal class ServiceRoomController(
         clearStart()
         refreshPlaybackPhase()
         mutableState.value = mutableState.value.copy(statusMessage = null)
+    }
+
+    private fun resumeAfterInterruption(
+        roomId: String,
+        remote: RoomPlaybackSnapshot?,
+        source: String,
+        requirePlayWhenReady: Boolean
+    ) {
+        val local = player.snapshot()
+        if (remote?.isPlaying == true && (!requirePlayWhenReady || local.playWhenReady)) {
+            rejoinRoomTimelineLocally(roomId, remote, source)
+            return
+        }
+        if (remote != null && !remote.isPlaying && local.sourceId == remote.canonicalSourceUrl) {
+            player.seekTo(expectedRoomPosition(remote))
+            lastAppliedRevision = maxOf(lastAppliedRevision, remote.revision)
+            retryPolicy.recordSuccess(remote.revision)
+        } else if (remote != null && local.sourceId != remote.canonicalSourceUrl) {
+            requestReconciliation(roomId, sessionGeneration)
+        }
+        player.pause()
+        recordDiagnostic(
+            "local.system_resume_held",
+            "room is paused or local play intent was cleared; no room publish"
+        )
     }
 
     private fun rejoinRoomTimelineLocally(
