@@ -382,6 +382,7 @@ class GitHubReleaseUpdater(
             .build()
 
         private val DOWNLOAD_CLIENT = OkHttpClient.Builder()
+            .followSslRedirects(false)
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(90, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
