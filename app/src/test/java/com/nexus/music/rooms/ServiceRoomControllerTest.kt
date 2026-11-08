@@ -28,6 +28,64 @@ import org.junit.Test
 
 class ServiceRoomControllerTest {
 
+    @Test
+    fun driftDiagnosticsSampleEverySecondForFifteenSecondsThenEveryTenSeconds() = runTest {
+        val canonical = "https://www.youtube.com/watch?v=drift-diagnostics"
+        val timestamp = "1970-01-01T00:00:10.000Z"
+        val remote = RoomPlaybackSnapshot(
+            roomId = "room-drift-diagnostics",
+            sourceId = canonical,
+            canonicalSourceUrl = canonical,
+            title = "Diagnostics track",
+            artist = "Artist",
+            isPlaying = false,
+            positionMs = 5_000L,
+            durationMs = 90_000L,
+            revision = 1L,
+            updatedBy = "other-device",
+            updatedAt = timestamp,
+            actionId = "remote-pause",
+            actionType = RoomActionType.PAUSE,
+            originDeviceId = "other-device",
+            commandAt = timestamp
+        )
+        val repository = FakeRoomRepository(initialSnapshot = remote)
+        val player = FakeRoomPlayer()
+        val clock = FakeRoomClock()
+        val controller = newController(repository, player, clock = clock)
+
+        try {
+            controller.attach(remote.roomId)
+            runCurrent()
+            assertTrue(controller.diagnostics.value.events.any { it.contains("action.applied") })
+
+            repeat(15) {
+                clock.advance(1_000L)
+                advanceTimeBy(1_000L)
+                runCurrent()
+            }
+            fun driftSampleCount(): Int =
+                controller.diagnostics.value.events.count { it.contains("drift.sample") }
+
+            assertEquals("one sample per second during the 15-second burst", 15, driftSampleCount())
+
+            repeat(9) {
+                clock.advance(1_000L)
+                advanceTimeBy(1_000L)
+                runCurrent()
+            }
+            assertEquals("no extra sample before the 10-second steady interval", 15, driftSampleCount())
+
+            clock.advance(1_000L)
+            advanceTimeBy(1_000L)
+            runCurrent()
+            assertEquals("steady-state sampling resumes at 10-second intervals", 16, driftSampleCount())
+        } finally {
+            controller.close()
+        }
+    }
+
+
     // SPEC: S2, S8
     @Test
     fun attachPublishesAnAlreadyLoadedLocalTrackThroughRevisionCas() = runTest {
