@@ -46,6 +46,9 @@ interface RoomPlayerPort {
     fun play()
     fun pause()
     fun seekTo(positionMs: Long)
+
+    /** Completed seek-to-ready-and-playing latency, consumed once by diagnostics. */
+    fun consumeSeekLatencyMs(): Long? = null
     fun setPlaybackSpeed(speed: Float)
     fun resetPlaybackSpeed()
 }

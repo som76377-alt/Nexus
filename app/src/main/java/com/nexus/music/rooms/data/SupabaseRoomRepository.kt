@@ -88,8 +88,8 @@ internal class SupabaseRoomRepository(
                             ?: RoomRealtimeSignal.PlaybackInvalidated
                     )
                 },
-                onChatSignal = {
-                    trySend(RoomRealtimeSignal.ChatInvalidated)
+                onChatMessage = { message ->
+                    trySend(RoomRealtimeSignal.ChatMessageReceived(message))
                 },
                 onStartScheduled = { revision, sourceId, startAt ->
                     trySend(

@@ -12,6 +12,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
@@ -26,7 +27,6 @@ import coil3.load
 import com.nexus.music.CatalogFormatting
 import com.nexus.music.MainActivity
 import com.nexus.music.catalog.CatalogTrack
-import com.nexus.music.catalog.CatalogFormatting
 import com.nexus.music.catalog.YoutubeCatalogRepository
 import com.nexus.music.catalog.YoutubeSearchScope
 import com.nexus.music.ui.NexusUi
@@ -75,6 +75,7 @@ class ListeningRoomActivity : Activity() {
     private lateinit var roomActions: LinearLayout
     private lateinit var inviteText: TextView
     private lateinit var messagesBox: LinearLayout
+    private lateinit var chatScrollView: ScrollView
     private lateinit var messageInput: EditText
     private lateinit var sendButton: Button
     private lateinit var copyCodeButton: Button
@@ -104,7 +105,7 @@ class ListeningRoomActivity : Activity() {
     private var syncJob: Job? = null
     private var roomController: RoomController? = null
     private var roomStateJob: Job? = null
-    private var lastChatSignalVersion = 0L
+    private var lastRealtimeConnected = false
     private var isActivityStarted = false
     private var backInvokedCallback: android.window.OnBackInvokedCallback? = null
 
@@ -195,6 +196,9 @@ class ListeningRoomActivity : Activity() {
             setOnClickListener { leaveRoom() }
         })
         roomPanel.addView(roomHeader, params(0))
+        roomPanel.addView(actionButton("Copy debug log", false).apply {
+            setOnClickListener { copyDiagnostics() }
+        }, params(6))
 
         searchPanel = SearchPanel(
             context = this,
@@ -232,7 +236,7 @@ class ListeningRoomActivity : Activity() {
         roomPanel.addView(miniPlayer.container, params(8))
 
         roomPanel.addView(label("Chat", 15f, foreground, true), params(10))
-        val chatScroll = ScrollView(this).apply {
+        chatScrollView = ScrollView(this).apply {
             background = rounded(surface, 12)
             isFillViewport = false
             clipToPadding = false
@@ -241,8 +245,8 @@ class ListeningRoomActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(10), dp(10), dp(10), dp(10))
         }
-        chatScroll.addView(messagesBox)
-        roomPanel.addView(chatScroll, LinearLayout.LayoutParams(-1, dp(132)).apply {
+        chatScrollView.addView(messagesBox)
+        roomPanel.addView(chatScrollView, LinearLayout.LayoutParams(-1, dp(132)).apply {
             topMargin = dp(7)
             bottomMargin = dp(8)
         })
@@ -397,7 +401,6 @@ class ListeningRoomActivity : Activity() {
             if (roomId != id || roomSessionGeneration != sessionGeneration) return
             ActiveRoomSessionStore.save(this@ListeningRoomActivity, id)
 
-            lastChatSignalVersion = controller.state.value.chatSignalVersion
             roomStateJob?.cancel()
             roomStateJob = scope.launch {
                 controller.state.collect { roomState ->
@@ -417,17 +420,23 @@ class ListeningRoomActivity : Activity() {
                         RoomConnectionState.ERROR -> "Room connection needs attention."
                         RoomConnectionState.DISCONNECTED -> "Room disconnected."
                     }
-                    if (roomState.chatSignalVersion > lastChatSignalVersion) {
-                        lastChatSignalVersion = roomState.chatSignalVersion
-                        if (!isActivityStarted) return@collect
-                        try {
-                            refreshMessages()
-                        } catch (cancelled: CancellationException) {
-                            throw cancelled
-                        } catch (error: Exception) {
-                            status.text = "Chat reconnecting · ${error.message ?: "retrying"}"
+                    roomState.chatMessages.forEach { message ->
+                        appendChatMessage(
+                            RoomMessage(message.id, message.senderId, message.body, message.createdAt)
+                        )
+                    }
+                    if (!lastRealtimeConnected && roomState.realtimeConnected && isActivityStarted) {
+                        scope.launch {
+                            try {
+                                refreshMessages()
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (error: Exception) {
+                                status.text = "Chat reconnecting · ${error.message ?: "retrying"}"
+                            }
                         }
                     }
+                    lastRealtimeConnected = roomState.realtimeConnected
                 }
             }
 
@@ -630,7 +639,7 @@ class ListeningRoomActivity : Activity() {
         clipboard.setPrimaryClip(
             ClipData.newPlainText("Nexus room diagnostics", diagnostics.exportText())
         )
-        Toast.makeText(this, "Synchronization log copied", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Log copied", Toast.LENGTH_SHORT).show()
     }
 
     private fun startChatFallbackSync() {
@@ -644,9 +653,9 @@ class ListeningRoomActivity : Activity() {
                 roomId == id &&
                 roomSessionGeneration == sessionGeneration
             ) {
-                val realtimeHealthy = controller.state.value.realtimeConnected
-                delay(if (realtimeHealthy) 30_000L else 10_000L)
+                delay(10_000L)
                 if (roomId != id || roomSessionGeneration != sessionGeneration) break
+                if (controller.state.value.realtimeConnected) continue
                 try {
                     refreshMessages()
                 } catch (cancelled: CancellationException) {
@@ -669,72 +678,108 @@ class ListeningRoomActivity : Activity() {
         val requestGeneration = ++messageRefreshGeneration
         val api = PlaybackService.awaitRoomsApi()
         val messages = api.loadMessages(id)
-        // Ignore both cross-room responses and older concurrent reads from this same room.
         if (roomId != id ||
             roomSessionGeneration != sessionGeneration ||
             requestGeneration != messageRefreshGeneration
         ) return
-        if (messages.isEmpty()) {
-            if (messagesBox.childCount == 1 && messagesBox.getChildAt(0).tag == "empty") return
-            messagesBox.removeAllViews()
+        messages.forEach { appendChatMessage(it) }
+        if (messagesBox.childCount == 0) {
             messagesBox.addView(
                 label("No messages yet. Start the conversation.", 12f, muted).apply {
                     tag = "empty"
                 }
             )
-            return
-        }
-        val currentIds = (0 until messagesBox.childCount).mapNotNull { index ->
-            messagesBox.getChildAt(index).tag as? String
-        }.toSet()
-        if (messages.all { it.id in currentIds } && messages.size == currentIds.size) return
-        messagesBox.removeAllViews()
-        messages.forEach { message ->
-                val mine = message.senderId == userId
-                val bubble = LinearLayout(this).apply {
-                    orientation = LinearLayout.VERTICAL
-                    background = rounded(if (mine) Color.rgb(45, 62, 39) else raised, 12)
-                    setPadding(dp(10), dp(8), dp(10), dp(8))
-                }
-                bubble.addView(label(if (mine) "You" else "Room member", 10f, if (mine) accent else muted, true))
-                bubble.addView(label(message.body, 13f, foreground))
-                bubble.addView(label(formatTime(message.createdAt), 9f, muted))
-                val row = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = if (mine) Gravity.END else Gravity.START
-                }
-                row.tag = message.id
-                row.addView(bubble, LinearLayout.LayoutParams(-2, -2).apply {
-                    weight = 0f
-                    width = (resources.displayMetrics.widthPixels * 0.72f).toInt()
-                    bottomMargin = dp(8)
-                })
-                messagesBox.addView(row)
         }
     }
 
+    private fun appendChatMessage(message: RoomMessage, pendingId: String? = null) {
+        val existing = findChatRow(message.id)
+        if (existing != null) return
+        val pendingRow = pendingId?.let(::findChatRow)
+        val insertionIndex = pendingRow?.let { messagesBox.indexOfChild(it) }
+            ?: (0 until messagesBox.childCount).firstOrNull { index ->
+                val row = messagesBox.getChildAt(index)
+                val rowTime = ((row as? ViewGroup)?.getChildAt(0)?.tag as? String).orEmpty()
+                rowTime.isNotBlank() && rowTime > message.createdAt
+            } ?: messagesBox.childCount
+        val wasAtBottom = chatScrollView.getChildAt(0)?.let { content ->
+            content.bottom - chatScrollView.height - chatScrollView.scrollY <= dp(24)
+        } ?: true
+        messagesBox.findViewWithTag<View>("empty")?.let(messagesBox::removeView)
+        pendingRow?.let(messagesBox::removeView)
+        val mine = message.senderId == userId
+        val bubble = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(if (mine) Color.rgb(45, 62, 39) else raised, 12)
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+        }
+        bubble.addView(label(if (mine) "You" else "Room member", 10f, if (mine) accent else muted, true))
+        bubble.addView(label(message.body, 13f, foreground))
+        bubble.addView(label(formatTime(message.createdAt), 9f, muted))
+        bubble.tag = message.createdAt
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = if (mine) Gravity.END else Gravity.START
+            tag = message.id
+        }
+        row.addView(bubble, LinearLayout.LayoutParams(-2, -2).apply {
+            weight = 0f
+            width = (resources.displayMetrics.widthPixels * 0.72f).toInt()
+            bottomMargin = dp(8)
+        })
+        messagesBox.addView(row, insertionIndex.coerceIn(0, messagesBox.childCount))
+        if (wasAtBottom) chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
+    }
+
+    private fun findChatRow(id: String): View? {
+        for (index in 0 until messagesBox.childCount) {
+            val child = messagesBox.getChildAt(index)
+            if (child.tag == id) return child
+        }
+        return null
+    }
+
     private fun sendMessage() {
-        val id = roomId ?: return
-        val sender = userId ?: return
         val body = messageInput.text.toString().trim()
         if (body.isEmpty()) return
-        val sessionGeneration = roomSessionGeneration
+        messageInput.text.clear()
+        val pendingId = "pending-${android.os.SystemClock.elapsedRealtimeNanos()}"
+        val sender = userId ?: return
+        appendChatMessage(RoomMessage(pendingId, sender, body, ""))
         sendButton.isEnabled = false
+        sendMessageToServer(body, pendingId, sender)
+    }
+
+    private fun sendMessageToServer(body: String, pendingId: String, sender: String) {
+        val id = roomId ?: return
+        val sessionGeneration = roomSessionGeneration
         scope.launch {
             try {
                 val api = PlaybackService.awaitRoomsApi()
-                api.sendMessage(id, sender, body)
+                val saved = api.sendMessage(id, sender, body)
                 if (roomId != id || roomSessionGeneration != sessionGeneration) return@launch
-                messageInput.text.clear()
-                refreshMessages()
+                appendChatMessage(saved, pendingId)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
                 if (roomId == id && roomSessionGeneration == sessionGeneration) {
-                    status.text = error.message ?: "Message could not be sent."
+                    findChatRow(pendingId)?.let { row ->
+                        val bubble = (row as? ViewGroup)?.getChildAt(0) as? LinearLayout
+                        val retry = label("Not sent · tap to retry", 10f, accent, true).apply {
+                            setOnClickListener {
+                                text = "Sending…"
+                                isEnabled = false
+                                sendMessageToServer(body, pendingId, sender)
+                            }
+                        }
+                        bubble?.addView(retry)
+                        status.text = error.message ?: "Message could not be sent."
+                    }
                 }
             } finally {
-                if (roomId == id && roomSessionGeneration == sessionGeneration) sendButton.isEnabled = true
+                if (roomId == id && roomSessionGeneration == sessionGeneration) {
+                    sendButton.isEnabled = true
+                }
             }
         }
     }
@@ -779,7 +824,7 @@ class ListeningRoomActivity : Activity() {
         inviteCode = null
         userId = null
         if (clearPersistedRoom) ActiveRoomSessionStore.clear(this)
-        lastChatSignalVersion = 0L
+        lastRealtimeConnected = false
         roomPanel.visibility = View.GONE
         roomActions.visibility = View.VISIBLE
         createButton.visibility = View.VISIBLE
