@@ -707,7 +707,7 @@ class MainActivity : Activity() {
                 throw error
             } catch (error: Exception) {
                 playerSubtitle.text = "Couldn't prepare audio"
-                Toast.makeText(this, error.message ?: "Please choose another result.", Toast.LENGTH_LONG).show()
+                Toast.makeText(this@MainActivity, error.message ?: "Please choose another result.", Toast.LENGTH_LONG).show()
             } finally {
                 isResolving = false
             }
