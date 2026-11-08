@@ -152,7 +152,6 @@ object NexusUi {
         }
         val progress = SeekBar(context).apply {
             max = 1000
-            minHeight = dp(context, Spacing.controlHeight)
             progressTintList = android.content.res.ColorStateList.valueOf(Colors.accent)
             thumbTintList = android.content.res.ColorStateList.valueOf(Colors.accent)
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
