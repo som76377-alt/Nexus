@@ -15,7 +15,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.withContext
-import java.util.concurrent.atomic.AtomicLong
 
 /**
  * A narrow adapter around the single ExoPlayer in PlaybackService.
@@ -31,18 +30,8 @@ internal class Media3RoomPlayerPort(
     )
 
     override val userIntents: SharedFlow<RoomPlayerIntent> = mutableUserIntents
-    private val pendingSeekStartedAtMs = AtomicLong(-1L)
-    private val completedSeekLatencyMs = AtomicLong(-1L)
 
     private val interruptionListener = object : Player.Listener {
-        override fun onPlaybackStateChanged(playbackState: Int) {
-            finishSeekMeasurementIfPlaying()
-        }
-
-        override fun onIsPlayingChanged(isPlaying: Boolean) {
-            if (isPlaying) finishSeekMeasurementIfPlaying()
-        }
-
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
             if (!playWhenReady && (
                     reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS ||
@@ -137,28 +126,8 @@ internal class Media3RoomPlayerPort(
         player.pause()
     }
 
-    fun recordSeekRequested() {
-        pendingSeekStartedAtMs.set(android.os.SystemClock.elapsedRealtime())
-    }
-
     override fun seekTo(positionMs: Long) {
-        recordSeekRequested()
         player.seekTo(positionMs.coerceAtLeast(0L))
-        finishSeekMeasurementIfPlaying()
-    }
-
-    override fun consumeSeekLatencyMs(): Long? =
-        completedSeekLatencyMs.getAndSet(-1L).takeIf { it >= 0L }
-
-    fun checkSeekCompletion() = finishSeekMeasurementIfPlaying()
-
-    private fun finishSeekMeasurementIfPlaying() {
-        if (player.playbackState != Player.STATE_READY || !player.isPlaying) return
-        val startedAt = pendingSeekStartedAtMs.getAndSet(-1L)
-        if (startedAt >= 0L) {
-            val latencyMs = (android.os.SystemClock.elapsedRealtime() - startedAt).coerceAtLeast(0L)
-            if (latencyMs <= 15_000L) completedSeekLatencyMs.set(latencyMs)
-        }
     }
 
     override fun setPlaybackSpeed(speed: Float) {
@@ -179,9 +148,7 @@ internal class Media3RoomPlayerPort(
 internal class RoomIntentForwardingPlayer(
     private val delegate: Player,
     private val recordIntent: (RoomPlayerIntent) -> Unit,
-    private val playbackPhase: (RoomPlayerIntent?) -> ServiceRoomController.PlaybackPhase,
-    private val onSeekRequested: () -> Unit = {},
-    private val onSeekCompleted: () -> Unit = {}
+    private val playbackPhase: (RoomPlayerIntent?) -> ServiceRoomController.PlaybackPhase
 ) : androidx.media3.common.ForwardingPlayer(delegate) {
     private fun emitIntent(intent: RoomPlayerIntent) {
         playbackPhase(intent)
@@ -205,10 +172,8 @@ internal class RoomIntentForwardingPlayer(
 
     override fun seekTo(positionMs: Long) {
         val targetPositionMs = positionMs.coerceAtLeast(0L)
-        onSeekRequested()
         emitIntent(RoomPlayerIntent.SeekTo(targetPositionMs))
         super.seekTo(targetPositionMs)
-        onSeekCompleted()
     }
 
     override fun setMediaItem(mediaItem: MediaItem) {
