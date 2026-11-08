@@ -180,7 +180,8 @@ internal class Media3RoomPlayerPort(
 internal class RoomIntentForwardingPlayer(
     private val delegate: Player,
     private val recordIntent: (RoomPlayerIntent) -> Unit,
-    private val playbackPhase: (RoomPlayerIntent?) -> ServiceRoomController.PlaybackPhase
+    private val playbackPhase: (RoomPlayerIntent?) -> ServiceRoomController.PlaybackPhase,
+    private val onSeekRequested: () -> Unit = {}
 ) : androidx.media3.common.ForwardingPlayer(delegate) {
     private fun emitIntent(intent: RoomPlayerIntent) {
         playbackPhase(intent)
@@ -204,6 +205,7 @@ internal class RoomIntentForwardingPlayer(
 
     override fun seekTo(positionMs: Long) {
         val targetPositionMs = positionMs.coerceAtLeast(0L)
+        onSeekRequested()
         emitIntent(RoomPlayerIntent.SeekTo(targetPositionMs))
         super.seekTo(targetPositionMs)
     }
