@@ -35,7 +35,11 @@ sealed interface UpdateCheckResult {
         val installedVersion: String,
         val latestReleaseVersion: String
     ) : UpdateCheckResult
-    data class UnverifiedInstallation(val installedVersion: String) : UpdateCheckResult
+    data class UnverifiedInstallation(
+        val installedVersion: String,
+        val signingIdentity: NexusSigningIdentity,
+        val message: String?
+    ) : UpdateCheckResult
 }
 
 /**
@@ -50,8 +54,18 @@ class GitHubReleaseUpdater(
         val installedInfo = getInstalledPackageInfo(context, signingPackageFlags())
         val installedVersion = installedInfo.versionName
             ?: throw IOException("Android could not read the installed Nexus version.")
-        if (!hasOfficialInstalledSigner(installedInfo)) {
-            return@withContext UpdateCheckResult.UnverifiedInstallation(installedVersion)
+        val signingIdentity = installedSignerIdentity(installedInfo)
+        if (signingIdentity != NexusSigningIdentity.OFFICIAL) {
+            val message = if (signingIdentity == NexusSigningIdentity.DIFFERENT) {
+                DIFFERENT_NEXUS_SIGNER_MESSAGE
+            } else {
+                null
+            }
+            return@withContext UpdateCheckResult.UnverifiedInstallation(
+                installedVersion = installedVersion,
+                signingIdentity = signingIdentity,
+                message = message
+            )
         }
         val installedVersionCode = installedVersionCode(installedInfo)
         val apiUrl = "https://api.github.com/repos/" +
@@ -333,16 +347,20 @@ class GitHubReleaseUpdater(
             PackageManager.GET_SIGNATURES
         }
 
-    private fun hasOfficialInstalledSigner(packageInfo: PackageInfo): Boolean {
-        val fingerprints = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            val signingInfo = packageInfo.signingInfo ?: return false
-            signerFingerprints(signingInfo.apkContentsSigners)
-        } else {
-            @Suppress("DEPRECATION")
-            signerFingerprints(packageInfo.signatures)
+    private fun installedSignerIdentity(packageInfo: PackageInfo): NexusSigningIdentity =
+        try {
+            val fingerprints = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val signingInfo = packageInfo.signingInfo
+                    ?: return NexusSigningIdentity.UNKNOWN
+                signerFingerprints(signingInfo.apkContentsSigners)
+            } else {
+                @Suppress("DEPRECATION")
+                signerFingerprints(packageInfo.signatures)
+            }
+            classifyNexusSigner(fingerprints)
+        } catch (_: Exception) {
+            NexusSigningIdentity.UNKNOWN
         }
-        return classifyNexusSigner(fingerprints) == NexusSigningIdentity.OFFICIAL
-    }
 
     @Suppress("DEPRECATION")
     private fun installedVersionCode(packageInfo: PackageInfo): Long =
@@ -394,16 +412,20 @@ class GitHubReleaseUpdater(
 
 internal enum class NexusSigningIdentity {
     OFFICIAL,
+    DIFFERENT,
     UNKNOWN
 }
 
-/** A non-matching or unavailable certificate is unverified, not proof of a malicious key. */
+/** A readable, non-empty signer set that is not the official signer is DIFFERENT. */
 internal fun classifyNexusSigner(fingerprints: Set<String>): NexusSigningIdentity =
-    if (fingerprints == setOf(OFFICIAL_NEXUS_SIGNER_SHA256)) {
-        NexusSigningIdentity.OFFICIAL
-    } else {
-        NexusSigningIdentity.UNKNOWN
+    when {
+        fingerprints.isEmpty() -> NexusSigningIdentity.UNKNOWN
+        fingerprints == setOf(OFFICIAL_NEXUS_SIGNER_SHA256) -> NexusSigningIdentity.OFFICIAL
+        else -> NexusSigningIdentity.DIFFERENT
     }
+
+internal const val DIFFERENT_NEXUS_SIGNER_MESSAGE =
+    "This install is signed with a different key. Uninstall it, then install the official build."
 
 private const val OFFICIAL_NEXUS_SIGNER_SHA256 =
     "c8b263a4b2aecac65df71e6ee9f6e8ab47a33688a46a4cf0f4248506975d6e2b"
