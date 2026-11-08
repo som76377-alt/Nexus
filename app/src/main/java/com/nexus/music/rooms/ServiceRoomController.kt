@@ -209,6 +209,14 @@ internal class ServiceRoomController(
                         recordDiagnostic("realtime.playback_snapshot", "revision=${signal.snapshot.revision} sequence=$signalSequence")
                         requestReconciliation(roomId, generation, signal.snapshot)
                     }
+                    is RoomRealtimeSignal.ChatMessageReceived -> {
+                        val current = mutableState.value.chatMessages
+                        if (current.none { it.id == signal.message.id }) {
+                            mutableState.value = mutableState.value.copy(
+                                chatMessages = (current + signal.message).takeLast(100)
+                            )
+                        }
+                    }
                     RoomRealtimeSignal.ChatInvalidated -> {
                         mutableState.value = mutableState.value.copy(
                             chatSignalVersion = mutableState.value.chatSignalVersion + 1L
