@@ -71,7 +71,7 @@ class RoomDomainModelsTest {
                 appVersion = "0.1.0-debug",
                 deviceModel = "Example Phone",
                 apiLevel = 35,
-                wakeMode = "NETWORK"
+                wakeMode = 2
             ),
             clockOffsetMs = 42L,
             roundTripMs = 19L,
@@ -86,7 +86,8 @@ class RoomDomainModelsTest {
         assertTrue(text.contains("app_version=0.1.0-debug"))
         assertTrue(text.contains("device_model=Example Phone"))
         assertTrue(text.contains("api_level=35"))
-        assertTrue(text.contains("wake_mode=NETWORK"))
+        assertTrue(text.contains("wake_mode=2"))
+        assertFalse(text.contains("NETWORK"))
         assertTrue(text.contains("clock_offset_ms=42"))
         assertTrue(text.contains("clock_rtt_ms=19"))
         assertTrue(text.contains("phase=ROOM_PLAYING"))
