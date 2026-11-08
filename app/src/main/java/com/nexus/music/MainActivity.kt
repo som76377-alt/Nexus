@@ -371,8 +371,8 @@ class MainActivity : Activity() {
                     is UpdateCheckResult.UnverifiedInstallation -> {
                         pendingUpdate = null
                         requiresCleanInstall = true
-                        updateStatusText.text =
-                            "Signing identity UNKNOWN · official update compatibility is not verified"
+                        updateStatusText.text = result.message
+                            ?: "Signing identity UNKNOWN · official update compatibility is not verified"
                         updateStatusText.setTextColor(Color.rgb(255, 190, 130))
                         updateButton.text = "Install official build"
                         updateButton.isEnabled = true
