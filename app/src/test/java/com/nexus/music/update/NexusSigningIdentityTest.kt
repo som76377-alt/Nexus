@@ -5,20 +5,32 @@ import org.junit.Test
 
 class NexusSigningIdentityTest {
     private val official = "c8b263a4b2aecac65df71e6ee9f6e8ab47a33688a46a4cf0f4248506975d6e2b"
+    private val different = "0".repeat(64)
 
     @Test
-    fun acceptsTheExactOfficialReleaseCertificate() {
+    fun officialSignerIsClassifiedAsOfficial() {
         assertEquals(NexusSigningIdentity.OFFICIAL, classifyNexusSigner(setOf(official)))
     }
 
     @Test
-    fun unrecognizedOrMissingSigningIdentityIsUnknownNotWrongKey() {
-        assertEquals(NexusSigningIdentity.UNKNOWN, classifyNexusSigner(setOf("0".repeat(64))))
-        assertEquals(NexusSigningIdentity.UNKNOWN, classifyNexusSigner(emptySet()))
+    fun readableNonOfficialSignerIsDifferentAndHasRequiredMessage() {
+        assertEquals(NexusSigningIdentity.DIFFERENT, classifyNexusSigner(setOf(different)))
+        assertEquals(
+            "This install is signed with a different key. Uninstall it, then install the official build.",
+            DIFFERENT_NEXUS_SIGNER_MESSAGE
+        )
     }
 
     @Test
-    fun rejectsUnexpectedAdditionalSigner() {
-        assertEquals(NexusSigningIdentity.UNKNOWN, classifyNexusSigner(setOf(official, "0".repeat(64))))
+    fun officialAndDifferentSignersTogetherAreDifferent() {
+        assertEquals(
+            NexusSigningIdentity.DIFFERENT,
+            classifyNexusSigner(setOf(official, different))
+        )
+    }
+
+    @Test
+    fun missingOrEmptySignerIsUnknown() {
+        assertEquals(NexusSigningIdentity.UNKNOWN, classifyNexusSigner(emptySet()))
     }
 }
