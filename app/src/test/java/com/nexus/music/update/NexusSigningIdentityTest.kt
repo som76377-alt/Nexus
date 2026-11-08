@@ -22,6 +22,14 @@ class NexusSigningIdentityTest {
     }
 
     @Test
+    fun officialAndDifferentSignersTogetherAreDifferent() {
+        assertEquals(
+            NexusSigningIdentity.DIFFERENT,
+            classifyNexusSigner(setOf(official, different))
+        )
+    }
+
+    @Test
     fun missingOrEmptySignerIsUnknown() {
         assertEquals(NexusSigningIdentity.UNKNOWN, classifyNexusSigner(emptySet()))
     }
