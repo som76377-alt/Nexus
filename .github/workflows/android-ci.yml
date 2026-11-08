@@ -67,6 +67,31 @@ jobs:
       - name: Install compile SDK packages
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
+      - name: Cache Gradle wrapper distributions
+        uses: actions/cache@v4
+        with:
+          path: ~/.gradle/wrapper/dists
+          key: gradle-wrapper-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}
+
+      - name: Warm Gradle wrapper
+        shell: bash
+        run: |
+          set +e
+          for attempt in {1..6}; do
+            echo "Gradle wrapper warm-up attempt ${attempt}/6"
+            ./gradlew --version
+            result=$?
+            if [ "$result" -eq 0 ]; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 6 ]; then
+              echo "Gradle wrapper download failed; retrying in 45 seconds."
+              sleep 45
+            fi
+          done
+          echo "::error::Gradle wrapper warm-up failed after 6 attempts."
+          exit 1
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
         with:
