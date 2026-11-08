@@ -2,6 +2,7 @@ package com.nexus.music.rooms
 
 import com.nexus.music.BuildConfig
 import com.nexus.music.rooms.domain.RoomActionType
+import com.nexus.music.rooms.domain.RoomChatMessage
 import com.nexus.music.rooms.domain.RoomPlaybackSnapshot
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -38,7 +39,7 @@ internal class RoomRealtimeClient(
     private val roomId: String,
     private val scope: CoroutineScope,
     private val onPlaybackSignal: (RoomPlaybackSnapshot?) -> Unit,
-    private val onChatSignal: () -> Unit,
+    private val onChatMessage: (RoomChatMessage) -> Unit,
     private val onStartScheduled: (Long, String, String) -> Unit,
     private val onConnectionChanged: (Boolean) -> Unit
 ) {
@@ -93,17 +94,10 @@ internal class RoomRealtimeClient(
 
         val listener = object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                val chatFilter = JSONObject()
-                    .put("event", "INSERT")
-                    .put("schema", "public")
-                    .put("table", "room_messages")
-                    .put("filter", "room_id=eq.$roomId")
                 val config = JSONObject()
                     .put("broadcast", JSONObject().put("ack", false).put("self", false))
                     .put("presence", JSONObject().put("enabled", false))
-                    // Playback changes arrive only on the membership-authorized private topic.
-                    // Chat remains a Postgres Changes subscription protected by table RLS.
-                    .put("postgres_changes", JSONArray().put(chatFilter))
+                    // Playback and chat use membership-authorized private Broadcast events.
                     .put("private", true)
                 val payload = JSONObject()
                     .put("config", config)
@@ -140,16 +134,16 @@ internal class RoomRealtimeClient(
                                 }
                             }
                         }
-                        "postgres_changes" -> {
-                            val data = message.optJSONObject("payload")
-                                ?.optJSONObject("data")
-                            when (data?.optString("table")) {
-                                "room_messages" -> onChatSignal()
-                            }
-                        }
                         "broadcast" -> {
                             val payload = message.optJSONObject("payload")
                             when (payload?.optString("event")) {
+                                "chat" -> {
+                                    val row = payload.optJSONObject("payload")
+                                    val message = row?.let(::parseChatMessage)
+                                    if (message != null && message.roomId == roomId) {
+                                        onChatMessage(message.message)
+                                    }
+                                }
                                 "playback_invalidated" -> {
                                     val row = payload.optJSONObject("payload")
                                     onPlaybackSignal(row?.let(::parsePlaybackSnapshot))
@@ -245,6 +239,23 @@ internal class RoomRealtimeClient(
             socket.close(1000, "Room screen closed")
         }
     }
+
+    private data class ParsedChatMessage(
+        val roomId: String,
+        val message: RoomChatMessage
+    )
+
+    private fun parseChatMessage(row: JSONObject): ParsedChatMessage? = runCatching {
+        ParsedChatMessage(
+            roomId = row.getString("room_id"),
+            message = RoomChatMessage(
+                id = row.getString("id"),
+                senderId = row.getString("sender_id"),
+                body = row.getString("body"),
+                createdAt = row.optString("created_at")
+            )
+        )
+    }.getOrNull()
 
     private fun parsePlaybackSnapshot(row: JSONObject): RoomPlaybackSnapshot? {
         val incomingRoomId = row.optString("room_id")
