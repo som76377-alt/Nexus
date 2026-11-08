@@ -545,7 +545,7 @@ class MainActivity : Activity() {
         if (selectedScope == scope) return
         selectedScope = scope
         searchPanel.setSelectedScope(scope)
-        if (searchPanel.searchPanel.queryInput.text.toString().isNotBlank()) performSearch()
+        if (searchPanel.queryInput.text.toString().isNotBlank()) performSearch()
     }
 
     private fun performSearch() {
