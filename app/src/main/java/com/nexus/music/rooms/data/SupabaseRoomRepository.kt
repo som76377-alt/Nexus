@@ -3,6 +3,7 @@ package com.nexus.music.rooms.data
 import com.nexus.music.rooms.RoomRealtimeClient
 import com.nexus.music.rooms.RoomsApi
 import com.nexus.music.rooms.domain.RoomActionType
+import com.nexus.music.rooms.domain.RoomChatMessage
 import com.nexus.music.rooms.domain.RoomCommand
 import com.nexus.music.rooms.domain.RoomPlaybackSnapshot
 import com.nexus.music.rooms.domain.RoomPlaybackReadyResult
@@ -88,8 +89,8 @@ internal class SupabaseRoomRepository(
                             ?: RoomRealtimeSignal.PlaybackInvalidated
                     )
                 },
-                onChatSignal = {
-                    trySend(RoomRealtimeSignal.ChatInvalidated)
+                onChatMessage = { message ->
+                    trySend(RoomRealtimeSignal.ChatMessageReceived(message))
                 },
                 onStartScheduled = { revision, sourceId, startAt ->
                     trySend(
