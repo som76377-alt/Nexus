@@ -720,7 +720,7 @@ class ListeningRoomActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = if (mine) Gravity.END else Gravity.START
             tag = message.id
-            setTag(R.id.room_chat_created_at, message.createdAt)
+            setTag(CHAT_CREATED_AT_TAG, message.createdAt)
         }
         row.addView(bubble, LinearLayout.LayoutParams(-2, -2).apply {
             weight = 0f
