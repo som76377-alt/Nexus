@@ -117,8 +117,7 @@ object NexusUi {
                 isAllCaps = false
                 minWidth = 0
                 minimumWidth = 0
-                minHeight = dp(context, Spacing.controlHeight)
-                minimumHeight = dp(context, Spacing.controlHeight)
+                    minimumHeight = dp(context, Spacing.controlHeight)
                 typeface = Typeface.DEFAULT_BOLD
                 val isSelected = selected == tab
                 setTextColor(if (isSelected) Colors.accentForeground else Colors.foreground)
