@@ -12,6 +12,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
@@ -698,7 +699,7 @@ class ListeningRoomActivity : Activity() {
         val insertionIndex = pendingRow?.let { messagesBox.indexOfChild(it) }
             ?: (0 until messagesBox.childCount).firstOrNull { index ->
                 val row = messagesBox.getChildAt(index)
-                val rowTime = (row.getChildAt(0)?.tag as? String).orEmpty()
+                val rowTime = ((row as? ViewGroup)?.getChildAt(0)?.tag as? String).orEmpty()
                 rowTime.isNotBlank() && rowTime > message.createdAt
             } ?: messagesBox.childCount
         val wasAtBottom = chatScrollView.getChildAt(0)?.let { content ->
@@ -763,7 +764,7 @@ class ListeningRoomActivity : Activity() {
             } catch (error: Exception) {
                 if (roomId == id && roomSessionGeneration == sessionGeneration) {
                     findChatRow(pendingId)?.let { row ->
-                        val bubble = row.getChildAt(0) as? LinearLayout
+                        val bubble = (row as? ViewGroup)?.getChildAt(0) as? LinearLayout
                         val retry = label("Not sent · tap to retry", 10f, accent, true).apply {
                             setOnClickListener {
                                 text = "Sending…"
