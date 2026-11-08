@@ -1804,7 +1804,7 @@ internal class ServiceRoomController(
         val drift = local.positionMs - expected
         if (postSeekCorrectionGate.consume(remote.revision, drift)) {
             player.resetPlaybackSpeed()
-            seekToRoomPosition(remote, expected)
+            val target = seekToRoomPosition(remote, expected)
             recordDiagnostic(
                 "seek.post_buffer_correction",
                 "revision=${remote.revision} drift_ms=$drift target_ms=$target",
