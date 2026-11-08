@@ -213,6 +213,10 @@ internal class PostSeekCorrectionGate {
         pendingRevision = revision
     }
 
+    fun discardIfRevisionChanged(revision: Long) {
+        if (pendingRevision != null && pendingRevision != revision) pendingRevision = null
+    }
+
     fun consume(revision: Long, driftMs: Long, thresholdMs: Long = 250L): Boolean {
         if (pendingRevision != revision) return false
         pendingRevision = null
