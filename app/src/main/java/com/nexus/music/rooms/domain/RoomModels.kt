@@ -167,6 +167,13 @@ data class RoomDiagnosticsDeviceInfo(
 object RoomDiagnosticsFormatter {
     const val MAX_ENTRIES = 300
 
+    fun wakeModeName(wakeMode: Int): String = when (wakeMode) {
+        0 -> "NONE"
+        1 -> "LOCAL"
+        2 -> "NETWORK"
+        else -> "UNKNOWN"
+    }
+
     fun format(
         device: RoomDiagnosticsDeviceInfo,
         clockOffsetMs: Long?,
@@ -178,7 +185,7 @@ object RoomDiagnosticsFormatter {
         appendLine("app_version=${device.appVersion}")
         appendLine("device_model=${device.deviceModel}")
         appendLine("api_level=${device.apiLevel}")
-        appendLine("wake_mode=${device.wakeMode}")
+        appendLine("wake_mode=${wakeModeName(device.wakeMode)}")
         appendLine("clock_offset_ms=${clockOffsetMs ?: "unknown"}")
         appendLine("clock_rtt_ms=${roundTripMs ?: "unknown"}")
         appendLine("phase=$phase")
@@ -202,7 +209,7 @@ data class RoomDiagnosticsSnapshot(
 ) {
     val summary: String
         get() = "app=${device.appVersion} · ${device.deviceModel} · API ${device.apiLevel} · " +
-            "wake=${device.wakeMode} · offset=${clockOffsetMs?.let { "${it}ms" } ?: "unknown"} · " +
+            "wake=${wakeModeName(device.wakeMode)} · offset=${clockOffsetMs?.let { "${it}ms" } ?: "unknown"} · " +
             "publish=${lastPublishLatencyMs?.let { "${it}ms" } ?: "—"} · " +
             "snapshot=${lastSnapshotLatencyMs?.let { "${it}ms" } ?: "—"} · " +
             "apply=${lastApplyLatencyMs?.let { "${it}ms" } ?: "—"} · " +
