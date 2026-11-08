@@ -67,11 +67,15 @@ jobs:
       - name: Install compile SDK packages
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
-      - name: Cache Gradle wrapper distributions
+      - name: Cache Gradle dependencies and wrapper
         uses: actions/cache@v4
         with:
-          path: ~/.gradle/wrapper/dists
-          key: gradle-wrapper-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('**/*.gradle*', 'gradle/wrapper/gradle-wrapper.properties', 'gradle/libs.versions.toml') }}
+          restore-keys: |
+            gradle-
 
       - name: Warm Gradle wrapper
         shell: bash
@@ -101,10 +105,56 @@ jobs:
         run: bash scripts/test-release-publish-gate.sh
 
       - name: Run Android lint
-        run: ./gradlew --no-daemon --stacktrace :app:lintDebug
+        shell: bash
+        run: |
+          set +e
+          for attempt in {1..4}; do
+            echo "Gradle :app:lintDebug attempt ${attempt}/4"
+            ./gradlew --no-daemon --stacktrace :app:lintDebug > "$RUNNER_TEMP/nexus-lint.log" 2>&1
+            result=$?
+            cat "$RUNNER_TEMP/nexus-lint.log"
+            if [ "$result" -eq 0 ]; then
+              exit 0
+            fi
+            if grep -Eiq '504|Gateway Time-out|Read timed out|Connection reset' "$RUNNER_TEMP/nexus-lint.log"; then
+              if [ "$attempt" -lt 4 ]; then
+                echo "Transient download/network failure; retrying in 60 seconds."
+                sleep 60
+                continue
+              fi
+              echo "::error::Gradle :app:lintDebug failed after 4 infrastructure retries."
+              exit "$result"
+            fi
+            echo "::error::Gradle :app:lintDebug failed with a non-retryable error."
+            exit "$result"
+          done
+          exit 1
 
       - name: Run unit tests
-        run: ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest
+        shell: bash
+        run: |
+          set +e
+          for attempt in {1..4}; do
+            echo "Gradle :app:testDebugUnitTest attempt ${attempt}/4"
+            ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest > "$RUNNER_TEMP/nexus-unit-tests.log" 2>&1
+            result=$?
+            cat "$RUNNER_TEMP/nexus-unit-tests.log"
+            if [ "$result" -eq 0 ]; then
+              exit 0
+            fi
+            if grep -Eiq '504|Gateway Time-out|Read timed out|Connection reset' "$RUNNER_TEMP/nexus-unit-tests.log"; then
+              if [ "$attempt" -lt 4 ]; then
+                echo "Transient download/network failure; retrying in 60 seconds."
+                sleep 60
+                continue
+              fi
+              echo "::error::Gradle :app:testDebugUnitTest failed after 4 infrastructure retries."
+              exit "$result"
+            fi
+            echo "::error::Gradle :app:testDebugUnitTest failed with a non-retryable error."
+            exit "$result"
+          done
+          exit 1
 
       - name: Print unit-test failure details
         if: always()
@@ -139,7 +189,30 @@ jobs:
           retention-days: 7
 
       - name: Assemble debug APK
-        run: ./gradlew --no-daemon --stacktrace :app:assembleDebug
+        shell: bash
+        run: |
+          set +e
+          for attempt in {1..4}; do
+            echo "Gradle :app:assembleDebug attempt ${attempt}/4"
+            ./gradlew --no-daemon --stacktrace :app:assembleDebug > "$RUNNER_TEMP/nexus-assemble.log" 2>&1
+            result=$?
+            cat "$RUNNER_TEMP/nexus-assemble.log"
+            if [ "$result" -eq 0 ]; then
+              exit 0
+            fi
+            if grep -Eiq '504|Gateway Time-out|Read timed out|Connection reset' "$RUNNER_TEMP/nexus-assemble.log"; then
+              if [ "$attempt" -lt 4 ]; then
+                echo "Transient download/network failure; retrying in 60 seconds."
+                sleep 60
+                continue
+              fi
+              echo "::error::Gradle :app:assembleDebug failed after 4 infrastructure retries."
+              exit "$result"
+            fi
+            echo "::error::Gradle :app:assembleDebug failed with a non-retryable error."
+            exit "$result"
+          done
+          exit 1
 
       - name: Verify unsigned release builds fail closed
         shell: bash
