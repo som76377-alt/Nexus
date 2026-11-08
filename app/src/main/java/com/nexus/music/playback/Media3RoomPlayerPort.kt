@@ -150,6 +150,8 @@ internal class Media3RoomPlayerPort(
     override fun consumeSeekLatencyMs(): Long? =
         completedSeekLatencyMs.getAndSet(-1L).takeIf { it >= 0L }
 
+    fun checkSeekCompletion() = finishSeekMeasurementIfPlaying()
+
     private fun finishSeekMeasurementIfPlaying() {
         if (player.playbackState != Player.STATE_READY || !player.isPlaying) return
         val startedAt = pendingSeekStartedAtMs.getAndSet(-1L)
@@ -178,7 +180,8 @@ internal class RoomIntentForwardingPlayer(
     private val delegate: Player,
     private val recordIntent: (RoomPlayerIntent) -> Unit,
     private val playbackPhase: (RoomPlayerIntent?) -> ServiceRoomController.PlaybackPhase,
-    private val onSeekRequested: () -> Unit = {}
+    private val onSeekRequested: () -> Unit = {},
+    private val onSeekCompleted: () -> Unit = {}
 ) : androidx.media3.common.ForwardingPlayer(delegate) {
     private fun emitIntent(intent: RoomPlayerIntent) {
         playbackPhase(intent)
@@ -205,6 +208,7 @@ internal class RoomIntentForwardingPlayer(
         onSeekRequested()
         emitIntent(RoomPlayerIntent.SeekTo(targetPositionMs))
         super.seekTo(targetPositionMs)
+        onSeekCompleted()
     }
 
     override fun setMediaItem(mediaItem: MediaItem) {
