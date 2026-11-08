@@ -104,7 +104,6 @@ class ListeningRoomActivity : Activity() {
     private var syncJob: Job? = null
     private var roomController: RoomController? = null
     private var roomStateJob: Job? = null
-    private var lastChatSignalVersion = 0L
     private var lastRealtimeConnected = false
     private var isActivityStarted = false
     private var backInvokedCallback: android.window.OnBackInvokedCallback? = null
@@ -399,7 +398,6 @@ class ListeningRoomActivity : Activity() {
             if (roomId != id || roomSessionGeneration != sessionGeneration) return
             ActiveRoomSessionStore.save(this@ListeningRoomActivity, id)
 
-            lastChatSignalVersion = controller.state.value.chatSignalVersion
             roomStateJob?.cancel()
             roomStateJob = scope.launch {
                 controller.state.collect { roomState ->
@@ -681,7 +679,7 @@ class ListeningRoomActivity : Activity() {
             roomSessionGeneration != sessionGeneration ||
             requestGeneration != messageRefreshGeneration
         ) return
-        messages.forEach(::appendChatMessage)
+        messages.forEach { appendChatMessage(it) }
         if (messagesBox.childCount == 0) {
             messagesBox.addView(
                 label("No messages yet. Start the conversation.", 12f, muted).apply {
@@ -823,7 +821,6 @@ class ListeningRoomActivity : Activity() {
         inviteCode = null
         userId = null
         if (clearPersistedRoom) ActiveRoomSessionStore.clear(this)
-        lastChatSignalVersion = 0L
         lastRealtimeConnected = false
         roomPanel.visibility = View.GONE
         roomActions.visibility = View.VISIBLE
