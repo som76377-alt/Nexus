@@ -116,6 +116,7 @@ internal class ServiceRoomController(
     private var pendingAction: PendingLocalAction? = null
     private var signalSequence = 0L
     private var lastDriftSampleElapsedMs = 0L
+    private var driftBurstUntilElapsedMs = 0L
 
     private data class PendingLocalAction(
         val actionId: String,
@@ -160,6 +161,7 @@ internal class ServiceRoomController(
         driftController.reset()
         driftSeekGate.reset()
         lastDriftSampleElapsedMs = clock.elapsedRealtimeMs()
+        driftBurstUntilElapsedMs = 0L
         signalSequence = 0L
         start = null
         completedStartRevision = 0L
@@ -692,7 +694,12 @@ internal class ServiceRoomController(
         while (isCurrent(roomId, generation) && coroutineContext.isActive) {
             lastRemotePlayback?.let { remote ->
                 val now = clock.elapsedRealtimeMs()
-                if (now - lastDriftSampleElapsedMs >= DRIFT_SAMPLE_INTERVAL_MS) {
+                val sampleIntervalMs = if (now <= driftBurstUntilElapsedMs) {
+                    DRIFT_BURST_SAMPLE_INTERVAL_MS
+                } else {
+                    DRIFT_SAMPLE_INTERVAL_MS
+                }
+                if (now - lastDriftSampleElapsedMs >= sampleIntervalMs) {
                     val local = player.snapshot()
                     val drift = local.positionMs - expectedRoomPosition(remote)
                     recordDiagnostic(
@@ -1014,6 +1021,8 @@ internal class ServiceRoomController(
         try {
             applyRemoteSnapshot(remote, roomId, generation)
             val appliedAt = clock.elapsedRealtimeMs()
+            lastDriftSampleElapsedMs = appliedAt
+            driftBurstUntilElapsedMs = appliedAt + DRIFT_BURST_DURATION_MS
             val resultingDrift = player.snapshot().positionMs - expectedRoomPosition(remote)
             recordDiagnostic(
                 "action.applied",
@@ -1802,6 +1811,8 @@ internal class ServiceRoomController(
         const val LOCAL_ACTION_WIN_MARGIN_MS = 200L
         const val PUBLISH_RETRY_BASE_MS = 500L
         const val PUBLISH_RETRY_MAX_MS = 8_000L
-        const val DRIFT_SAMPLE_INTERVAL_MS = 60_000L
+        const val DRIFT_BURST_SAMPLE_INTERVAL_MS = 1_000L
+        const val DRIFT_BURST_DURATION_MS = 15_000L
+        const val DRIFT_SAMPLE_INTERVAL_MS = 10_000L
     }
 }
