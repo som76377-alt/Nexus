@@ -138,9 +138,7 @@ internal class Media3RoomPlayerPort(
     }
 
     fun recordSeekRequested() {
-        pendingSeekStartedAtMs.set(
-            if (player.playWhenReady) android.os.SystemClock.elapsedRealtime() else -1L
-        )
+        pendingSeekStartedAtMs.set(android.os.SystemClock.elapsedRealtime())
     }
 
     override fun seekTo(positionMs: Long) {
@@ -156,9 +154,8 @@ internal class Media3RoomPlayerPort(
         if (player.playbackState != Player.STATE_READY || !player.isPlaying) return
         val startedAt = pendingSeekStartedAtMs.getAndSet(-1L)
         if (startedAt >= 0L) {
-            completedSeekLatencyMs.set(
-                (android.os.SystemClock.elapsedRealtime() - startedAt).coerceAtLeast(0L)
-            )
+            val latencyMs = (android.os.SystemClock.elapsedRealtime() - startedAt).coerceAtLeast(0L)
+            if (latencyMs <= 15_000L) completedSeekLatencyMs.set(latencyMs)
         }
     }
 
