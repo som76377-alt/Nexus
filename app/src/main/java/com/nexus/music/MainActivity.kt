@@ -19,7 +19,6 @@ import android.view.View
 import android.view.WindowInsets
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
-import android.widget.EditText
 import android.widget.ImageView
 import android.widget.ImageButton
 import android.widget.ProgressBar
@@ -32,6 +31,7 @@ import androidx.media3.common.Player
 import coil3.load
 import com.nexus.music.catalog.CatalogTrack
 import com.nexus.music.ui.NexusUi
+import com.nexus.music.ui.SearchPanel
 import com.nexus.music.catalog.ResolvedAudio
 import com.nexus.music.catalog.YoutubeCatalogRepository
 import com.nexus.music.catalog.YoutubeSearchScope
@@ -58,10 +58,7 @@ class MainActivity : Activity() {
     private val updateChecker by lazy { GitHubReleaseUpdater() }
     private val progressHandler = Handler(Looper.getMainLooper())
 
-    private lateinit var resultsContainer: LinearLayout
-    private lateinit var statusText: TextView
-    private lateinit var queryInput: EditText
-    private lateinit var scopeToggleButton: Button
+    private lateinit var searchPanel: SearchPanel
     private lateinit var updateButton: Button
     private lateinit var updateStatusText: TextView
     private lateinit var updatePanel: LinearLayout
@@ -188,57 +185,13 @@ class MainActivity : Activity() {
         updateProgressContainer.addView(updateProgressBar, LinearLayout.LayoutParams(-1, dp(9)))
         updatePanel.addView(updateProgressContainer)
         content.addView(updatePanel, verticalParams(14))
-        val searchRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            background = rounded(surface, 16)
-            setPadding(dp(14), 0, dp(6), 0)
-        }
-        queryInput = EditText(this).apply {
-            hint = "Songs, artists, albums..."
-            setHintTextColor(secondaryText)
-            setTextColor(primaryText)
-            textSize = 15f
-            isSingleLine = true
-            imeOptions = EditorInfo.IME_ACTION_SEARCH
-            setBackgroundColor(Color.TRANSPARENT)
-            setPadding(0, dp(15), 0, dp(15))
-            setOnEditorActionListener { _, actionId, _ ->
-                if (actionId == EditorInfo.IME_ACTION_SEARCH) { performSearch(); true } else false
-            }
-        }
-        scopeToggleButton = Button(this).apply {
-            text = "Songs | All"
-            textSize = 11f
-            isAllCaps = false
-            minWidth = 0
-            minimumWidth = 0
-            minimumHeight = dp(48)
-            setPadding(dp(10), 0, dp(10), 0)
-            typeface = Typeface.DEFAULT_BOLD
-            setOnClickListener {
-                selectScope(
-                    if (selectedScope == YoutubeSearchScope.MUSIC_SONGS) {
-                        YoutubeSearchScope.EVERYTHING
-                    } else {
-                        YoutubeSearchScope.MUSIC_SONGS
-                    }
-                )
-            }
-        }
-        searchRow.addView(queryInput, LinearLayout.LayoutParams(0, dp(54), 1f))
-        searchRow.addView(scopeToggleButton, LinearLayout.LayoutParams(-2, dp(48)))
-        content.addView(searchRow, verticalParams(18))
-        renderScopeToggle()
-
-        statusText = text("", 13f, secondaryText).apply {
-            visibility = View.GONE
-            setPadding(0, dp(12), 0, dp(8))
-            setOnClickListener { performSearch() }
-        }
-        content.addView(statusText)
-        resultsContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        content.addView(resultsContainer)
+        searchPanel = SearchPanel(
+            context = this,
+            initialScope = selectedScope,
+            onSearchRequested = ::performSearch,
+            onScopeSelected = ::selectScope
+        )
+        content.addView(searchPanel, verticalParams(18))
 
         scroll.addView(content)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -591,64 +544,55 @@ class MainActivity : Activity() {
     private fun selectScope(scope: YoutubeSearchScope) {
         if (selectedScope == scope) return
         selectedScope = scope
-        renderScopeToggle()
-        if (queryInput.text.toString().isNotBlank()) performSearch()
-    }
-
-    private fun renderScopeToggle() {
-        val songsSelected = selectedScope == YoutubeSearchScope.MUSIC_SONGS
-        scopeToggleButton.isSelected = songsSelected
-        scopeToggleButton.contentDescription =
-            "Search scope: ${if (songsSelected) "Songs" else "All"}. Tap to switch."
-        scopeToggleButton.setTextColor(if (songsSelected) Color.rgb(14, 20, 12) else primaryText)
-        scopeToggleButton.background = rounded(if (songsSelected) accent else surfaceRaised, 12)
+        searchPanel.setSelectedScope(scope)
+        if (searchPanel.searchPanel.queryInput.text.toString().isNotBlank()) performSearch()
     }
 
     private fun performSearch() {
-        val query = queryInput.text.toString().trim()
+        val query = searchPanel.queryInput.text.toString().trim()
         if (query.isEmpty()) {
             searchGeneration++
             searchJob?.cancel()
             searchJob = null
-            queryInput.error = null
-            statusText.text = ""
-            statusText.visibility = View.GONE
-            statusText.setOnClickListener(null)
-            resultsContainer.removeAllViews()
+            searchPanel.queryInput.error = null
+            searchPanel.statusText.text = ""
+            searchPanel.statusText.visibility = View.GONE
+            searchPanel.statusText.setOnClickListener(null)
+            searchPanel.resultsContainer.removeAllViews()
             return
         }
 
         // A newer query or scope always supersedes the previous request.
         searchJob?.cancel()
-        queryInput.error = null
+        searchPanel.queryInput.error = null
         val requestGeneration = ++searchGeneration
         val requestScope = selectedScope
-        statusText.text = ""
-        statusText.visibility = View.GONE
-        statusText.setOnClickListener(null)
-        resultsContainer.removeAllViews()
+        searchPanel.statusText.text = ""
+        searchPanel.statusText.visibility = View.GONE
+        searchPanel.statusText.setOnClickListener(null)
+        searchPanel.resultsContainer.removeAllViews()
 
         searchJob = activityScope.launch {
             try {
                 val results = repository.search(query, requestScope)
                 if (requestGeneration != searchGeneration) return@launch
 
-                resultsContainer.removeAllViews()
+                searchPanel.resultsContainer.removeAllViews()
                 if (results.isEmpty()) {
-                    statusText.text = "No results"
-                    statusText.visibility = View.VISIBLE
+                    searchPanel.statusText.text = "No results"
+                    searchPanel.statusText.visibility = View.VISIBLE
                 } else {
                     results.forEachIndexed { index, track ->
-                        resultsContainer.addView(resultCard(track), verticalParams(if (index == 0) 0 else 10))
+                        searchPanel.resultsContainer.addView(resultCard(track), verticalParams(if (index == 0) 0 else 10))
                     }
                 }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
                 if (requestGeneration == searchGeneration) {
-                    statusText.text = "Search failed · Retry"
-                    statusText.visibility = View.VISIBLE
-                    statusText.setOnClickListener { performSearch() }
+                    searchPanel.statusText.text = "Search failed · Retry"
+                    searchPanel.statusText.visibility = View.VISIBLE
+                    searchPanel.statusText.setOnClickListener { performSearch() }
                 }
             } finally {
                 if (requestGeneration == searchGeneration && !isDestroyed) {
