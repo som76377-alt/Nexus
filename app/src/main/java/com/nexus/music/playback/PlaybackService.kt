@@ -122,7 +122,8 @@ class PlaybackService : MediaSessionService() {
         val sessionPlayer = RoomIntentForwardingPlayer(
             delegate = exoPlayer,
             recordIntent = playerPort::recordUserIntent,
-            playbackPhase = controller::playbackPhase
+            playbackPhase = controller::playbackPhase,
+            onSeekRequested = playerPort::recordSeekRequested
         )
         mediaSession = MediaSession.Builder(this, sessionPlayer).build()
     }
