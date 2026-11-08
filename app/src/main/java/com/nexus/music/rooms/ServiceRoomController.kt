@@ -68,6 +68,7 @@ internal class ServiceRoomController(
     private val applyingRevisions = mutableSetOf<Long>()
     private val driftController = DriftCorrectionController()
     private val driftSeekGate = DriftSeekGate()
+    private val postSeekCorrectionGate = PostSeekCorrectionGate()
     private val recentSeekLatenciesMs = mutableListOf<Long>()
     private val retryPolicy = RemoteApplyRetryPolicy()
 
@@ -161,6 +162,7 @@ internal class ServiceRoomController(
         retryPolicy.reset()
         driftController.reset()
         driftSeekGate.reset()
+        postSeekCorrectionGate.reset()
         lastDriftSampleElapsedMs = clock.elapsedRealtimeMs()
         driftBurstUntilElapsedMs = 0L
         signalSequence = 0L
@@ -1767,21 +1769,33 @@ internal class ServiceRoomController(
             player.resetPlaybackSpeed()
             driftController.reset()
             driftSeekGate.reset()
+            postSeekCorrectionGate.reset()
             return
         }
-        if (local.isBuffering || !local.isPlaying) return
         if (!clock.isCalibrated()) return
         val nowElapsed = clock.elapsedRealtimeMs()
+        postSeekCorrectionGate.discardIfRevisionChanged(remote.revision)
         if (driftSeekGate.shouldWait(
-                localPositionMs = local.positionMs,
                 isBuffering = local.isBuffering,
                 isPlaying = local.isPlaying,
-                remoteIsPlaying = remote.isPlaying,
                 nowElapsedMs = nowElapsed
             )
         ) return
+        if (local.isBuffering || !local.isPlaying) return
         val expected = expectedRoomPosition(remote)
         val drift = local.positionMs - expected
+        if (postSeekCorrectionGate.consume(remote.revision, drift)) {
+            val target = adjustedSeekTarget(remote, expected)
+            player.resetPlaybackSpeed()
+            player.seekTo(target)
+            driftSeekGate.begin(target, nowElapsed)
+            recordDiagnostic(
+                "seek.post_buffer_correction",
+                "revision=${remote.revision} drift_ms=$drift target_ms=$target",
+                driftMs = drift
+            )
+            return
+        }
         val correction = driftController.evaluate(
             driftMs = drift,
             isBuffering = local.isBuffering,
@@ -1800,6 +1814,7 @@ internal class ServiceRoomController(
                 val seekTarget = adjustedSeekTarget(remote, expected)
                 player.seekTo(seekTarget)
                 driftSeekGate.begin(seekTarget, nowElapsed)
+                postSeekCorrectionGate.begin(remote.revision)
             }
         }
     }
