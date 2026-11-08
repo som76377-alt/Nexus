@@ -109,7 +109,6 @@ class ListeningRoomActivity : Activity() {
     private var backInvokedCallback: android.window.OnBackInvokedCallback? = null
 
     private val background = Color.rgb(12, 14, 18)
-    private val CHAT_CREATED_AT_TAG = 0x7f0f00a1
     private val surface = Color.rgb(24, 28, 35)
     private val raised = Color.rgb(31, 36, 44)
     private val accent = Color.rgb(167, 240, 106)
@@ -699,7 +698,7 @@ class ListeningRoomActivity : Activity() {
         val insertionIndex = pendingRow?.let { messagesBox.indexOfChild(it) }
             ?: (0 until messagesBox.childCount).firstOrNull { index ->
                 val row = messagesBox.getChildAt(index)
-                val rowTime = (row.getTag(CHAT_CREATED_AT_TAG) as? String).orEmpty()
+                val rowTime = (row.getChildAt(0)?.tag as? String).orEmpty()
                 rowTime.isNotBlank() && rowTime > message.createdAt
             } ?: messagesBox.childCount
         val wasAtBottom = chatScrollView.getChildAt(0)?.let { content ->
@@ -716,11 +715,11 @@ class ListeningRoomActivity : Activity() {
         bubble.addView(label(if (mine) "You" else "Room member", 10f, if (mine) accent else muted, true))
         bubble.addView(label(message.body, 13f, foreground))
         bubble.addView(label(formatTime(message.createdAt), 9f, muted))
+        bubble.tag = message.createdAt
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = if (mine) Gravity.END else Gravity.START
             tag = message.id
-            setTag(CHAT_CREATED_AT_TAG, message.createdAt)
         }
         row.addView(bubble, LinearLayout.LayoutParams(-2, -2).apply {
             weight = 0f
