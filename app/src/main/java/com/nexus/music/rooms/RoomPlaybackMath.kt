@@ -34,6 +34,10 @@ internal object RoomPlaybackMath {
         thresholdMs: Long = 700L
     ): Boolean = distanceMs(currentPositionMs, expectedPositionMs) >= thresholdMs
 
+    /** New-track barrier starts use the authoritative timeline position without latency compensation. */
+    fun barrierStartPositionMs(authoritativePositionMs: Long): Long =
+        authoritativePositionMs.coerceAtLeast(0L)
+
     /** Advance a playing seek target by the measured local seek/buffer latency. */
     fun adjustedSeekPositionMs(
         expectedPositionMs: Long,
