@@ -62,6 +62,7 @@ class PlaybackService : MediaSessionService() {
             } ?: throw IOException("Playback service did not finish starting the room API.")
 
         private const val SERVICE_BRIDGE_TIMEOUT_MS = 10_000L
+        private const val PLAYER_WAKE_MODE = C.WAKE_MODE_NETWORK
     }
 
     @UnstableApi
@@ -86,7 +87,7 @@ class PlaybackService : MediaSessionService() {
         val exoPlayer = ExoPlayer.Builder(this, renderersFactory)
             .setMediaSourceFactory(mediaSourceFactory)
             // Keep CPU and Wi-Fi available for streaming while background playback is active.
-            .setWakeMode(C.WAKE_MODE_NETWORK)
+            .setWakeMode(PLAYER_WAKE_MODE)
             .build()
             .apply {
                 setAudioAttributes(musicAudioAttributes, /* handleAudioFocus = */ true)
@@ -112,7 +113,7 @@ class PlaybackService : MediaSessionService() {
                 appVersion = BuildConfig.VERSION_NAME,
                 deviceModel = Build.MODEL,
                 apiLevel = Build.VERSION.SDK_INT,
-                wakeMode = "NETWORK"
+                wakeMode = PLAYER_WAKE_MODE
             )
         )
         roomController = controller
