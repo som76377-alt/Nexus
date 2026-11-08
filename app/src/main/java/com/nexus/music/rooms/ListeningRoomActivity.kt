@@ -23,7 +23,6 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.media3.common.Player
 import coil3.load
-import com.nexus.music.CatalogFormatting
 import com.nexus.music.MainActivity
 import com.nexus.music.catalog.CatalogTrack
 import com.nexus.music.catalog.CatalogFormatting
