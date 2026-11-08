@@ -21,7 +21,6 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -32,7 +31,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * Playback broadcasts carry the authoritative row produced by a database trigger.
  * The receiver validates the room identity and revision before applying the snapshot.
- * Chat remains a Postgres Changes subscription protected by the room-membership RLS policy.
+ * Chat is delivered as a saved-row broadcast on the same membership-authorized private topic.
  */
 internal class RoomRealtimeClient(
     private val api: RoomsApi,
