@@ -22,16 +22,17 @@ import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.media3.common.Player
-import coil.load
+import coil3.load
+import com.nexus.music.CatalogFormatting
 import com.nexus.music.MainActivity
 import com.nexus.music.catalog.CatalogTrack
 import com.nexus.music.catalog.CatalogFormatting
-import com.nexus.music.catalog.ResolvedAudio
 import com.nexus.music.catalog.YoutubeCatalogRepository
 import com.nexus.music.catalog.YoutubeSearchScope
 import com.nexus.music.ui.NexusUi
 import com.nexus.music.ui.SearchPanel
 import com.nexus.music.playback.PlaybackConnection
+import com.nexus.music.playback.PlaybackSnapshot
 import com.nexus.music.playback.PlaybackService
 import com.nexus.music.rooms.domain.RoomConnectionState
 import com.nexus.music.rooms.domain.RoomController
@@ -327,10 +328,7 @@ class ListeningRoomActivity : Activity() {
                 enterRoom(created.roomId)
                 status.text = "Room created. Share the invite code with the other person."
                 inviteText.text = "Room code: ${created.inviteCode}"
-                android.app.AlertDialog.Builder(this@ListeningRoomActivity)
-                    .setTitle("Room created")
-                    .setMessage("Share this invite code:\n\n${created.inviteCode}\n\nThe other person can enter it in Nexus.")
-                    copyCodeButton.isEnabled = true
+                copyCodeButton.isEnabled = true
                 Toast.makeText(this@ListeningRoomActivity, "Room created · copy the code to invite someone.", Toast.LENGTH_LONG).show()
             } catch (error: CancellationException) {
                 throw error
@@ -566,7 +564,7 @@ class ListeningRoomActivity : Activity() {
             background = rounded(raised, 10)
             contentDescription = "Track artwork"
         }
-        track.thumbnailUrl?.let(artwork::load)
+        track.thumbnailUrl?.let { artwork.load(it) }
         card.addView(artwork, LinearLayout.LayoutParams(dp(88), dp(64)))
         val details = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
