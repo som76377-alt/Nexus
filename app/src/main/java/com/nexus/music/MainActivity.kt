@@ -21,6 +21,7 @@ import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageView
+import android.widget.ImageButton
 import android.widget.ProgressBar
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -30,6 +31,7 @@ import android.widget.Toast
 import androidx.media3.common.Player
 import coil3.load
 import com.nexus.music.catalog.CatalogTrack
+import com.nexus.music.ui.NexusUi
 import com.nexus.music.catalog.ResolvedAudio
 import com.nexus.music.catalog.YoutubeCatalogRepository
 import com.nexus.music.catalog.YoutubeSearchScope
@@ -69,7 +71,7 @@ class MainActivity : Activity() {
     private lateinit var playerArtwork: ImageView
     private lateinit var playerTitle: TextView
     private lateinit var playerSubtitle: TextView
-    private lateinit var playPauseButton: Button
+    private lateinit var playPauseButton: ImageButton
     private lateinit var playbackProgress: SeekBar
 
     private var playbackConnection: PlaybackConnection? = null
@@ -293,30 +295,13 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun buildBottomNavigation(): LinearLayout {
-        val bar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            background = rounded(surface, 18)
-            setPadding(dp(10), dp(7), dp(10), dp(7))
-        }
-        fun tab(title: String, selected: Boolean, onClick: () -> Unit) = Button(this).apply {
-            text = title
-            textSize = 14f
-            isAllCaps = false
-            minWidth = 0
-            minimumWidth = 0
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(if (selected) Color.rgb(14, 20, 12) else primaryText)
-            background = rounded(if (selected) accent else surfaceRaised, 12)
-            setOnClickListener { onClick() }
-        }
-        bar.addView(tab("Home", true) {}, LinearLayout.LayoutParams(0, dp(46), 1f).apply {
-            marginEnd = dp(7)
-        })
-        bar.addView(tab("Room", false) { openRoomPage() }, LinearLayout.LayoutParams(0, dp(46), 1f))
-        return bar
-    }
+    private fun buildBottomNavigation(): LinearLayout =
+        NexusUi.bottomNavigation(
+            context = this,
+            selected = NexusUi.NavigationTab.HOME,
+            onHome = {},
+            onRoom = ::openRoomPage
+        )
 
     private fun openRoomPage() {
         startActivity(
@@ -560,66 +545,26 @@ class MainActivity : Activity() {
     }
 
     private fun buildPlayerPanel(): LinearLayout {
-        val panel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = rounded(surfaceRaised, 16)
-            setPadding(dp(14), dp(5), dp(14), dp(12))
-        }
-        playbackProgress = SeekBar(this).apply {
-            max = 1000
-            progressTintList = ColorStateList.valueOf(accent)
-            thumbTintList = ColorStateList.valueOf(accent)
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                    if (fromUser) isSeeking = true
+        val player = NexusUi.miniPlayer(
+            context = this,
+            onTogglePlayback = { playbackConnection?.togglePlayback() },
+            onSeekStarted = { isSeeking = true },
+            onSeekChanged = { isSeeking = true },
+            onSeekFinished = { progress ->
+                val duration = lastPlaybackSnapshot.durationMs
+                if (duration > 0L) {
+                    val target = duration * progress.toLong() / playbackProgress.max
+                    playbackConnection?.seekTo(target)
                 }
-                override fun onStartTrackingTouch(seekBar: SeekBar?) {
-                    isSeeking = true
-                }
-                override fun onStopTrackingTouch(seekBar: SeekBar?) {
-                    val duration = lastPlaybackSnapshot.durationMs
-                    if (duration > 0L) {
-                        val target = duration * playbackProgress.progress.toLong() / playbackProgress.max
-                        playbackConnection?.seekTo(target)
-                    }
-                    isSeeking = false
-                }
-            })
-        }
-        panel.addView(playbackProgress, LinearLayout.LayoutParams(-1, dp(24)))
-
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        playerArtwork = ImageView(this).apply {
-            scaleType = ImageView.ScaleType.CENTER_CROP
-            background = rounded(surface, 10)
-            contentDescription = "Now playing artwork"
-        }
-        row.addView(playerArtwork, LinearLayout.LayoutParams(dp(48), dp(48)))
-        val labels = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), 0, dp(8), 0)
-        }
-        playerTitle = text("Nexus player", 14f, primaryText, bold = true, maxLines = 1)
-        playerSubtitle = text("Connecting to playback service…", 12f, secondaryText, maxLines = 1)
-        labels.addView(playerTitle)
-        labels.addView(playerSubtitle.apply { setPadding(0, dp(4), 0, 0) })
-        row.addView(labels, LinearLayout.LayoutParams(0, -2, 1f))
-
-        playPauseButton = Button(this).apply {
-            text = "▶"
-            textSize = 18f
-            isAllCaps = false
-            isEnabled = false
-            setTextColor(Color.rgb(14, 20, 12))
-            background = rounded(accent, 12)
-            setOnClickListener { playbackConnection?.togglePlayback() }
-        }
-        row.addView(playPauseButton, LinearLayout.LayoutParams(dp(52), dp(46)))
-        panel.addView(row)
-        return panel
+                isSeeking = false
+            }
+        )
+        playbackProgress = player.progress
+        playerArtwork = player.artwork
+        playerTitle = player.title
+        playerSubtitle = player.subtitle
+        playPauseButton = player.playPause
+        return player.container
     }
 
     private fun connectPlaybackService() {
@@ -664,7 +609,7 @@ class MainActivity : Activity() {
             playPauseButton.isEnabled = false
         }
 
-        playPauseButton.text = if (snapshot.playWhenReady) "Ⅱ" else "▶"
+        NexusUi.setPlaying(this, playPauseButton, snapshot.playWhenReady)
         if (!isSeeking) {
             playbackProgress.isEnabled = snapshot.durationMs > 0L
             playbackProgress.progress = if (snapshot.durationMs > 0L) {
