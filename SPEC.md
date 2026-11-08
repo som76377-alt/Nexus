@@ -4,7 +4,7 @@ This file is owner-controlled and immutable after its initial integration commit
 
 - **S1 — Resume and drift:** Resuming a paused room playback must resume from the paused position within 1 second. After 10 seconds of playback, peer drift must be no greater than 300 ms.
 - **S2 — New-track start:** A newly selected track must begin at 0:00 within 3 seconds in typical conditions. If the partner is not ready within 3 seconds, start locally anyway; do not hold local playback waiting for the partner.
-- **S3 — Pause and seek:** A remote pause or seek must be applied within 500 ms. A burst of rapid seek taps must publish only the final seek intent once.
+- **S3 — Pause and seek:** A remote pause must be applied within 500 ms. A burst of rapid seek taps must publish only the final seek intent once. After a seek, both phones play the same position within 300 ms; it may take up to 1.5 s.
 - **S4 — Locked-screen operation:** With the device locked, room playback and synchronization must remain stable for at least 5 minutes. Lock-screen media controls must control the room playback.
 - **S5 — Explicit intent and system interruptions:** Only explicit user taps may be published as shared room actions. System-driven pauses (including audio-focus/call interruptions and headphone unplug) are local-only and must never be published as a user pause. When the interruption ends, resume locally and rejoin the room timeline. If the room is already playing and the user taps Play, rejoin locally at the expected room position and publish nothing.
 - **S6 — End of track:** When the song ends, playback must stop on both devices. There must be no automatic next-track playback.
