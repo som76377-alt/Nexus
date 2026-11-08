@@ -68,6 +68,7 @@ internal class ServiceRoomController(
     private val applyingRevisions = mutableSetOf<Long>()
     private val driftController = DriftCorrectionController()
     private val driftSeekGate = DriftSeekGate()
+    private val recentSeekLatenciesMs = mutableListOf<Long>()
     private val retryPolicy = RemoteApplyRetryPolicy()
 
     internal enum class PlaybackPhase(
@@ -701,6 +702,8 @@ internal class ServiceRoomController(
     private suspend fun driftLoop(roomId: String, generation: Long) {
         while (isCurrent(roomId, generation) && coroutineContext.isActive) {
             player.consumeSeekLatencyMs()?.let { latencyMs ->
+                recentSeekLatenciesMs += latencyMs
+                while (recentSeekLatenciesMs.size > 3) recentSeekLatenciesMs.removeAt(0)
                 recordDiagnostic("seek.latency", "latency_ms=$latencyMs")
             }
             lastRemotePlayback?.let { remote ->
@@ -1606,7 +1609,7 @@ internal class ServiceRoomController(
                     elapsedSinceUpdateMs = elapsedSinceStart,
                     durationMs = currentRemote.durationMs
                 )
-                player.seekTo(target)
+                player.seekTo(adjustedSeekTarget(currentRemote, target))
                 player.resetPlaybackSpeed()
                 if (!isCurrent(roomId, generation) ||
                     start?.revision != revision ||
@@ -1708,7 +1711,7 @@ internal class ServiceRoomController(
             statusMessage = null
         )
         val expected = expectedRoomPosition(remote)
-        player.seekTo(expected)
+        player.seekTo(adjustedSeekTarget(remote, expected))
         player.resetPlaybackSpeed()
         player.play()
         recordDiagnostic(
@@ -1742,6 +1745,17 @@ internal class ServiceRoomController(
             durationMs = remote.durationMs
         )
     }
+
+    private fun adjustedSeekTarget(remote: RoomPlaybackSnapshot, expectedPositionMs: Long): Long =
+        if (remote.isPlaying) {
+            RoomPlaybackMath.adjustedSeekPositionMs(
+                expectedPositionMs = expectedPositionMs,
+                seekLatencySamplesMs = recentSeekLatenciesMs,
+                durationMs = remote.durationMs
+            )
+        } else {
+            expectedPositionMs.coerceAtLeast(0L)
+        }
 
     private fun correctLocalDrift(remote: RoomPlaybackSnapshot) {
         val roomId = activeRoomId ?: return
@@ -1783,8 +1797,9 @@ internal class ServiceRoomController(
             DriftCorrectionType.RESET_SPEED -> player.resetPlaybackSpeed()
             DriftCorrectionType.SEEK -> {
                 player.resetPlaybackSpeed()
-                player.seekTo(expected)
-                driftSeekGate.begin(expected, nowElapsed)
+                val seekTarget = adjustedSeekTarget(remote, expected)
+                player.seekTo(seekTarget)
+                driftSeekGate.begin(seekTarget, nowElapsed)
             }
         }
     }
