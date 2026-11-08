@@ -116,7 +116,7 @@ jobs:
             if [ "$result" -eq 0 ]; then
               exit 0
             fi
-            if grep -Eiq '504|Gateway Time-out|Read timed out|Connection reset' "$RUNNER_TEMP/nexus-lint.log"; then
+            if grep -Eiq 'status code 504|Gateway Time-out|Read timed out|Connection reset' "$RUNNER_TEMP/nexus-lint.log"; then
               if [ "$attempt" -lt 4 ]; then
                 echo "Transient download/network failure; retrying in 60 seconds."
                 sleep 60
@@ -142,7 +142,7 @@ jobs:
             if [ "$result" -eq 0 ]; then
               exit 0
             fi
-            if grep -Eiq '504|Gateway Time-out|Read timed out|Connection reset' "$RUNNER_TEMP/nexus-unit-tests.log"; then
+            if grep -Eiq 'status code 504|Gateway Time-out|Read timed out|Connection reset' "$RUNNER_TEMP/nexus-unit-tests.log"; then
               if [ "$attempt" -lt 4 ]; then
                 echo "Transient download/network failure; retrying in 60 seconds."
                 sleep 60
@@ -200,7 +200,7 @@ jobs:
             if [ "$result" -eq 0 ]; then
               exit 0
             fi
-            if grep -Eiq '504|Gateway Time-out|Read timed out|Connection reset' "$RUNNER_TEMP/nexus-assemble.log"; then
+            if grep -Eiq 'status code 504|Gateway Time-out|Read timed out|Connection reset' "$RUNNER_TEMP/nexus-assemble.log"; then
               if [ "$attempt" -lt 4 ]; then
                 echo "Transient download/network failure; retrying in 60 seconds."
                 sleep 60
