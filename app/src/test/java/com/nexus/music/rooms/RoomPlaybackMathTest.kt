@@ -195,6 +195,43 @@ class RoomPlaybackMathTest {
         assertEquals(DriftCorrectionType.NONE, controller.evaluate(50L, false, 2_000L).type)
     }
 
+    // SPEC: S3 — measured seek latency is used only as bounded local target compensation.
+    @Test
+    fun seekCompensationUsesDefaultLatencyWhenNoSamplesExist() {
+        assertEquals(10_400L, RoomPlaybackMath.adjustedSeekPositionMs(10_000L, emptyList()))
+    }
+
+    @Test
+    fun seekCompensationAveragesOnlyTheLastThreeValidSamples() {
+        assertEquals(
+            10_666L,
+            RoomPlaybackMath.adjustedSeekPositionMs(
+                10_000L,
+                listOf(200L, 400L, 600L, 1_000L)
+            )
+        )
+    }
+
+    @Test
+    fun seekCompensationCapsLatencyAndClampsToTrackDuration() {
+        assertEquals(
+            11_500L,
+            RoomPlaybackMath.adjustedSeekPositionMs(10_000L, listOf(5_000L))
+        )
+        assertEquals(
+            10_000L,
+            RoomPlaybackMath.adjustedSeekPositionMs(9_900L, listOf(1_500L), 10_000L)
+        )
+    }
+
+    @Test
+    fun seekCompensationIgnoresInvalidLatencySamples() {
+        assertEquals(
+            10_400L,
+            RoomPlaybackMath.adjustedSeekPositionMs(10_000L, listOf(-1L, 20_000L))
+        )
+    }
+
     @Test
     fun seekThresholdIsNotTriggeredByMinorDifference() {
         assertFalse(RoomPlaybackMath.needsSeek(10_000L, 10_699L))
