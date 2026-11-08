@@ -15,6 +15,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * A narrow adapter around the single ExoPlayer in PlaybackService.
@@ -30,8 +31,18 @@ internal class Media3RoomPlayerPort(
     )
 
     override val userIntents: SharedFlow<RoomPlayerIntent> = mutableUserIntents
+    private val pendingSeekStartedAtMs = AtomicLong(-1L)
+    private val completedSeekLatencyMs = AtomicLong(-1L)
 
     private val interruptionListener = object : Player.Listener {
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            finishSeekMeasurementIfPlaying()
+        }
+
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (isPlaying) finishSeekMeasurementIfPlaying()
+        }
+
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
             if (!playWhenReady && (
                     reason == Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS ||
@@ -127,7 +138,22 @@ internal class Media3RoomPlayerPort(
     }
 
     override fun seekTo(positionMs: Long) {
+        pendingSeekStartedAtMs.set(android.os.SystemClock.elapsedRealtime())
         player.seekTo(positionMs.coerceAtLeast(0L))
+        finishSeekMeasurementIfPlaying()
+    }
+
+    override fun consumeSeekLatencyMs(): Long? =
+        completedSeekLatencyMs.getAndSet(-1L).takeIf { it >= 0L }
+
+    private fun finishSeekMeasurementIfPlaying() {
+        if (player.playbackState != Player.STATE_READY || !player.isPlaying) return
+        val startedAt = pendingSeekStartedAtMs.getAndSet(-1L)
+        if (startedAt >= 0L) {
+            completedSeekLatencyMs.set(
+                (android.os.SystemClock.elapsedRealtime() - startedAt).coerceAtLeast(0L)
+            )
+        }
     }
 
     override fun setPlaybackSpeed(speed: Float) {
