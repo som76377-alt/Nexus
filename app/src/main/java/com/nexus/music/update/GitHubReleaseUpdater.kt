@@ -410,7 +410,7 @@ class GitHubReleaseUpdater(
     }
 }
 
-internal enum class NexusSigningIdentity {
+enum class NexusSigningIdentity {
     OFFICIAL,
     DIFFERENT,
     UNKNOWN
