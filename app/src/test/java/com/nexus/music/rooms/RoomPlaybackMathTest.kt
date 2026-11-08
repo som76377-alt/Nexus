@@ -195,6 +195,16 @@ class RoomPlaybackMathTest {
         assertEquals(DriftCorrectionType.NONE, controller.evaluate(50L, false, 2_000L).type)
     }
 
+    @Test
+    fun newTrackBarrierStartUsesTheExactAuthoritativePositionWithoutCompensation() {
+        val authoritativePositionMs = 12_345L
+        assertEquals(
+            authoritativePositionMs,
+            RoomPlaybackMath.barrierStartPositionMs(authoritativePositionMs)
+        )
+        assertEquals(0L, RoomPlaybackMath.barrierStartPositionMs(-1L))
+    }
+
     // SPEC: S3 — measured seek latency is used only as bounded local target compensation.
     @Test
     fun seekCompensationUsesDefaultLatencyWhenNoSamplesExist() {
