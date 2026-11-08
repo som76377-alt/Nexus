@@ -121,18 +121,9 @@ enum class RoomConnectionState {
     ERROR
 }
 
-/** Saved chat row delivered by the room's private Realtime broadcast. */
-data class RoomChatMessage(
-    val id: String,
-    val senderId: String,
-    val body: String,
-    val createdAt: String
-)
-
 sealed interface RoomRealtimeSignal {
     data object PlaybackInvalidated : RoomRealtimeSignal
     data class PlaybackUpdated(val snapshot: RoomPlaybackSnapshot) : RoomRealtimeSignal
-    data class ChatMessageReceived(val message: RoomChatMessage) : RoomRealtimeSignal
     data object ChatInvalidated : RoomRealtimeSignal
     data class StartScheduled(
         val revision: Long,
@@ -155,7 +146,6 @@ data class RoomControllerState(
     val lastError: String? = null,
     val realtimeConnected: Boolean = false,
     val chatSignalVersion: Long = 0L,
-    val chatMessages: List<RoomChatMessage> = emptyList(),
     /** Non-error progress shown while a room operation is running. */
     val statusMessage: String? = null
 )
