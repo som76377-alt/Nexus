@@ -209,7 +209,7 @@ data class RoomDiagnosticsSnapshot(
 ) {
     val summary: String
         get() = "app=${device.appVersion} · ${device.deviceModel} · API ${device.apiLevel} · " +
-            "wake=${wakeModeName(device.wakeMode)} · offset=${clockOffsetMs?.let { "${it}ms" } ?: "unknown"} · " +
+            "wake=${RoomDiagnosticsFormatter.wakeModeName(device.wakeMode)} · offset=${clockOffsetMs?.let { "${it}ms" } ?: "unknown"} · " +
             "publish=${lastPublishLatencyMs?.let { "${it}ms" } ?: "—"} · " +
             "snapshot=${lastSnapshotLatencyMs?.let { "${it}ms" } ?: "—"} · " +
             "apply=${lastApplyLatencyMs?.let { "${it}ms" } ?: "—"} · " +
