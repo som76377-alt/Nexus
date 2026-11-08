@@ -15,12 +15,22 @@ import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.media3.common.Player
+import coil.load
 import com.nexus.music.MainActivity
+import com.nexus.music.catalog.CatalogTrack
+import com.nexus.music.catalog.CatalogFormatting
+import com.nexus.music.catalog.ResolvedAudio
+import com.nexus.music.catalog.YoutubeCatalogRepository
+import com.nexus.music.catalog.YoutubeSearchScope
 import com.nexus.music.ui.NexusUi
+import com.nexus.music.ui.SearchPanel
 import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackService
 import com.nexus.music.rooms.domain.RoomConnectionState
@@ -49,13 +59,18 @@ import java.util.Locale
 class ListeningRoomActivity : Activity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-    private lateinit var introPanel: LinearLayout
-    private lateinit var bottomNavigation: LinearLayout
     private lateinit var status: TextView
     private lateinit var codeInput: EditText
     private lateinit var joinButton: Button
     private lateinit var createButton: Button
     private lateinit var roomPanel: LinearLayout
+    private lateinit var searchScroll: ScrollView
+    private lateinit var searchPanel: SearchPanel
+    private lateinit var miniPlayerProgress: SeekBar
+    private lateinit var miniPlayerArtwork: ImageView
+    private lateinit var miniPlayerTitle: TextView
+    private lateinit var miniPlayerSubtitle: TextView
+    private lateinit var miniPlayerButton: android.widget.ImageButton
     private lateinit var roomActions: LinearLayout
     private lateinit var inviteText: TextView
     private lateinit var messagesBox: LinearLayout
@@ -64,6 +79,20 @@ class ListeningRoomActivity : Activity() {
     private lateinit var copyCodeButton: Button
 
     private var playback: PlaybackConnection? = null
+    private val catalogRepository by lazy { YoutubeCatalogRepository() }
+    private var searchJob: Job? = null
+    private var searchGeneration = 0L
+    private var selectedScope = YoutubeSearchScope.MUSIC_SONGS
+    private var isResolvingTrack = false
+    private var isSeeking = false
+    private var lastPlaybackSnapshot = PlaybackSnapshot(connected = false)
+    private val progressHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val progressTicker = object : Runnable {
+        override fun run() {
+            if (!isActivityStarted || isFinishing || isDestroyed) return
+            playback?.let { updateRoomPlaybackUi(it.snapshot()) }
+        }
+    }
     private var roomId: String? = null
     // Distinguishes a new join session even when the same room ID is re-entered.
     private var roomSessionGeneration = 0L
@@ -96,22 +125,6 @@ class ListeningRoomActivity : Activity() {
             setBackgroundColor(this@ListeningRoomActivity.background)
             setPadding(dp(20), dp(24), dp(20), dp(18))
         }
-        introPanel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-        val header = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        header.addView(label("NEXUS", 12f, accent, true), LinearLayout.LayoutParams(0, -2, 1f))
-        introPanel.addView(header)
-        introPanel.addView(label("Listening room", 28f, foreground, true), params(16))
-        introPanel.addView(label(
-            "Private rooms for two. Chat history is kept separately in each room.",
-            13f, muted
-        ), params(6))
-        root.addView(introPanel)
-
         status = label("Connect to create a room or enter an invite code.", 12f, muted)
         status.setPadding(dp(12), dp(12), dp(12), dp(12))
         status.background = rounded(surface, 12)
@@ -153,7 +166,7 @@ class ListeningRoomActivity : Activity() {
             }
         }
         roomActions.addView(codeInput, params(10))
-        joinButton = actionButton("Join room", false).apply {
+        joinButton = actionButton("Join", false).apply {
             setOnClickListener { joinRoom() }
         }
         roomActions.addView(joinButton, params(10))
@@ -172,7 +185,7 @@ class ListeningRoomActivity : Activity() {
             ellipsize = android.text.TextUtils.TruncateAt.END
         }
         roomHeader.addView(inviteText, LinearLayout.LayoutParams(0, -2, 1f))
-        copyCodeButton = actionButton("Copy code", false).apply {
+        copyCodeButton = actionButton("Copy", false).apply {
             isEnabled = false
             setOnClickListener { inviteCode?.let(::copyCode) }
         }
@@ -182,7 +195,42 @@ class ListeningRoomActivity : Activity() {
         })
         roomPanel.addView(roomHeader, params(0))
 
-        roomPanel.addView(label("Room chat", 15f, foreground, true), params(16))
+        searchPanel = SearchPanel(
+            context = this,
+            initialScope = selectedScope,
+            onSearchRequested = ::performRoomSearch,
+            onScopeSelected = ::selectRoomSearchScope
+        )
+        searchScroll = ScrollView(this).apply {
+            isFillViewport = false
+            clipToPadding = false
+            addView(searchPanel)
+        }
+        roomPanel.addView(searchScroll, LinearLayout.LayoutParams(-1, 0, 1f).apply {
+            topMargin = dp(10)
+        })
+
+        val miniPlayer = NexusUi.miniPlayer(
+            context = this,
+            onTogglePlayback = { playback?.togglePlayback() },
+            onSeekStarted = { isSeeking = true },
+            onSeekChanged = { isSeeking = true },
+            onSeekFinished = { progress ->
+                val duration = lastPlaybackSnapshot.durationMs
+                if (duration > 0L) {
+                    playback?.seekTo(duration * progress.toLong() / miniPlayerProgress.max)
+                }
+                isSeeking = false
+            }
+        )
+        miniPlayerProgress = miniPlayer.progress
+        miniPlayerArtwork = miniPlayer.artwork
+        miniPlayerTitle = miniPlayer.title
+        miniPlayerSubtitle = miniPlayer.subtitle
+        miniPlayerButton = miniPlayer.playPause
+        roomPanel.addView(miniPlayer.container, params(8))
+
+        roomPanel.addView(label("Chat", 15f, foreground, true), params(10))
         val chatScroll = ScrollView(this).apply {
             background = rounded(surface, 12)
             isFillViewport = false
@@ -193,7 +241,7 @@ class ListeningRoomActivity : Activity() {
             setPadding(dp(10), dp(10), dp(10), dp(10))
         }
         chatScroll.addView(messagesBox)
-        roomPanel.addView(chatScroll, LinearLayout.LayoutParams(-1, 0, 1f).apply {
+        roomPanel.addView(chatScroll, LinearLayout.LayoutParams(-1, dp(132)).apply {
             topMargin = dp(7)
             bottomMargin = dp(8)
         })
@@ -222,16 +270,17 @@ class ListeningRoomActivity : Activity() {
         root.addView(roomPanel, LinearLayout.LayoutParams(-1, 0, 1f).apply {
             topMargin = dp(12)
         })
-        bottomNavigation = buildBottomNavigation()
-        root.addView(bottomNavigation, LinearLayout.LayoutParams(-1, dp(62)))
 
         setContentView(root)
         registerBackNavigation()
         playback = PlaybackConnection(
             context = this,
             onReady = { restoreActiveRoomIfPresent() },
-            onStateChanged = { },
-            onError = { message -> status.text = "Player: $message" }
+            onStateChanged = ::updateRoomPlaybackUi,
+            onError = { message ->
+                miniPlayerSubtitle.text = message
+                status.text = "Player: $message"
+            }
         )
     }
 
@@ -281,9 +330,8 @@ class ListeningRoomActivity : Activity() {
                 android.app.AlertDialog.Builder(this@ListeningRoomActivity)
                     .setTitle("Room created")
                     .setMessage("Share this invite code:\n\n${created.inviteCode}\n\nThe other person can enter it in Nexus.")
-                    .setPositiveButton("Copy code") { _, _ -> copyCode(created.inviteCode) }
-                    .setNegativeButton("Close", null)
-                    .show()
+                    copyCodeButton.isEnabled = true
+                Toast.makeText(this@ListeningRoomActivity, "Room created · copy the code to invite someone.", Toast.LENGTH_LONG).show()
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -327,8 +375,6 @@ class ListeningRoomActivity : Activity() {
         roomSessionGeneration += 1L
         val sessionGeneration = roomSessionGeneration
         roomId = id
-        introPanel.visibility = View.GONE
-        bottomNavigation.visibility = View.GONE
         roomPanel.visibility = View.VISIBLE
         roomActions.visibility = View.GONE
         createButton.visibility = View.GONE
@@ -337,6 +383,7 @@ class ListeningRoomActivity : Activity() {
         inviteText.text = inviteCode?.let { "Room code: $it" } ?: "Room connected"
         copyCodeButton.isEnabled = inviteCode != null
         status.text = "Connected · starting room engine…"
+        updateRoomPlaybackUi(playback?.snapshot() ?: PlaybackSnapshot(connected = false))
 
         try {
             // PlaybackConnection has already caused PlaybackService to start. The room
@@ -399,6 +446,173 @@ class ListeningRoomActivity : Activity() {
                 exitRoom(clearPersistedRoom = false)
             }
             throw error
+        }
+    }
+
+    private fun schedulePlaybackProgress(snapshot: PlaybackSnapshot) {
+        progressHandler.removeCallbacks(progressTicker)
+        if (isActivityStarted && snapshot.isPlaying && !isFinishing && !isDestroyed) {
+            progressHandler.postDelayed(progressTicker, 500L)
+        }
+    }
+
+    private fun updateRoomPlaybackUi(snapshot: PlaybackSnapshot) {
+        lastPlaybackSnapshot = snapshot
+        if (!::miniPlayerSubtitle.isInitialized) return
+        schedulePlaybackProgress(snapshot)
+        if (!snapshot.connected) {
+            miniPlayerSubtitle.text = "Connecting to playback service…"
+            miniPlayerButton.isEnabled = false
+            return
+        }
+        if (snapshot.title.isNotBlank()) {
+            miniPlayerTitle.text = snapshot.title
+            miniPlayerSubtitle.text = when (snapshot.playbackState) {
+                Player.STATE_BUFFERING -> "Loading audio…"
+                Player.STATE_READY -> if (snapshot.playWhenReady) {
+                    "Playing" + snapshot.artist.takeIf(String::isNotBlank)?.let { " · $it" }.orEmpty()
+                } else {
+                    "Paused" + snapshot.artist.takeIf(String::isNotBlank)?.let { " · $it" }.orEmpty()
+                }
+                Player.STATE_ENDED -> "Finished"
+                else -> snapshot.artist.ifBlank { "Ready" }
+            }
+            miniPlayerButton.isEnabled = true
+        } else {
+            miniPlayerTitle.text = "Nothing playing"
+            miniPlayerSubtitle.text = "Choose a search result"
+            miniPlayerButton.isEnabled = false
+        }
+        NexusUi.setPlaying(this, miniPlayerButton, snapshot.playWhenReady)
+        if (!isSeeking) {
+            miniPlayerProgress.isEnabled = snapshot.durationMs > 0L
+            miniPlayerProgress.progress = if (snapshot.durationMs > 0L) {
+                ((snapshot.positionMs.toDouble() / snapshot.durationMs.toDouble()) * miniPlayerProgress.max)
+                    .toInt().coerceIn(0, miniPlayerProgress.max)
+            } else 0
+        }
+    }
+
+    private fun selectRoomSearchScope(scope: YoutubeSearchScope) {
+        if (selectedScope == scope) return
+        selectedScope = scope
+        searchPanel.setSelectedScope(scope)
+        if (searchPanel.queryInput.text.toString().isNotBlank()) performRoomSearch()
+    }
+
+    private fun performRoomSearch() {
+        val query = searchPanel.queryInput.text.toString().trim()
+        if (query.isEmpty()) {
+            searchGeneration++
+            searchJob?.cancel()
+            searchJob = null
+            searchPanel.statusText.text = ""
+            searchPanel.statusText.visibility = View.GONE
+            searchPanel.resultsContainer.removeAllViews()
+            return
+        }
+        searchJob?.cancel()
+        val generation = ++searchGeneration
+        val requestScope = selectedScope
+        searchPanel.statusText.text = "Searching…"
+        searchPanel.statusText.visibility = View.VISIBLE
+        searchPanel.resultsContainer.removeAllViews()
+        searchJob = scope.launch {
+            try {
+                val results = catalogRepository.search(query, requestScope)
+                if (generation != searchGeneration || roomId == null) return@launch
+                searchPanel.resultsContainer.removeAllViews()
+                if (results.isEmpty()) {
+                    searchPanel.statusText.text = "No results"
+                    searchPanel.statusText.visibility = View.VISIBLE
+                } else {
+                    searchPanel.statusText.text = ""
+                    searchPanel.statusText.visibility = View.GONE
+                    results.forEachIndexed { index, track ->
+                        searchPanel.resultsContainer.addView(
+                            roomResultCard(track),
+                            LinearLayout.LayoutParams(-1, -2).apply {
+                                topMargin = dp(if (index == 0) 0 else 10)
+                            }
+                        )
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (generation == searchGeneration) {
+                    searchPanel.statusText.text = "Search failed · Retry"
+                    searchPanel.statusText.visibility = View.VISIBLE
+                    searchPanel.statusText.setOnClickListener { performRoomSearch() }
+                }
+            } finally {
+                if (generation == searchGeneration) searchJob = null
+            }
+        }
+    }
+
+    private fun roomResultCard(track: CatalogTrack): LinearLayout {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = rounded(surface, 14)
+            setPadding(dp(10), dp(10), dp(12), dp(10))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { resolveRoomTrack(track) }
+        }
+        val artwork = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            background = rounded(raised, 10)
+            contentDescription = "Track artwork"
+        }
+        track.thumbnailUrl?.let(artwork::load)
+        card.addView(artwork, LinearLayout.LayoutParams(dp(88), dp(64)))
+        val details = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), 0, 0, 0)
+        }
+        details.addView(label(track.title.ifBlank { "Untitled" }, 14f, foreground, true))
+        details.addView(label(track.artist ?: "Unknown artist", 12f, muted))
+        val metadata = listOfNotNull(
+            track.durationSeconds?.takeIf { it >= 0 }?.let(CatalogFormatting::duration),
+            track.viewCount?.takeIf { it >= 0 }?.let(CatalogFormatting::views)
+        ).joinToString("  ·  ")
+        if (metadata.isNotBlank()) details.addView(label(metadata, 10f, muted))
+        card.addView(details, LinearLayout.LayoutParams(0, -2, 1f))
+        return card
+    }
+
+    private fun resolveRoomTrack(track: CatalogTrack) {
+        if (isResolvingTrack) return
+        isResolvingTrack = true
+        miniPlayerSubtitle.text = "Preparing audio…"
+        scope.launch {
+            try {
+                val audio = catalogRepository.resolveAudio(track.url)
+                if (roomId == null || isFinishing || isDestroyed) return@launch
+                miniPlayerTitle.text = audio.title
+                miniPlayerSubtitle.text = "Sending to room playback…"
+                miniPlayerArtwork.load(audio.thumbnailUrl?.takeIf(String::isNotBlank))
+                miniPlayerButton.isEnabled = true
+                // This is the same MediaController command path used by Home. The
+                // MediaSession's existing RoomIntentForwardingPlayer records the
+                // selection/play intent for the active RoomController; no sync logic
+                // is implemented or invoked from this Activity.
+                if (playback?.play(audio) != true) {
+                    miniPlayerSubtitle.text = "Player unavailable"
+                    status.text = "The room player could not accept this track."
+                    return@launch
+                }
+                miniPlayerSubtitle.text = "Starting shared playback…"
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                miniPlayerSubtitle.text = "Couldn't prepare audio"
+                status.text = error.message ?: "Choose another result and try again."
+            } finally {
+                isResolvingTrack = false
+            }
         }
     }
 
@@ -568,14 +782,19 @@ class ListeningRoomActivity : Activity() {
         userId = null
         if (clearPersistedRoom) ActiveRoomSessionStore.clear(this)
         lastChatSignalVersion = 0L
-        introPanel.visibility = View.VISIBLE
-        bottomNavigation.visibility = View.VISIBLE
         roomPanel.visibility = View.GONE
         roomActions.visibility = View.VISIBLE
         createButton.visibility = View.VISIBLE
         codeInput.visibility = View.VISIBLE
         joinButton.visibility = View.VISIBLE
         messagesBox.removeAllViews()
+        searchGeneration++
+        searchJob?.cancel()
+        searchJob = null
+        searchPanel.queryInput.text.clear()
+        searchPanel.statusText.text = ""
+        searchPanel.statusText.visibility = View.GONE
+        searchPanel.resultsContainer.removeAllViews()
         sendButton.isEnabled = true
         status.text = "Exited this room. Its history remains until one hour of inactivity."
     }
@@ -668,6 +887,7 @@ class ListeningRoomActivity : Activity() {
         isActivityStarted = true
         startChatFallbackSync()
         if (roomId != null) {
+            updateRoomPlaybackUi(playback?.snapshot() ?: PlaybackSnapshot(connected = false))
             scope.launch {
                 try {
                     refreshMessages()
@@ -682,12 +902,17 @@ class ListeningRoomActivity : Activity() {
 
     override fun onStop() {
         isActivityStarted = false
+        progressHandler.removeCallbacks(progressTicker)
         stopChatFallbackSync()
         super.onStop()
     }
 
     override fun onDestroy() {
         isActivityStarted = false
+        progressHandler.removeCallbacks(progressTicker)
+        searchGeneration++
+        searchJob?.cancel()
+        searchJob = null
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             backInvokedCallback?.let(onBackInvokedDispatcher::unregisterOnBackInvokedCallback)
             backInvokedCallback = null
