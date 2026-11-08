@@ -61,13 +61,13 @@ class MainActivity : Activity() {
     private lateinit var resultsContainer: LinearLayout
     private lateinit var statusText: TextView
     private lateinit var queryInput: EditText
-    private lateinit var searchButton: Button
+    private lateinit var scopeToggleButton: Button
     private lateinit var updateButton: Button
     private lateinit var updateStatusText: TextView
+    private lateinit var updatePanel: LinearLayout
     private lateinit var updateProgressContainer: LinearLayout
     private lateinit var updateProgressText: TextView
     private lateinit var updateProgressBar: ProgressBar
-    private lateinit var scopeButtons: Map<YoutubeSearchScope, Button>
     private lateinit var playerArtwork: ImageView
     private lateinit var playerTitle: TextView
     private lateinit var playerSubtitle: TextView
@@ -79,7 +79,7 @@ class MainActivity : Activity() {
     private var downloadJob: Job? = null
     private var pendingUpdate: NexusUpdate? = null
     private var requiresCleanInstall = false
-    private var selectedScope = YoutubeSearchScope.EVERYTHING
+    private var selectedScope = YoutubeSearchScope.MUSIC_SONGS
     private var searchJob: Job? = null
     private var searchGeneration = 0L
     private var isResolving = false
@@ -129,20 +129,11 @@ class MainActivity : Activity() {
             setPadding(dp(22), dp(28), dp(22), dp(32))
         }
 
-        val appHeader = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        appHeader.addView(
-            text("NEXUS", 12f, accent, bold = true).apply { letterSpacing = 0.22f },
-            LinearLayout.LayoutParams(-2, -2)
-        )
-        content.addView(appHeader)
-
-        val updatePanel = LinearLayout(this).apply {
+        updatePanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = rounded(surface, 14)
             setPadding(dp(12), dp(10), dp(12), dp(10))
+            visibility = View.GONE
         }
         val updateRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -197,11 +188,6 @@ class MainActivity : Activity() {
         updateProgressContainer.addView(updateProgressBar, LinearLayout.LayoutParams(-1, dp(9)))
         updatePanel.addView(updateProgressContainer)
         content.addView(updatePanel, verticalParams(14))
-        content.addView(text("Find your next\nfavourite track.", 31f, primaryText, bold = true).apply {
-            setPadding(0, dp(12), 0, dp(8))
-        })
-        content.addView(text("Search YouTube's catalogue. Pick a result to start listening.", 14f, secondaryText))
-
         val searchRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -221,53 +207,34 @@ class MainActivity : Activity() {
                 if (actionId == EditorInfo.IME_ACTION_SEARCH) { performSearch(); true } else false
             }
         }
-        searchButton = Button(this).apply {
-            text = "Search"
-            textSize = 13f
+        scopeToggleButton = Button(this).apply {
+            text = "Songs | All"
+            textSize = 11f
             isAllCaps = false
-            setTextColor(Color.rgb(14, 20, 12))
+            minWidth = 0
+            minimumWidth = 0
+            minimumHeight = dp(48)
+            setPadding(dp(10), 0, dp(10), 0)
             typeface = Typeface.DEFAULT_BOLD
-            background = rounded(accent, 12)
-            setPadding(dp(12), 0, dp(12), 0)
-            setOnClickListener { performSearch() }
+            setOnClickListener {
+                selectScope(
+                    if (selectedScope == YoutubeSearchScope.MUSIC_SONGS) {
+                        YoutubeSearchScope.EVERYTHING
+                    } else {
+                        YoutubeSearchScope.MUSIC_SONGS
+                    }
+                )
+            }
         }
         searchRow.addView(queryInput, LinearLayout.LayoutParams(0, dp(54), 1f))
-        searchRow.addView(searchButton, LinearLayout.LayoutParams(-2, dp(42)))
-        content.addView(searchRow, verticalParams(22))
+        searchRow.addView(scopeToggleButton, LinearLayout.LayoutParams(-2, dp(48)))
+        content.addView(searchRow, verticalParams(18))
+        renderScopeToggle()
 
-        content.addView(text("SEARCH IN", 11f, secondaryText, bold = true).apply {
-            letterSpacing = 0.12f
-        }, verticalParams(24))
-
-        val scopesRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        val scopeMap = linkedMapOf(
-            YoutubeSearchScope.EVERYTHING to "All",
-            YoutubeSearchScope.MUSIC_SONGS to "Songs",
-            YoutubeSearchScope.VIDEOS to "Videos"
-        )
-        val buttons = mutableMapOf<YoutubeSearchScope, Button>()
-        scopeMap.forEach { (scope, label) ->
-            val button = Button(this).apply {
-                text = label
-                textSize = 13f
-                isAllCaps = false
-                setPadding(dp(12), 0, dp(12), 0)
-                setOnClickListener { selectScope(scope) }
-            }
-            buttons[scope] = button
-            scopesRow.addView(button, LinearLayout.LayoutParams(0, dp(42), 1f).apply {
-                marginEnd = dp(8)
-            })
-        }
-        scopeButtons = buttons
-        content.addView(scopesRow, verticalParams(10))
-        renderScopeButtons()
-
-        statusText = text("Search for something to get started.", 13f, secondaryText).apply {
-            setPadding(0, dp(22), 0, dp(12))
+        statusText = text("", 13f, secondaryText).apply {
+            visibility = View.GONE
+            setPadding(0, dp(12), 0, dp(8))
+            setOnClickListener { performSearch() }
         }
         content.addView(statusText)
         resultsContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -345,6 +312,7 @@ class MainActivity : Activity() {
         if (updateCheckJob?.isActive == true || downloadJob?.isActive == true) return
 
         pendingUpdate = null
+        updatePanel.visibility = View.VISIBLE
         updateStatusText.text = "Checking for updates…"
         updateStatusText.setTextColor(secondaryText)
         updateButton.visibility = View.GONE
@@ -370,6 +338,7 @@ class MainActivity : Activity() {
                         updateStatusText.text = "You're up to date · ${result.installedVersion}"
                         updateStatusText.setTextColor(accent)
                         updateButton.visibility = View.GONE
+                        updatePanel.visibility = View.GONE
                     }
 
                     is UpdateCheckResult.Available -> {
@@ -389,6 +358,7 @@ class MainActivity : Activity() {
                             "Preview build · ${result.installedVersion} · latest public release ${result.latestReleaseVersion}"
                         updateStatusText.setTextColor(secondaryText)
                         updateButton.visibility = View.GONE
+                        updatePanel.visibility = View.GONE
                     }
                 }
             } catch (error: CancellationException) {
@@ -575,7 +545,6 @@ class MainActivity : Activity() {
             },
             onStateChanged = ::updatePlaybackUi,
             onError = { message ->
-                statusText.text = "Playback error: $message"
                 playerSubtitle.text = message
                 Toast.makeText(this, message, Toast.LENGTH_LONG).show()
             }
@@ -622,16 +591,17 @@ class MainActivity : Activity() {
     private fun selectScope(scope: YoutubeSearchScope) {
         if (selectedScope == scope) return
         selectedScope = scope
-        renderScopeButtons()
+        renderScopeToggle()
         if (queryInput.text.toString().isNotBlank()) performSearch()
     }
 
-    private fun renderScopeButtons() {
-        scopeButtons.forEach { (scope, button) ->
-            val selected = scope == selectedScope
-            button.setTextColor(if (selected) Color.rgb(14, 20, 12) else primaryText)
-            button.background = rounded(if (selected) accent else surfaceRaised, 14)
-        }
+    private fun renderScopeToggle() {
+        val songsSelected = selectedScope == YoutubeSearchScope.MUSIC_SONGS
+        scopeToggleButton.isSelected = songsSelected
+        scopeToggleButton.contentDescription =
+            "Search scope: ${if (songsSelected) "Songs" else "All"}. Tap to switch."
+        scopeToggleButton.setTextColor(if (songsSelected) Color.rgb(14, 20, 12) else primaryText)
+        scopeToggleButton.background = rounded(if (songsSelected) accent else surfaceRaised, 12)
     }
 
     private fun performSearch() {
@@ -640,10 +610,10 @@ class MainActivity : Activity() {
             searchGeneration++
             searchJob?.cancel()
             searchJob = null
-            searchButton.isEnabled = true
-            searchButton.text = "Search"
-            queryInput.error = "Enter a song, artist or video"
-            statusText.text = "Enter a song, artist or video to search."
+            queryInput.error = null
+            statusText.text = ""
+            statusText.visibility = View.GONE
+            statusText.setOnClickListener(null)
             resultsContainer.removeAllViews()
             return
         }
@@ -653,10 +623,9 @@ class MainActivity : Activity() {
         queryInput.error = null
         val requestGeneration = ++searchGeneration
         val requestScope = selectedScope
-        // Keep the button available so a new query can supersede a slow request.
-        searchButton.isEnabled = true
-        searchButton.text = "Search"
-        statusText.text = "Searching YouTube..."
+        statusText.text = ""
+        statusText.visibility = View.GONE
+        statusText.setOnClickListener(null)
         resultsContainer.removeAllViews()
 
         searchJob = activityScope.launch {
@@ -666,9 +635,9 @@ class MainActivity : Activity() {
 
                 resultsContainer.removeAllViews()
                 if (results.isEmpty()) {
-                    statusText.text = "No results found. Try another search or scope."
+                    statusText.text = "No results"
+                    statusText.visibility = View.VISIBLE
                 } else {
-                    statusText.text = "${results.size} results · tap one to start listening"
                     results.forEachIndexed { index, track ->
                         resultsContainer.addView(resultCard(track), verticalParams(if (index == 0) 0 else 10))
                     }
@@ -677,13 +646,13 @@ class MainActivity : Activity() {
                 throw error
             } catch (error: Exception) {
                 if (requestGeneration == searchGeneration) {
-                    statusText.text = "Search couldn't complete: ${error.message ?: "Please try again."}"
+                    statusText.text = "Search failed · Retry"
+                    statusText.visibility = View.VISIBLE
+                    statusText.setOnClickListener { performSearch() }
                 }
             } finally {
                 if (requestGeneration == searchGeneration && !isDestroyed) {
                     searchJob = null
-                    searchButton.isEnabled = true
-                    searchButton.text = "Search"
                 }
             }
         }
@@ -729,7 +698,7 @@ class MainActivity : Activity() {
     private fun startResolvingTrack(track: CatalogTrack) {
         if (isResolving) return
         isResolving = true
-        statusText.text = "Preparing audio for “${track.title}”…"
+        playerSubtitle.text = "Preparing audio…"
         activityScope.launch {
             try {
                 val audio = repository.resolveAudio(track.url)
@@ -737,7 +706,8 @@ class MainActivity : Activity() {
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                statusText.text = "Couldn't prepare this track: ${error.message ?: "Please choose another result."}"
+                playerSubtitle.text = "Couldn't prepare audio"
+                Toast.makeText(this, error.message ?: "Please choose another result.", Toast.LENGTH_LONG).show()
             } finally {
                 isResolving = false
             }
@@ -750,10 +720,11 @@ class MainActivity : Activity() {
         playerArtwork.load(audio.thumbnailUrl?.takeIf(String::isNotBlank))
         playPauseButton.isEnabled = true
         if (playbackConnection?.play(audio) != true) {
-            statusText.text = "The player could not accept this track. Try selecting it again."
+            playerSubtitle.text = "Player unavailable"
+            Toast.makeText(this, "The player could not accept this track. Try selecting it again.", Toast.LENGTH_LONG).show()
             return
         }
-        statusText.text = "Starting playback: ${audio.title}"
+        playerSubtitle.text = "Starting playback…"
         Toast.makeText(this, "Starting playback", Toast.LENGTH_SHORT).show()
     }
 
