@@ -20,6 +20,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import com.nexus.music.MainActivity
+import com.nexus.music.ui.NexusUi
 import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackService
 import com.nexus.music.rooms.domain.RoomConnectionState
@@ -590,30 +591,13 @@ class ListeningRoomActivity : Activity() {
         }
     }
 
-    private fun buildBottomNavigation(): LinearLayout {
-        val bar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            background = rounded(surface, 18)
-            setPadding(dp(10), dp(7), dp(10), dp(7))
-        }
-        fun tab(title: String, selected: Boolean, onClick: () -> Unit) = Button(this).apply {
-            text = title
-            textSize = 14f
-            isAllCaps = false
-            minWidth = 0
-            minimumWidth = 0
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(if (selected) Color.rgb(14, 20, 12) else this@ListeningRoomActivity.foreground)
-            background = rounded(if (selected) accent else raised, 12)
-            setOnClickListener { onClick() }
-        }
-        bar.addView(tab("Home", false) { navigateHome() }, LinearLayout.LayoutParams(0, dp(46), 1f).apply {
-            marginEnd = dp(7)
-        })
-        bar.addView(tab("Room", true) {}, LinearLayout.LayoutParams(0, dp(46), 1f))
-        return bar
-    }
+    private fun buildBottomNavigation(): LinearLayout =
+        NexusUi.bottomNavigation(
+            context = this,
+            selected = NexusUi.NavigationTab.ROOM,
+            onHome = ::navigateHome,
+            onRoom = {}
+        )
 
     private fun navigateHome() {
         startActivity(
