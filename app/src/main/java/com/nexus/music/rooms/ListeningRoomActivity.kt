@@ -196,6 +196,9 @@ class ListeningRoomActivity : Activity() {
             setOnClickListener { leaveRoom() }
         })
         roomPanel.addView(roomHeader, params(0))
+        roomPanel.addView(actionButton("Copy debug log", false).apply {
+            setOnClickListener { copyDiagnostics() }
+        }, params(6))
 
         searchPanel = SearchPanel(
             context = this,
@@ -636,7 +639,7 @@ class ListeningRoomActivity : Activity() {
         clipboard.setPrimaryClip(
             ClipData.newPlainText("Nexus room diagnostics", diagnostics.exportText())
         )
-        Toast.makeText(this, "Synchronization log copied", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Log copied", Toast.LENGTH_SHORT).show()
     }
 
     private fun startChatFallbackSync() {
