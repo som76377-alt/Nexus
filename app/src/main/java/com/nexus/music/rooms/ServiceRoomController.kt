@@ -1825,8 +1825,7 @@ internal class ServiceRoomController(
             DriftCorrectionType.RESET_SPEED -> player.resetPlaybackSpeed()
             DriftCorrectionType.SEEK -> {
                 player.resetPlaybackSpeed()
-                val seekTarget = seekToRoomPosition(remote, expected)
-                driftSeekGate.begin(seekTarget, nowElapsed)
+                seekToRoomPosition(remote, expected)
             }
         }
     }
