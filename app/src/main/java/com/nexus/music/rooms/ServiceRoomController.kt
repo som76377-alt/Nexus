@@ -700,6 +700,9 @@ internal class ServiceRoomController(
 
     private suspend fun driftLoop(roomId: String, generation: Long) {
         while (isCurrent(roomId, generation) && coroutineContext.isActive) {
+            player.consumeSeekLatencyMs()?.let { latencyMs ->
+                recordDiagnostic("seek.latency", "latency_ms=$latencyMs")
+            }
             lastRemotePlayback?.let { remote ->
                 val now = clock.elapsedRealtimeMs()
                 val sampleIntervalMs = if (now <= driftBurstUntilElapsedMs) {
