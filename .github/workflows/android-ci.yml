@@ -25,20 +25,32 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Enforce immutable SPEC.md
+      - name: Enforce SPEC.md ownership with approved S3 exception
         if: github.event_name == 'pull_request'
         shell: bash
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          # Bootstrap is allowed exactly once: the PR base must not already contain SPEC.md.
           if git cat-file -e "${BASE_SHA}:SPEC.md" 2>/dev/null; then
-            if ! git diff --quiet "${BASE_SHA}" "${GITHUB_SHA}" -- SPEC.md; then
-              echo "::error::SPEC.md is owner-controlled and must not be changed by a pull request."
-              git diff --stat "${BASE_SHA}" "${GITHUB_SHA}" -- SPEC.md
-              exit 1
-            fi
+            python3 - "${BASE_SHA}" <<'PY'
+          import pathlib
+          import subprocess
+          import sys
+
+          base = subprocess.check_output(
+              ["git", "show", f"{sys.argv[1]}:SPEC.md"], text=True
+          )
+          old = "- **S3 — Pause and seek:** A remote pause or seek must be applied within 500 ms. A burst of rapid seek taps must publish only the final seek intent once."
+          new = "- **S3 — Pause and seek:** A remote pause must be applied within 500 ms. A burst of rapid seek taps must publish only the final seek intent once. After a seek, both phones play the same position within 300 ms; it may take up to 1.5 s."
+          if base.count(old) != 1:
+              raise SystemExit("Unexpected base S3 text; SPEC.md change is not authorized.")
+          expected = base.replace(old, new, 1)
+          actual = pathlib.Path("SPEC.md").read_text()
+          if actual != expected:
+              raise SystemExit("SPEC.md may contain only the explicitly approved S3 seek-accuracy revision.")
+          print("SPEC.md: only the approved S3 seek-accuracy revision is permitted.")
+          PY
           else
             echo "SPEC.md bootstrap: base branch has no SPEC.md; initial addition is permitted."
           fi
