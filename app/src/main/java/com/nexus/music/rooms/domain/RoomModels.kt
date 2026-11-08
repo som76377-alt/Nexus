@@ -160,7 +160,7 @@ data class RoomDiagnosticsDeviceInfo(
     val appVersion: String = "unknown",
     val deviceModel: String = "unknown",
     val apiLevel: Int = 0,
-    val wakeMode: String = "unknown"
+    val wakeMode: Int = 0
 )
 
 /** Formats the bounded, device-local synchronization timeline for export. */
