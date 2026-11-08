@@ -3,7 +3,6 @@ package com.nexus.music.rooms.data
 import com.nexus.music.rooms.RoomRealtimeClient
 import com.nexus.music.rooms.RoomsApi
 import com.nexus.music.rooms.domain.RoomActionType
-import com.nexus.music.rooms.domain.RoomChatMessage
 import com.nexus.music.rooms.domain.RoomCommand
 import com.nexus.music.rooms.domain.RoomPlaybackSnapshot
 import com.nexus.music.rooms.domain.RoomPlaybackReadyResult
