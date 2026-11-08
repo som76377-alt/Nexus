@@ -137,8 +137,14 @@ internal class Media3RoomPlayerPort(
         player.pause()
     }
 
+    fun recordSeekRequested() {
+        pendingSeekStartedAtMs.set(
+            if (player.playWhenReady) android.os.SystemClock.elapsedRealtime() else -1L
+        )
+    }
+
     override fun seekTo(positionMs: Long) {
-        pendingSeekStartedAtMs.set(android.os.SystemClock.elapsedRealtime())
+        recordSeekRequested()
         player.seekTo(positionMs.coerceAtLeast(0L))
         finishSeekMeasurementIfPlaying()
     }
