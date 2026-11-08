@@ -239,23 +239,38 @@ class RoomPlaybackMathTest {
     }
 
 
+    // SPEC: S3 — release the seek barrier as soon as the local player is ready and playing.
     @Test
-    fun driftSeekGateWaitsForTheFirstSeekInsteadOfAllowingAnother() {
+    fun driftSeekGateWaitsDuringBufferingAndReleasesWhenPlaybackResumes() {
         val gate = DriftSeekGate()
         gate.begin(10_000L, 1_000L)
-        assertTrue(gate.shouldWait(8_000L, true, false, true, 2_000L))
-        assertTrue(gate.shouldWait(8_000L, false, true, true, 3_000L))
-        assertFalse(gate.shouldWait(12_000L, false, true, true, 3_000L))
-        assertFalse(gate.shouldWait(12_000L, false, true, true, 4_000L))
+        assertTrue(gate.shouldWait(true, false, 2_000L))
+        assertFalse(gate.shouldWait(false, true, 3_000L))
+        assertFalse(gate.isPending())
+        assertFalse(gate.shouldWait(false, true, 4_000L))
     }
 
     @Test
-    fun driftSeekGateReleasesAfterTimeoutWhenTheSeekNeverConverges() {
+    fun driftSeekGateTimesOutAfterTwoSecondsIfPlaybackNeverResumes() {
         val gate = DriftSeekGate()
         gate.begin(10_000L, 1_000L)
-        assertTrue(gate.shouldWait(8_000L, false, true, true, 8_999L))
-        assertFalse(gate.shouldWait(8_000L, false, true, true, 9_000L))
-        assertFalse(gate.shouldWait(8_000L, false, true, true, 9_001L))
+        assertTrue(gate.shouldWait(true, false, 2_999L))
+        assertFalse(gate.shouldWait(true, false, 3_000L))
+        assertFalse(gate.isPending())
+    }
+
+    // SPEC: S3 — one immediate post-buffer correction at or above 250 ms per revision.
+    @Test
+    fun postSeekCorrectionGateAllowsOneCorrectionPerRevision() {
+        val gate = PostSeekCorrectionGate()
+        gate.begin(7L)
+        assertTrue(gate.consume(7L, -250L))
+        gate.begin(7L)
+        assertFalse(gate.consume(7L, 400L))
+        gate.begin(8L)
+        assertFalse(gate.consume(8L, 249L))
+        gate.begin(9L)
+        assertTrue(gate.consume(9L, 300L))
     }
 
     @Test
