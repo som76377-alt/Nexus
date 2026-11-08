@@ -34,6 +34,27 @@ internal object RoomPlaybackMath {
         thresholdMs: Long = 700L
     ): Boolean = distanceMs(currentPositionMs, expectedPositionMs) >= thresholdMs
 
+    /** Advance a playing seek target by the measured local seek/buffer latency. */
+    fun adjustedSeekPositionMs(
+        expectedPositionMs: Long,
+        seekLatencySamplesMs: List<Long>,
+        durationMs: Long = 0L
+    ): Long {
+        val samples = seekLatencySamplesMs
+            .filter { it in 0L..10_000L }
+            .takeLast(3)
+        val averageLatency = if (samples.isEmpty()) {
+            400L
+        } else {
+            samples.sum() / samples.size
+        }
+        val adjusted = safeAdd(
+            expectedPositionMs.coerceAtLeast(0L),
+            averageLatency.coerceIn(0L, 1_500L)
+        )
+        return if (durationMs > 0L) adjusted.coerceAtMost(durationMs) else adjusted
+    }
+
     private fun safeAdd(first: Long, second: Long): Long {
         if (Long.MAX_VALUE - first < second) return Long.MAX_VALUE
         return first + second
