@@ -173,8 +173,7 @@ internal class DriftCorrectionController(
  * player became ready, creating a seek/buffer/seek loop.
  */
 internal class DriftSeekGate(
-    private val completionToleranceMs: Long = 500L,
-    private val timeoutMs: Long = 8_000L
+    private val timeoutMs: Long = 2_000L
 ) {
     private var targetPositionMs: Long? = null
     private var issuedAtElapsedMs: Long = 0L
@@ -184,33 +183,17 @@ internal class DriftSeekGate(
         issuedAtElapsedMs = nowElapsedMs
     }
 
+    fun isPending(): Boolean = targetPositionMs != null
+
+    /** Hold drift correction only while the seek is buffering; release as soon as it plays. */
     fun shouldWait(
-        localPositionMs: Long,
         isBuffering: Boolean,
         isPlaying: Boolean,
-        remoteIsPlaying: Boolean,
         nowElapsedMs: Long
     ): Boolean {
-        val target = targetPositionMs ?: return false
-        if (isBuffering || !isPlaying) return true
-
+        if (targetPositionMs == null) return false
         val elapsed = (nowElapsedMs - issuedAtElapsedMs).coerceAtLeast(0L)
-        val projectedTarget = if (remoteIsPlaying) {
-            RoomPlaybackMath.expectedRemotePositionMs(
-                positionMs = target,
-                isPlaying = true,
-                elapsedSinceUpdateMs = elapsed,
-                durationMs = 0L
-            )
-        } else {
-            target
-        }
-        if (RoomPlaybackMath.distanceMs(localPositionMs, projectedTarget) <= completionToleranceMs) {
-            reset()
-            return false
-        }
-        if (elapsed < timeoutMs) return true
-
+        if ((isBuffering || !isPlaying) && elapsed < timeoutMs) return true
         reset()
         return false
     }
@@ -218,6 +201,29 @@ internal class DriftSeekGate(
     fun reset() {
         targetPositionMs = null
         issuedAtElapsedMs = 0L
+    }
+}
+
+/** Allows one immediate post-buffer correction for a given authoritative room revision. */
+internal class PostSeekCorrectionGate {
+    private var pendingRevision: Long? = null
+    private var correctedRevision: Long? = null
+
+    fun begin(revision: Long) {
+        pendingRevision = revision
+    }
+
+    fun consume(revision: Long, driftMs: Long, thresholdMs: Long = 250L): Boolean {
+        if (pendingRevision != revision) return false
+        pendingRevision = null
+        if (correctedRevision == revision) return false
+        correctedRevision = revision
+        return kotlin.math.abs(driftMs) >= thresholdMs
+    }
+
+    fun reset() {
+        pendingRevision = null
+        correctedRevision = null
     }
 }
 
