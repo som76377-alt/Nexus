@@ -86,8 +86,8 @@ class RoomDomainModelsTest {
         assertTrue(text.contains("app_version=0.1.0-debug"))
         assertTrue(text.contains("device_model=Example Phone"))
         assertTrue(text.contains("api_level=35"))
-        assertTrue(text.contains("wake_mode=2"))
-        assertFalse(text.contains("NETWORK"))
+        assertTrue(text.contains("wake_mode=NETWORK"))
+        assertFalse(text.contains("wake_mode=2"))
         assertTrue(text.contains("clock_offset_ms=42"))
         assertTrue(text.contains("clock_rtt_ms=19"))
         assertTrue(text.contains("phase=ROOM_PLAYING"))
@@ -96,6 +96,29 @@ class RoomDomainModelsTest {
         assertTrue(text.contains("received_elapsed_ms=130"))
         assertTrue(text.contains("applied_elapsed_ms=140"))
         assertTrue(text.contains("resulting_drift_ms=12"))
+    }
+
+    // SPEC: S1–S8 diagnostic observability only; wake-mode values remain names in exports.
+    @Test
+    fun diagnosticsFormatterNamesAllSupportedWakeModes() {
+        val expectedNames = mapOf(
+            0 to "NONE",
+            1 to "LOCAL",
+            2 to "NETWORK"
+        )
+
+        expectedNames.forEach { (wakeMode, name) ->
+            val text = RoomDiagnosticsFormatter.format(
+                device = RoomDiagnosticsDeviceInfo(wakeMode = wakeMode),
+                clockOffsetMs = null,
+                roundTripMs = null,
+                phase = "LOCAL",
+                events = emptyList()
+            )
+
+            assertTrue(text.contains("wake_mode=$name"))
+            assertFalse(text.contains("wake_mode=$wakeMode"))
+        }
     }
 
     // SPEC: S1–S8 diagnostic observability only; retain a bounded export timeline.
