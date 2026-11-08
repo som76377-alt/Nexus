@@ -123,7 +123,8 @@ class PlaybackService : MediaSessionService() {
             delegate = exoPlayer,
             recordIntent = playerPort::recordUserIntent,
             playbackPhase = controller::playbackPhase,
-            onSeekRequested = playerPort::recordSeekRequested
+            onSeekRequested = playerPort::recordSeekRequested,
+            onSeekCompleted = playerPort::checkSeekCompletion
         )
         mediaSession = MediaSession.Builder(this, sessionPlayer).build()
     }
