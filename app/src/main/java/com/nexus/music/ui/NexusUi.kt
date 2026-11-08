@@ -9,7 +9,6 @@ import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
-import android.view.View
 import android.widget.Button
 import android.widget.ImageButton
 import android.widget.ImageView
@@ -167,7 +166,7 @@ object NexusUi {
                 }
 
                 override fun onStopTrackingTouch(seekBar: SeekBar?) {
-                    onSeekFinished(progress.progress)
+                    onSeekFinished(seekBar?.progress ?: 0)
                 }
             })
         }
