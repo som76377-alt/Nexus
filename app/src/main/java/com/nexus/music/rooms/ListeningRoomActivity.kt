@@ -21,6 +21,9 @@ import android.widget.TextView
 import android.widget.Toast
 import com.nexus.music.MainActivity
 import com.nexus.music.ui.NexusUi
+import com.nexus.music.ui.Theme
+import com.nexus.music.ui.Type
+import com.nexus.music.ui.PaperTexture
 import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackService
 import com.nexus.music.rooms.domain.RoomConnectionState
@@ -78,17 +81,22 @@ class ListeningRoomActivity : Activity() {
     private var isActivityStarted = false
     private var backInvokedCallback: android.window.OnBackInvokedCallback? = null
 
-    private val background = Color.rgb(12, 14, 18)
-    private val surface = Color.rgb(24, 28, 35)
-    private val raised = Color.rgb(31, 36, 44)
-    private val accent = Color.rgb(167, 240, 106)
-    private val foreground = Color.rgb(244, 247, 250)
-    private val muted = Color.rgb(160, 172, 187)
+    private val background = Theme.ColorToken.parchment
+    private val surface = Theme.ColorToken.paperStock
+    private val raised = Theme.ColorToken.paperStock
+    private val accent = Theme.ColorToken.mineral
+    private val foreground = Theme.ColorToken.ink
+    private val muted = Theme.ColorToken.ink2
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.statusBarColor = background
         window.navigationBarColor = background
+        window.decorView.systemUiVisibility = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
+            View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+        } else {
+            View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+        }
         window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
         val root = LinearLayout(this).apply {
@@ -96,6 +104,7 @@ class ListeningRoomActivity : Activity() {
             setBackgroundColor(this@ListeningRoomActivity.background)
             setPadding(dp(20), dp(24), dp(20), dp(18))
         }
+        PaperTexture.prepare(this) { texture -> if (texture != null && !isDestroyed) root.background = texture }
         introPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
@@ -630,7 +639,7 @@ class ListeningRoomActivity : Activity() {
             text = value
             textSize = size
             setTextColor(color)
-            if (bold) typeface = Typeface.DEFAULT_BOLD
+            if (bold) typeface = Type.medium(this@ListeningRoomActivity)
         }
 
     private fun rounded(color: Int, radius: Int) = GradientDrawable().apply {
@@ -645,8 +654,8 @@ class ListeningRoomActivity : Activity() {
         minWidth = 0
         minimumWidth = 0
         setPadding(dp(12), 0, dp(12), 0)
-        setTextColor(if (primary) Color.rgb(14, 20, 12) else this@ListeningRoomActivity.foreground)
-        typeface = Typeface.DEFAULT_BOLD
+        setTextColor(if (primary) Theme.ColorToken.paperStock else this@ListeningRoomActivity.foreground)
+        typeface = Type.medium(this@ListeningRoomActivity)
         background = rounded(if (primary) accent else raised, 10)
     }
 

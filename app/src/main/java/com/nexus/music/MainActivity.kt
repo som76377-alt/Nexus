@@ -31,6 +31,9 @@ import androidx.media3.common.Player
 import coil3.load
 import com.nexus.music.catalog.CatalogTrack
 import com.nexus.music.ui.NexusUi
+import com.nexus.music.ui.Theme
+import com.nexus.music.ui.Type
+import com.nexus.music.ui.PaperTexture
 import com.nexus.music.ui.SearchPanel
 import com.nexus.music.catalog.ResolvedAudio
 import com.nexus.music.catalog.YoutubeCatalogRepository
@@ -85,12 +88,12 @@ class MainActivity : Activity() {
     private var lastPlaybackSnapshot = PlaybackSnapshot(connected = false)
     private var backInvokedCallback: android.window.OnBackInvokedCallback? = null
 
-    private val screenBackground = Color.rgb(12, 14, 18)
-    private val surface = Color.rgb(24, 28, 35)
-    private val surfaceRaised = Color.rgb(31, 36, 44)
-    private val accent = Color.rgb(167, 240, 106)
-    private val primaryText = Color.rgb(244, 247, 250)
-    private val secondaryText = Color.rgb(160, 172, 187)
+    private val screenBackground = Theme.ColorToken.parchment
+    private val surface = Theme.ColorToken.paperStock
+    private val surfaceRaised = Theme.ColorToken.paperStock
+    private val accent = Theme.ColorToken.copper
+    private val primaryText = Theme.ColorToken.ink
+    private val secondaryText = Theme.ColorToken.ink2
 
     private val progressTicker = object : Runnable {
         override fun run() {
@@ -111,12 +114,18 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         window.statusBarColor = screenBackground
         window.navigationBarColor = screenBackground
+        window.decorView.systemUiVisibility = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+        } else {
+            View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+        }
         window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(screenBackground)
         }
+        PaperTexture.prepare(this) { texture -> if (texture != null && !isDestroyed) root.background = texture }
         val scroll = ScrollView(this).apply {
             isFillViewport = true
             clipToPadding = false
@@ -125,6 +134,11 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(22), dp(28), dp(22), dp(32))
         }
+        val wordmark = text("Nexus", 32f, Theme.ColorToken.ink, bold = true).apply {
+            typeface = Type.title(this@MainActivity)
+            letterSpacing = -0.02f
+        }
+        content.addView(wordmark, verticalParams(0))
 
         updatePanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -144,8 +158,8 @@ class MainActivity : Activity() {
             isAllCaps = false
             minWidth = 0
             minimumWidth = 0
-            setTextColor(Color.rgb(14, 20, 12))
-            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Theme.ColorToken.paperStock)
+            typeface = Type.medium(this@MainActivity)
             background = rounded(accent, 10)
             setPadding(dp(12), 0, dp(12), 0)
             visibility = View.GONE
@@ -682,7 +696,7 @@ class MainActivity : Activity() {
         text = value
         textSize = size
         setTextColor(color)
-        if (bold) typeface = Typeface.DEFAULT_BOLD
+        if (bold) typeface = Type.medium(this@MainActivity)
         this.maxLines = maxLines
         ellipsize = android.text.TextUtils.TruncateAt.END
     }
