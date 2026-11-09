@@ -605,6 +605,23 @@ class ListeningRoomActivity : Activity() {
         }
     }
 
+    private fun applySystemBarInsets(root: LinearLayout) {
+        root.setOnApplyWindowInsetsListener { view, insets ->
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                val safe = insets.getInsets(android.view.WindowInsets.Type.systemBars())
+                view.setPadding(dp(20) + safe.left, dp(24) + safe.top,
+                    dp(20) + safe.right, dp(18) + safe.bottom)
+            } else {
+                view.setPadding(dp(20) + insets.systemWindowInsetLeft,
+                    dp(24) + insets.systemWindowInsetTop,
+                    dp(20) + insets.systemWindowInsetRight,
+                    dp(18) + insets.systemWindowInsetBottom)
+            }
+            insets
+        }
+        root.requestApplyInsets()
+    }
+
     private fun buildBottomNavigation(): LinearLayout =
         NexusUi.bottomNavigation(
             context = this,
