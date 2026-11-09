@@ -214,60 +214,23 @@ class RoomsApi(context: Context) {
         }.asReversed()
     }
 
-    suspend fun sendMessage(roomId: String, senderId: String, body: String): RoomMessage =
+    suspend fun sendMessage(roomId: String, senderId: String, body: String) =
         withContext(Dispatchers.IO) {
             val clean = body.trim()
             if (clean.isEmpty() || clean.length > 2000) {
                 throw IOException("Messages must contain 1–2000 characters.")
             }
-            try {
-                val response = apiRequest(
-                    "POST",
-                    "/rest/v1/rpc/send_room_message",
-                    JSONObject()
-                        .put("p_room_id", roomId)
-                        .put("p_body", clean)
-                        .toString()
-                )
-                val saved = runCatching {
-                    val rows = JSONArray(response)
-                    rows.optJSONObject(0)
-                }.getOrNull() ?: runCatching { JSONObject(response) }.getOrNull()
-                saved?.let(::parseRoomMessage)
-                    ?: throw IOException("The room server did not return the saved chat message.")
-            } catch (error: IOException) {
-                val missingRpc = error.message.orEmpty().let { message ->
-                    message.contains("PGRST202", ignoreCase = true) ||
-                        message.contains("send_room_message", ignoreCase = true) &&
-                        (message.contains("not find", ignoreCase = true) ||
-                            message.contains("schema cache", ignoreCase = true) ||
-                            message.contains("404", ignoreCase = true))
-                }
-                if (!missingRpc) throw error
-
-                // Older deployed projects may not have the RPC yet. Preserve compatibility
-                // by inserting directly and requesting the committed row for UI reconciliation.
-                val payload = JSONObject()
-                    .put("room_id", roomId)
-                    .put("sender_id", senderId)
-                    .put("body", clean)
-                val response = apiRequest(
-                    "POST",
-                    "/rest/v1/room_messages?select=id,sender_id,body,created_at",
-                    payload.toString(),
-                    prefer = "return=representation"
-                )
-                val rows = JSONArray(response)
-                parseRoomMessage(rows.getJSONObject(0))
-            }
+            val payload = JSONObject()
+                .put("room_id", roomId)
+                .put("sender_id", senderId)
+                .put("body", clean)
+            apiRequest(
+                "POST",
+                "/rest/v1/room_messages",
+                payload.toString(),
+                prefer = "return=minimal"
+            )
         }
-
-    private fun parseRoomMessage(row: JSONObject): RoomMessage = RoomMessage(
-        id = row.getString("id"),
-        senderId = row.getString("sender_id"),
-        body = row.getString("body"),
-        createdAt = row.optString("created_at")
-    )
 
     suspend fun loadPlayback(roomId: String): RoomPlayback? = withContext(Dispatchers.IO) {
         val rows = JSONArray(
