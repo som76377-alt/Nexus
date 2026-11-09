@@ -151,8 +151,9 @@ class NowPlayingActivity : Activity() {
             contentDescription = "Album artwork on the record label"
         }
         discLayer.addView(discArtwork, FrameLayout.LayoutParams(labelPx, labelPx, Gravity.CENTER))
+        // The reflection belongs to the record surface, so it rotates with the grooves.
+        discLayer.addView(SheenView(this), FrameLayout.LayoutParams(discPx, discPx, Gravity.CENTER))
         discStack.addView(discLayer, FrameLayout.LayoutParams(discPx, discPx, Gravity.CENTER))
-        discStack.addView(SheenView(this), FrameLayout.LayoutParams(discPx, discPx, Gravity.CENTER))
         tonearm = TonearmView(this).apply {
             pivotX = dp(16).toFloat()
             pivotY = dp(16).toFloat()
@@ -580,68 +581,149 @@ class NowPlayingActivity : Activity() {
         private val source = Rect(0, 0, size, size)
         private val target = RectF()
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+
         init {
             val canvas = Canvas(bitmap)
             val center = size / 2f
             val radius = size / 2f
-            val base = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Theme.ColorToken.recordBlack; style = Paint.Style.FILL }
+            val base = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Theme.ColorToken.recordBlack
+                style = Paint.Style.FILL
+            }
             canvas.drawCircle(center, center, radius, base)
+
+            // Fine, slightly varied groove spacing reads as a pressed record rather than
+            // a stack of identical concentric outlines.
             val groove = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 style = Paint.Style.STROKE
-                strokeWidth = maxOf(1f, size / 520f)
+                strokeWidth = maxOf(.65f, size / 900f)
             }
-            for (i in 0 until 48) {
-                val r = radius * 0.43f + i * (radius * 0.55f / 48f)
-                groove.color = if (i % 2 == 0) 0xFF29231D.toInt() else 0xFF0F0C09.toInt()
+            for (i in 0 until 112) {
+                val fraction = i / 111f
+                val r = radius * (.435f + fraction * .545f)
+                groove.color = when (i % 4) {
+                    0 -> 0xFF302922.toInt()
+                    1 -> 0xFF0D0A08.toInt()
+                    2 -> 0xFF211B16.toInt()
+                    else -> 0xFF100D0A.toInt()
+                }
+                groove.strokeWidth = if (i % 8 == 0) maxOf(1f, size / 700f) else maxOf(.55f, size / 1150f)
                 canvas.drawCircle(center, center, r, groove)
             }
-            val hub = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Theme.ColorToken.groove }
-            canvas.drawCircle(center, center, radius * 0.18f, hub)
+
+            val labelBoundary = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = 0xFF332A22.toInt()
+                style = Paint.Style.STROKE
+                strokeWidth = maxOf(1f, size / 500f)
+            }
+            canvas.drawCircle(center, center, radius * .218f, labelBoundary)
+            val innerRim = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = 0xFF0B0907.toInt()
+                style = Paint.Style.STROKE
+                strokeWidth = maxOf(1f, size / 600f)
+            }
+            canvas.drawCircle(center, center, radius * .205f, innerRim)
+
+            val spindle = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF090807.toInt() }
+            canvas.drawCircle(center, center, radius * .012f, spindle)
         }
+
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
             target.set(0f, 0f, width.toFloat(), height.toFloat())
             canvas.drawBitmap(bitmap, source, target, paint)
         }
-        fun release() { if (!bitmap.isRecycled) bitmap.recycle() }
+
+        fun release() {
+            if (!bitmap.isRecycled) bitmap.recycle()
+        }
     }
 
     private class SheenView(context: android.content.Context) : View(context) {
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(20, 255, 255, 255)
+        private val outerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(18, 255, 244, 223)
             style = Paint.Style.STROKE
-            strokeWidth = context.resources.displayMetrics.density * 2f
+            strokeWidth = context.resources.displayMetrics.density * 1.5f
         }
-        private val arc = RectF()
+        private val innerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(8, 255, 248, 232)
+            style = Paint.Style.STROKE
+            strokeWidth = context.resources.displayMetrics.density * .8f
+        }
+        private val outer = RectF()
+        private val inner = RectF()
+
         override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-            val inset = w * 0.09f
-            arc.set(inset, inset, w - inset, h - inset)
+            val inset = w * .055f
+            outer.set(inset, inset, w - inset, h - inset)
+            inner.set(inset * 2.1f, inset * 2.1f, w - inset * 2.1f, h - inset * 2.1f)
         }
+
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
-            canvas.drawArc(arc, 210f, 62f, false, paint)
+            canvas.drawArc(outer, 208f, 54f, false, outerPaint)
+            canvas.drawArc(inner, 215f, 34f, false, innerPaint)
         }
     }
 
     private class TonearmView(context: android.content.Context) : View(context) {
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Theme.ColorToken.ink2
-            strokeWidth = context.resources.displayMetrics.density * 4f
+        private val armShadow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(90, 14, 12, 10)
+            strokeWidth = context.resources.displayMetrics.density * 7f
             strokeCap = Paint.Cap.ROUND
         }
-        private val fine = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Theme.ColorToken.copper
+        private val armMetal = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(151, 143, 128)
+            strokeWidth = context.resources.displayMetrics.density * 4.3f
+            strokeCap = Paint.Cap.ROUND
+        }
+        private val armHighlight = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(155, 239, 231, 213)
+            strokeWidth = context.resources.displayMetrics.density * .9f
+            strokeCap = Paint.Cap.ROUND
+        }
+        private val pivotDark = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(48, 42, 34) }
+        private val pivotMetal = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(177, 166, 145) }
+        private val copper = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Theme.ColorToken.copper }
+        private val headshell = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(117, 108, 94)
             style = Paint.Style.FILL
         }
+
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
-            canvas.drawLine(dp(context, 16).toFloat(), dp(context, 16).toFloat(),
-                width * 0.84f, height * 0.84f, paint)
-            canvas.drawCircle(dp(context, 16).toFloat(), dp(context, 16).toFloat(),
-                dp(context, 7).toFloat(), fine)
-            canvas.drawCircle(width * 0.84f, height * 0.84f, dp(context, 4).toFloat(), fine)
+            val density = context.resources.displayMetrics.density
+            val pivotX = 16f * density
+            val pivotY = 16f * density
+            val tipX = width * .82f
+            val tipY = height * .80f
+
+            canvas.drawLine(pivotX, pivotY, tipX, tipY, armShadow)
+            canvas.drawLine(pivotX, pivotY, tipX, tipY, armMetal)
+            canvas.drawLine(pivotX, pivotY, tipX, tipY, armHighlight)
+
+            // A layered bearing, counterweight and headshell make the assembly read as
+            // a small mechanical tonearm rather than a bare stick.
+            canvas.drawCircle(pivotX, pivotY, 9f * density, armShadow)
+            canvas.drawCircle(pivotX, pivotY, 7f * density, pivotMetal)
+            canvas.drawCircle(pivotX, pivotY, 3.1f * density, pivotDark)
+            canvas.drawCircle(pivotX, pivotY, 1.5f * density, copper)
+
+            canvas.save()
+            val angle = Math.toDegrees(kotlin.math.atan2((tipY - pivotY).toDouble(), (tipX - pivotX).toDouble())).toFloat()
+            canvas.rotate(angle, tipX, tipY)
+            val shell = Path().apply {
+                moveTo(tipX - 3f * density, tipY - 4f * density)
+                lineTo(tipX + 8f * density, tipY - 3f * density)
+                lineTo(tipX + 10f * density, tipY + 3f * density)
+                lineTo(tipX - 2f * density, tipY + 4f * density)
+                close()
+            }
+            canvas.drawPath(shell, headshell)
+            canvas.drawLine(tipX + 7f * density, tipY + 1f * density,
+                tipX + 13f * density, tipY + 5f * density, armHighlight)
+            canvas.drawCircle(tipX + 13f * density, tipY + 5f * density, 1.7f * density, copper)
+            canvas.restore()
         }
-        private fun dp(context: android.content.Context, value: Int) =
-            (value * context.resources.displayMetrics.density).toInt()
     }
 }
