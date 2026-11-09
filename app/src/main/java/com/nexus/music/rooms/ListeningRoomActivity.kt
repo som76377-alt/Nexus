@@ -232,7 +232,11 @@ class ListeningRoomActivity : Activity() {
             topMargin = dp(12)
         })
         bottomNavigation = buildBottomNavigation()
-        root.addView(bottomNavigation, LinearLayout.LayoutParams(-1, dp(62)))
+        root.addView(bottomNavigation, LinearLayout.LayoutParams(-1, dp(68)).apply {
+            leftMargin = dp(16)
+            rightMargin = dp(16)
+            bottomMargin = dp(10)
+        })
 
         setContentView(root)
         registerBackNavigation()
@@ -605,8 +609,20 @@ class ListeningRoomActivity : Activity() {
             context = this,
             selected = NexusUi.NavigationTab.ROOM,
             onHome = ::navigateHome,
-            onRoom = {}
+            onLibrary = ::navigateLibrary,
+            onRoom = {},
+            onYou = ::navigateProfile
         )
+
+    private fun navigateLibrary() {
+        startActivity(Intent(this, com.nexus.music.LibraryActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+    }
+
+    private fun navigateProfile() {
+        startActivity(Intent(this, com.nexus.music.ProfileActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+    }
 
     private fun navigateHome() {
         startActivity(
