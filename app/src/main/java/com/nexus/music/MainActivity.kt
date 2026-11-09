@@ -211,7 +211,11 @@ class MainActivity : Activity() {
         scroll.addView(content)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         root.addView(buildPlayerPanel(), LinearLayout.LayoutParams(-1, -2))
-        root.addView(buildBottomNavigation(), LinearLayout.LayoutParams(-1, dp(68)).apply {\n            leftMargin = dp(16); rightMargin = dp(16); bottomMargin = dp(10)\n        })
+        root.addView(buildBottomNavigation(), LinearLayout.LayoutParams(-1, dp(68)).apply {
+            leftMargin = dp(16)
+            rightMargin = dp(16)
+            bottomMargin = dp(10)
+        })
         setContentView(root)
         registerBackNavigation()
         applySystemBarInsets(root)
