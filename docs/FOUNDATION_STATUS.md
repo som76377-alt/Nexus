@@ -6,7 +6,7 @@ _Last audited: 9 November 2026._
 
 - `main` is the current release baseline at `53dfeb19f44156086c953a523588f37ddf125588`.
 - The exact `main` commit passed Android CI, the web-room-test workflow, and signed-release validation: [Android CI](https://github.com/som76377-alt/Nexus/actions/runs/42560364235), [web room tests](https://github.com/som76377-alt/Nexus/actions/runs/42560364108), [signed-release validation](https://github.com/som76377-alt/Nexus/actions/runs/42560364082).
-- `integration/room-v2` is at `34f3c03b596d28b20f689a208a33465ad4441427`, 15 commits behind `main`. Changes made there are not automatically present in the current release baseline.
+- At the start of this audit, `integration/room-v2` was at `34f3c03b596d28b20f689a208a33465ad4441427`, 15 commits behind `main`. This cleanup PR targets the integration branch; it does not change the current release baseline.
 - PR #10 was merged on 8 November 2026. It is no longer a separate unmerged reliability branch.
 - PR #11 (simplification) and PR #9 (expired-stream recovery) remain open drafts based on older feature/reliability branches. Neither should be assumed to be part of current `main`; review and rebase selectively before using any of their changes.
 
