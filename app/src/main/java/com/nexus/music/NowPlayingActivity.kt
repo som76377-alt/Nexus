@@ -299,6 +299,7 @@ class NowPlayingActivity : Activity() {
         }
 
     private fun render(snapshot: PlaybackSnapshot) {
+        syncDisc(snapshot)
         if (!snapshot.connected || snapshot.title.isBlank()) {
             title.text = "Nothing playing"
             artist.text = "Choose a track from Home"
@@ -316,7 +317,6 @@ class NowPlayingActivity : Activity() {
         }
         position.text = formatTime(snapshot.positionMs)
         duration.text = formatTime(snapshot.durationMs)
-        syncDisc(snapshot)
     }
 
     private fun syncDisc(snapshot: PlaybackSnapshot) {
