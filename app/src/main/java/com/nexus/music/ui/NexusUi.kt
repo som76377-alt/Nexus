@@ -115,6 +115,7 @@ object NexusUi {
         view.visibility = if (unreadRoomCount > 0) View.VISIBLE else View.GONE
     }
 
+    /** Four destination tabs; unread room count is supplied through setUnreadCount(). */
     fun bottomNavigation(
         context: Context,
         selected: NavigationTab,
