@@ -267,9 +267,7 @@ object NexusUi {
         val progress = SeekBar(context).apply {
             max = 1000
             isEnabled = false
-            minHeight = dp(context, 2)
             minimumHeight = dp(context, 2)
-            maxHeight = dp(context, 2)
             setPadding(0, 0, 0, 0)
             progressTintList = android.content.res.ColorStateList.valueOf(Theme.ColorToken.saffron)
             progressBackgroundTintList = android.content.res.ColorStateList.valueOf(Theme.ColorToken.groove)
