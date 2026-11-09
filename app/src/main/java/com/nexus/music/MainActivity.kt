@@ -245,10 +245,12 @@ class MainActivity : Activity() {
 
     private fun openLibraryPage() {
         startActivity(Intent(this, LibraryActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+        overridePendingTransition(R.anim.nexus_page_enter, R.anim.nexus_page_exit)
     }
 
     private fun openProfilePage() {
         startActivity(Intent(this, ProfileActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+        overridePendingTransition(R.anim.nexus_page_enter, R.anim.nexus_page_exit)
     }
 
     private fun openRoomPage() {
@@ -256,6 +258,7 @@ class MainActivity : Activity() {
             Intent(this, com.nexus.music.rooms.ListeningRoomActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
         )
+        overridePendingTransition(R.anim.nexus_page_enter, R.anim.nexus_page_exit)
     }
 
     /**
