@@ -59,6 +59,45 @@ jobs:
             echo "SPEC.md bootstrap: base branch has no SPEC.md; initial addition is permitted."
           fi
 
+      - name: Guard UI branches from protected playback and room files
+        if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'ui/')
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          python3 - "${BASE_SHA}" <<'PY'
+          import subprocess
+          import sys
+
+          protected = {
+              "app/src/main/java/com/nexus/music/rooms/ServiceRoomController.kt",
+              "app/src/main/java/com/nexus/music/playback/Media3RoomPlayerPort.kt",
+              "app/src/main/java/com/nexus/music/playback/PlaybackService.kt",
+              "app/src/main/java/com/nexus/music/rooms/RoomPlaybackMath.kt",
+              "app/src/main/java/com/nexus/music/rooms/RoomRealtimeClient.kt",
+              "app/src/main/java/com/nexus/music/rooms/RoomsApi.kt",
+              "app/src/main/java/com/nexus/music/rooms/data/SupabaseRoomRepository.kt",
+              "app/src/main/java/com/nexus/music/rooms/domain/",
+              "supabase/",
+              "SPEC.md",
+          }
+          changed = subprocess.check_output(
+              ["git", "diff", "--name-only", "--diff-filter=ACDMRTUXB", f"{sys.argv[1]}...HEAD"],
+              text=True,
+          ).splitlines()
+          blocked = [path for path in changed if any(
+              path == item or (item.endswith("/") and path.startswith(item))
+              for item in protected
+          )]
+          if blocked:
+              print("Protected files changed by a ui/* pull request:")
+              for path in blocked:
+                  print(f"  - {path}")
+              raise SystemExit(1)
+          print("UI protected-file guard passed.")
+          PY
+
       - name: Set up JDK
         uses: actions/setup-java@v5
         with:
