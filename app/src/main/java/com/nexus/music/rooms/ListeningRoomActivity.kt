@@ -56,6 +56,7 @@ class ListeningRoomActivity : Activity() {
 
     private lateinit var introPanel: LinearLayout
     private lateinit var bottomNavigation: LinearLayout
+    private lateinit var entrySpacer: View
     private lateinit var status: TextView
     private lateinit var codeInput: EditText
     private lateinit var joinButton: Button
@@ -242,6 +243,8 @@ class ListeningRoomActivity : Activity() {
         root.addView(roomPanel, LinearLayout.LayoutParams(-1, 0, 1f).apply {
             topMargin = dp(12)
         })
+        entrySpacer = View(this)
+        root.addView(entrySpacer, LinearLayout.LayoutParams(-1, 0, 1f))
         bottomNavigation = buildBottomNavigation()
         root.addView(bottomNavigation, LinearLayout.LayoutParams(-1, dp(68)).apply {
             leftMargin = dp(16)
@@ -354,6 +357,7 @@ class ListeningRoomActivity : Activity() {
         roomId = id
         introPanel.visibility = View.GONE
         bottomNavigation.visibility = View.GONE
+        entrySpacer.visibility = View.GONE
         roomPanel.visibility = View.VISIBLE
         roomActions.visibility = View.GONE
         createButton.visibility = View.GONE
@@ -648,6 +652,7 @@ class ListeningRoomActivity : Activity() {
         introPanel.visibility = View.VISIBLE
         bottomNavigation.visibility = View.VISIBLE
         roomPanel.visibility = View.GONE
+        entrySpacer.visibility = View.VISIBLE
         roomActions.visibility = View.VISIBLE
         createButton.visibility = View.VISIBLE
         codeInput.visibility = View.VISIBLE
