@@ -31,6 +31,16 @@
             android:windowSoftInputMode="adjustResize" />
 
         <activity
+            android:name=".LibraryActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".ProfileActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
             android:name=".update.UpdateInstallStatusActivity"
             android:excludeFromRecents="true"
             android:exported="false"
