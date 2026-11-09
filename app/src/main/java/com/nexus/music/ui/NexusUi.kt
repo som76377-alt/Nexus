@@ -26,13 +26,13 @@ import android.graphics.Typeface
  */
 object NexusUi {
     object Colors {
-        val background: Int = Color.rgb(12, 14, 18)
-        val surface: Int = Color.rgb(24, 28, 35)
-        val raised: Int = Color.rgb(31, 36, 44)
-        val accent: Int = Color.rgb(167, 240, 106)
-        val foreground: Int = Color.rgb(244, 247, 250)
-        val muted: Int = Color.rgb(160, 172, 187)
-        val accentForeground: Int = Color.rgb(14, 20, 12)
+        val background: Int = Theme.ColorToken.parchment
+        val surface: Int = Theme.ColorToken.paperStock
+        val raised: Int = Theme.ColorToken.paperStock
+        val accent: Int = Theme.ColorToken.copper
+        val foreground: Int = Theme.ColorToken.ink
+        val muted: Int = Theme.ColorToken.ink2
+        val accentForeground: Int = Theme.ColorToken.paperStock
     }
 
     object Spacing {
@@ -74,7 +74,7 @@ object NexusUi {
         text = value
         textSize = sizeSp
         setTextColor(color)
-        if (bold) typeface = Typeface.DEFAULT_BOLD
+        if (bold) typeface = Type.medium(context)
         this.maxLines = maxLines
         ellipsize = TextUtils.TruncateAt.END
     }
@@ -93,7 +93,7 @@ object NexusUi {
         minimumHeight = dp(context, Spacing.controlHeight)
         setPadding(dp(context, 12), 0, dp(context, 12), 0)
         setTextColor(if (primary) Colors.accentForeground else Colors.foreground)
-        typeface = Typeface.DEFAULT_BOLD
+        typeface = Type.medium(context)
         background = rounded(context, if (primary) Colors.accent else Colors.raised, 10)
     }
 
