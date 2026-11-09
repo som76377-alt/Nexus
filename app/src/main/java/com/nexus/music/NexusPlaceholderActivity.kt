@@ -5,13 +5,11 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
-import android.view.View
 import android.view.WindowInsets
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import com.nexus.music.ui.NexusUi
 import com.nexus.music.ui.Theme
-import com.nexus.music.ui.Type
 import com.nexus.music.ui.Widgets
 
 abstract class NexusPlaceholderActivity : Activity() {
