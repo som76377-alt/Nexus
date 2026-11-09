@@ -80,6 +80,7 @@ abstract class NexusPlaceholderActivity : Activity() {
     private fun navigate(destination: Class<out Activity>) {
         if (destination == javaClass) return
         startActivity(Intent(this, destination).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+        overridePendingTransition(R.anim.nexus_page_enter, R.anim.nexus_page_exit)
     }
 
     private fun applySystemBarInsets(root: LinearLayout) {
