@@ -4,6 +4,8 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
@@ -22,6 +24,7 @@ import android.widget.Button
 import android.widget.ImageView
 import android.widget.ImageButton
 import android.widget.ProgressBar
+import android.widget.PopupMenu
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
@@ -139,6 +142,22 @@ class MainActivity : Activity() {
             letterSpacing = -0.02f
         }
         content.addView(wordmark, verticalParams(0))
+        val greeting = when (java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)) {
+            in 5..11 -> "GOOD MORNING"
+            in 12..16 -> "GOOD AFTERNOON"
+            else -> "GOOD EVENING"
+        }
+        content.addView(text(greeting, 11f, Theme.ColorToken.mineral).apply {
+            letterSpacing = 0.08f
+            setPadding(0, dp(24), 0, dp(6))
+        })
+        val displayName = getSharedPreferences("nexus_home", MODE_PRIVATE)
+            .getString("display_name", "Listener")?.takeIf { it.isNotBlank() } ?: "Listener"
+        content.addView(text(displayName, 32f, Theme.ColorToken.ink, bold = true).apply {
+            typeface = Type.display(this@MainActivity)
+            setLineSpacing(dp(2).toFloat(), 1f)
+        })
+        buildContinueCard()?.let { content.addView(it, verticalParams(22)) }
 
         updatePanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
