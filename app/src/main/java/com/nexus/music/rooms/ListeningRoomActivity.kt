@@ -239,6 +239,7 @@ class ListeningRoomActivity : Activity() {
         })
 
         setContentView(root)
+        applySystemBarInsets(root)
         registerBackNavigation()
         playback = PlaybackConnection(
             context = this,
