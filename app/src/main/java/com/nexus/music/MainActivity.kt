@@ -882,6 +882,4 @@ class MainActivity : Activity() {
         super.onDestroy()
     }
 
-    companion object {
-    }
 }

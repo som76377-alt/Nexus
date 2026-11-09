@@ -1,33 +1,36 @@
 # Nexus implementation status
 
-Repository: `som76377-alt/Nexus`.
+_Last audited: 9 November 2026._
 
-## Branch safety
+## Source-of-truth branches
 
-- `main` remains the release baseline.
-- PR #10 remains the separate room-playback reliability change.
-- The simplification work is isolated on `refactor/nexus-simplification`, based on the current reliability branch tip `550774758aa018d2f391ff30c0398aeb150a32be`.
-- This branch is a refactor candidate only. It is not merged and does not change the live Supabase project.
+- `main` is the current release baseline at `53dfeb19f44156086c953a523588f37ddf125588`.
+- The exact `main` commit passed Android CI, the web-room-test workflow, and signed-release validation: [Android CI](https://github.com/som76377-alt/Nexus/actions/runs/42560364235), [web room tests](https://github.com/som76377-alt/Nexus/actions/runs/42560364108), [signed-release validation](https://github.com/som76377-alt/Nexus/actions/runs/42560364082).
+- `integration/room-v2` is at `34f3c03b596d28b20f689a208a33465ad4441427`, 15 commits behind `main`. Changes made there are not automatically present in the current release baseline.
+- PR #10 was merged on 8 November 2026. It is no longer a separate unmerged reliability branch.
+- PR #11 (simplification) and PR #9 (expired-stream recovery) remain open drafts based on older feature/reliability branches. Neither should be assumed to be part of current `main`; review and rebase selectively before using any of their changes.
 
-## Current implementation
+## Current implementation on main
 
-- One service-owned ExoPlayer and MediaSession.
-- Service-owned room controller, player/repository/clock ports and local NewPipe stream resolution.
-- Supabase RPC compare-and-swap writes, room-scoped Realtime, REST recovery, chat, member heartbeat and inactivity expiry.
-- New-track readiness/start handling, immediate resume for prepared tracks, bounded local fallback and RECOVERY anchor.
-- Room drift filtering, speed correction, seek gate, diagnostics and deterministic JVM tests.
-- APK update verification checks package identity, version, digest and signing identity before install handoff.
+- One service-owned ExoPlayer and MediaSession, with a service-owned room controller.
+- NewPipe-based YouTube catalogue search and per-device resolution of short-lived audio streams.
+- Supabase-backed two-member rooms, room-scoped chat, revision-checked playback commands, Realtime delivery and REST recovery.
+- Bounded new-track readiness/start handling, local fallback, drift correction and room diagnostics.
+- GitHub-release updater with download digest, package/version and signing-identity validation.
+- CI for Android lint, JVM unit tests, debug APK assembly, release-publishing guard, and the browser room test harness.
 
-## Simplification pass
+## Known limits and unverified behaviour
 
-The first batches remove unused player and room command APIs, duplicate retry/clock wrappers and timestamp parsing, factor repeated MediaSession skip bookkeeping, avoid idle playback UI polling, reduce healthy browser polling, and avoid repeated PackageManager lookups in one update check.
+- No timestamped two-physical-device acceptance evidence is recorded. Actual sync latency/drift, screen-locked operation, interruptions and reconnect behaviour remain UNVERIFIED.
+- The room identity is anonymous and device-local, not a durable account allowlist. Clearing app data can lose it.
+- Chat is protected by room membership/RLS but is not end-to-end encrypted; the UI currently loads only the latest 100 messages.
+- YouTube extraction depends on an unofficial upstream extractor and needs real-device/network testing.
+- Review NewPipe Extractor's GPL-3.0-or-later obligations and choose an application licence before public distribution.
 
-The pass intentionally keeps concurrency guards, revision CAS, clock calibration, recovery anchors, the one-player design, updater security checks, the old-job cancellation worker and the applied migration history.
+## Verification gates
 
-## Release gates
-
-1. Fresh Android lint, unit tests and debug APK build on the exact final commit.
-2. Web room test harness build on the exact commit.
-3. Install the APK and verify local playback, background playback, MediaSession controls, update checking and room entry.
-4. Test two real phones for new track, pause, resume, seek, buffering, rapid commands, reconnect and five-minute screen lock.
-5. Only merge after the refactor diff and all checks are reviewed. CI cannot substitute for physical playback logs.
+1. Run Android lint, the complete unit-test suite, debug APK assembly and the release-publishing guard on the exact candidate commit.
+2. Run the web-room-test build when room transport/client code changes.
+3. Install and test the candidate APK for search, local/background playback, MediaSession controls, updater and room UI.
+4. Complete the two-phone checklist in [ROOM_SYNC_RELIABILITY_PLAN.md](ROOM_SYNC_RELIABILITY_PLAN.md), recording diagnostics from both devices.
+5. Do not claim device-level sync or release readiness from CI alone.
