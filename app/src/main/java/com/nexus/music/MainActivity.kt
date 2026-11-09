@@ -35,7 +35,6 @@ import com.nexus.music.ui.Theme
 import com.nexus.music.ui.Type
 import com.nexus.music.ui.PaperTexture
 import com.nexus.music.ui.SearchPanel
-import com.nexus.music.ui.Theme
 import com.nexus.music.catalog.ResolvedAudio
 import com.nexus.music.catalog.YoutubeCatalogRepository
 import com.nexus.music.catalog.YoutubeSearchScope
