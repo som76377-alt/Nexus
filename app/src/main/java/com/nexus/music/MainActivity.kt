@@ -129,6 +129,11 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(22), dp(28), dp(22), dp(32))
         }
+        val wordmark = text("Nexus", 32f, Theme.ColorToken.ink, bold = true).apply {
+            typeface = Type.title(this@MainActivity)
+            letterSpacing = -0.02f
+        }
+        content.addView(wordmark, verticalParams(0))
 
         updatePanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
