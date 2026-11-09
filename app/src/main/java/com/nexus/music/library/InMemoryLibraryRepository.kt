@@ -35,7 +35,7 @@ class InMemoryLibraryRepository : LibraryRepository {
     override fun renamePlaylist(id: Long, name: String): Boolean {
         if (id !in playlistRows) return false
         val clean = cleanName(name)
-        require(playlistRows.any { it.key == id || !it.value.equals(clean, ignoreCase = true) }) {
+        require(playlistRows.none { it.key != id && it.value.equals(clean, ignoreCase = true) }) {
             "A playlist with that name already exists."
         }
         playlistRows[id] = clean
