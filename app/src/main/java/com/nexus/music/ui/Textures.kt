@@ -57,23 +57,32 @@ object PaperTexture {
         BitmapDrawable(context.resources, bitmap).apply {
             tileModeX = Shader.TileMode.REPEAT
             tileModeY = Shader.TileMode.REPEAT
-            alpha = 20
+            alpha = 255
         }
 
     private fun createTile(): Bitmap {
         val bitmap = Bitmap.createBitmap(TILE_SIZE, TILE_SIZE, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         val random = Random(0x4E455855)
-        val noise = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = android.graphics.Color.argb(8, 112, 91, 63)
+        val gridSize = 17
+        val values = Array(gridSize) { IntArray(gridSize) { random.nextInt(0, 21) } }
+        val pixels = IntArray(TILE_SIZE * TILE_SIZE)
+        for (y in 0 until TILE_SIZE) {
+            val gy = y * (gridSize - 1) / TILE_SIZE.toFloat()
+            val y0 = gy.toInt().coerceIn(0, gridSize - 2)
+            val fy = gy - y0
+            for (x in 0 until TILE_SIZE) {
+                val gx = x * (gridSize - 1) / TILE_SIZE.toFloat()
+                val x0 = gx.toInt().coerceIn(0, gridSize - 2)
+                val fx = gx - x0
+                val top = values[y0][x0] * (1f - fx) + values[y0][x0 + 1] * fx
+                val bottom = values[y0 + 1][x0] * (1f - fx) + values[y0 + 1][x0 + 1] * fx
+                val alpha = (top * (1f - fy) + bottom * fy).toInt().coerceIn(0, 20)
+                pixels[y * TILE_SIZE + x] =
+                    android.graphics.Color.argb(alpha, 112, 91, 67)
+            }
         }
-        repeat(1100) {
-            val x = random.nextFloat() * TILE_SIZE
-            val y = random.nextFloat() * TILE_SIZE
-            val alpha = random.nextInt(2, 9)
-            noise.color = android.graphics.Color.argb(alpha, 110, 87, 55)
-            canvas.drawPoint(x, y, noise)
-        }
+        bitmap.setPixels(pixels, 0, TILE_SIZE, 0, 0, TILE_SIZE, TILE_SIZE)
         val fibre = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeCap = Paint.Cap.ROUND
