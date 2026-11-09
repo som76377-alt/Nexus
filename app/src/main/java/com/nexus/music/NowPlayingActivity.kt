@@ -3,6 +3,7 @@ package com.nexus.music
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -16,6 +17,7 @@ import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -23,6 +25,7 @@ import android.view.ViewOutlineProvider
 import android.view.animation.DecelerateInterpolator
 import android.view.animation.LinearInterpolator
 import android.widget.Button
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
@@ -31,7 +34,12 @@ import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
+import android.text.InputType
 import coil3.load
+import com.nexus.music.library.LibraryTrack
+import com.nexus.music.library.PlaybackHistoryTracker
+import com.nexus.music.library.SqliteLibraryRepository
+import com.nexus.music.library.currentCatalogTrack
 import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackSnapshot
 import com.nexus.music.ui.Drawables
@@ -43,6 +51,8 @@ import com.nexus.music.ui.Type
 class NowPlayingActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private var playback: PlaybackConnection? = null
+    private val libraryRepositoryDelegate = lazy { SqliteLibraryRepository(applicationContext) }
+    private val libraryRepository by libraryRepositoryDelegate
     private var started = false
     private var seeking = false
     private var discAnimator: ObjectAnimator? = null
@@ -56,6 +66,10 @@ class NowPlayingActivity : Activity() {
     private lateinit var duration: TextView
     private lateinit var seek: SeekBar
     private lateinit var playPause: ImageButton
+    private lateinit var likeAction: TextView
+    private lateinit var playlistAction: TextView
+    private var displayedTrackId: String? = null
+    private var hasRenderedTrackActions = false
     private lateinit var emptyState: TextView
     private lateinit var vinylSurface: VinylSurfaceView
     private var currentTab = "Related"
@@ -230,12 +244,12 @@ class NowPlayingActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
         }
-        actions.addView(actionText("Like") {
-            Toast.makeText(this@NowPlayingActivity, "Library actions are being connected.", Toast.LENGTH_SHORT).show()
-        }, LinearLayout.LayoutParams(0, dp(48), 1f))
-        actions.addView(actionText("Add to playlist") {
-            Toast.makeText(this@NowPlayingActivity, "Playlist actions arrive with Library.", Toast.LENGTH_SHORT).show()
-        }, LinearLayout.LayoutParams(0, dp(48), 1f))
+        likeAction = actionText("Like") { toggleLike() }
+        playlistAction = actionText("Add to playlist") { showAddToPlaylist() }
+        likeAction.isEnabled = false
+        playlistAction.isEnabled = false
+        actions.addView(likeAction, LinearLayout.LayoutParams(0, dp(48), 1f))
+        actions.addView(playlistAction, LinearLayout.LayoutParams(0, dp(48), 1f))
         content.addView(actions)
 
         val tabs = LinearLayout(this).apply {
@@ -265,6 +279,101 @@ class NowPlayingActivity : Activity() {
             onStateChanged = ::render,
             onError = { message -> Toast.makeText(this, message, Toast.LENGTH_LONG).show() }
         )
+    }
+
+    private fun updateLibraryActions(snapshot: PlaybackSnapshot) {
+        val track = currentCatalogTrack(this, snapshot)
+        val videoId = track?.let { LibraryTrack.from(it)?.id }
+        if (hasRenderedTrackActions && displayedTrackId == videoId) return
+        hasRenderedTrackActions = true
+        displayedTrackId = videoId
+        val liked = videoId?.let(libraryRepository::isLiked) == true
+        likeAction.text = if (liked) "Liked" else "Like"
+        likeAction.isEnabled = videoId != null
+        playlistAction.isEnabled = videoId != null
+        playlistAction.alpha = if (videoId != null) 1f else 0.45f
+        likeAction.alpha = if (videoId != null) 1f else 0.45f
+    }
+
+    private fun toggleLike() {
+        val snapshot = playback?.snapshot() ?: return
+        val track = currentCatalogTrack(this, snapshot) ?: run {
+            Toast.makeText(this, "This item cannot be saved to your library.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val videoId = LibraryTrack.from(track)?.id ?: return
+        val liked = libraryRepository.isLiked(videoId)
+        if (!libraryRepository.setLiked(track, !liked)) {
+            Toast.makeText(this, "This item could not be saved.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        likeAction.text = if (liked) "Like" else "Liked"
+        displayedTrackId = videoId
+        hasRenderedTrackActions = true
+        Toast.makeText(this, if (liked) "Removed from Liked" else "Added to Liked", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun showAddToPlaylist() {
+        val snapshot = playback?.snapshot() ?: return
+        val track = currentCatalogTrack(this, snapshot) ?: run {
+            Toast.makeText(this, "This item cannot be added to a playlist.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val playlists = libraryRepository.playlists()
+        val options = playlists.map { it.name } + "Create new playlist"
+        AlertDialog.Builder(this)
+            .setTitle("Add to playlist")
+            .setItems(options.toTypedArray()) { _, selected ->
+                if (selected == playlists.size) {
+                    showCreatePlaylistDialog(track)
+                } else {
+                    val playlist = playlists[selected]
+                    if (libraryRepository.addToPlaylist(playlist.id, track)) {
+                        Toast.makeText(this, "Added to ${playlist.name}", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(this, "Could not add this track.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showCreatePlaylistDialog(track: com.nexus.music.catalog.CatalogTrack) {
+        val input = EditText(this).apply {
+            hint = "Playlist name"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            setSingleLine(true)
+            setPadding(dp(18), dp(12), dp(18), dp(12))
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Create playlist")
+            .setView(input)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Create") { _, _ ->
+                try {
+                    val playlistId = libraryRepository.createPlaylist(input.text.toString())
+                    if (libraryRepository.addToPlaylist(playlistId, track)) {
+                        Toast.makeText(this, "Playlist created and track added", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(this, "Playlist created, but track could not be added.", Toast.LENGTH_LONG).show()
+                    }
+                } catch (error: Exception) {
+                    Toast.makeText(this, error.message ?: "Could not create playlist.", Toast.LENGTH_LONG).show()
+                }
+            }
+            .show()
+    }
+
+    private fun observeLibraryHistory(snapshot: PlaybackSnapshot) {
+        val track = currentCatalogTrack(this, snapshot)
+        PlaybackHistoryTracker.shared.observe(
+            snapshot = snapshot,
+            track = track,
+            elapsedRealtimeMillis = SystemClock.elapsedRealtime()
+        ) { item ->
+            libraryRepository.recordHistory(item, System.currentTimeMillis())
+        }
     }
 
     private fun showTab(tab: String, selected: Button, other: Button) {
@@ -301,6 +410,8 @@ class NowPlayingActivity : Activity() {
 
     private fun render(snapshot: PlaybackSnapshot) {
         syncDisc(snapshot)
+        updateLibraryActions(snapshot)
+        if (started) observeLibraryHistory(snapshot)
         if (!snapshot.connected || snapshot.title.isBlank()) {
             title.text = "Nothing playing"
             artist.text = "Choose a track from Home"
@@ -388,6 +499,7 @@ class NowPlayingActivity : Activity() {
 
     override fun onStop() {
         started = false
+        PlaybackHistoryTracker.shared.suspendObservation()
         handler.removeCallbacks(ticker)
         stopAnimations()
         super.onStop()
@@ -398,6 +510,7 @@ class NowPlayingActivity : Activity() {
         stopAnimations()
         playback?.close()
         playback = null
+        if (libraryRepositoryDelegate.isInitialized()) libraryRepository.close()
         vinylSurface.release()
         super.onDestroy()
     }
