@@ -139,7 +139,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(screenBackground)
         }
-        PaperTexture.prepare(this) { texture -> if (texture != null && !isDestroyed) root.background = texture }
+        PaperTexture.prepare(this, PaperTexture.Material.HOME_PAPER) { texture -> if (texture != null && !isDestroyed) root.background = texture }
         val scroll = ScrollView(this).apply {
             isFillViewport = true
             clipToPadding = false
