@@ -10,6 +10,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import com.nexus.music.ui.NexusUi
 import com.nexus.music.ui.Theme
+import com.nexus.music.ui.Type
 import com.nexus.music.ui.Widgets
 
 abstract class NexusPlaceholderActivity : Activity() {
