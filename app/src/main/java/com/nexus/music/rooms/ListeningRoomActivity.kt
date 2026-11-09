@@ -110,7 +110,7 @@ class ListeningRoomActivity : Activity() {
             setBackgroundColor(this@ListeningRoomActivity.background)
             setPadding(dp(20), dp(24), dp(20), dp(18))
         }
-        PaperTexture.prepare(this) { texture -> if (texture != null && !isDestroyed) root.background = texture }
+        PaperTexture.prepare(this, PaperTexture.Material.ROOM_LINEN) { texture -> if (texture != null && !isDestroyed) root.background = texture }
         introPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
