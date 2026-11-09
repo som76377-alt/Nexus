@@ -551,6 +551,7 @@ class MainActivity : Activity() {
     }
 
     private fun openNowPlaying() {
+        stopMiniVinylAnimation()
         startActivity(Intent(this, NowPlayingActivity::class.java))
         overridePendingTransition(R.anim.nexus_player_enter, R.anim.nexus_player_exit)
     }
