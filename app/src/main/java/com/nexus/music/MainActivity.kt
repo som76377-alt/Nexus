@@ -210,7 +210,11 @@ class MainActivity : Activity() {
         scroll.addView(content)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         root.addView(buildPlayerPanel(), LinearLayout.LayoutParams(-1, -2))
-        root.addView(buildBottomNavigation(), LinearLayout.LayoutParams(-1, dp(62)))
+        root.addView(buildBottomNavigation(), LinearLayout.LayoutParams(-1, dp(68)).apply {
+            leftMargin = dp(16)
+            rightMargin = dp(16)
+            bottomMargin = dp(10)
+        })
         setContentView(root)
         registerBackNavigation()
         applySystemBarInsets(root)
@@ -234,14 +238,27 @@ class MainActivity : Activity() {
             context = this,
             selected = NexusUi.NavigationTab.HOME,
             onHome = {},
-            onRoom = ::openRoomPage
+            onLibrary = ::openLibraryPage,
+            onRoom = ::openRoomPage,
+            onYou = ::openProfilePage
         )
+
+    private fun openLibraryPage() {
+        startActivity(Intent(this, LibraryActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+        overridePendingTransition(R.anim.nexus_page_enter, R.anim.nexus_page_exit)
+    }
+
+    private fun openProfilePage() {
+        startActivity(Intent(this, ProfileActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+        overridePendingTransition(R.anim.nexus_page_enter, R.anim.nexus_page_exit)
+    }
 
     private fun openRoomPage() {
         startActivity(
             Intent(this, com.nexus.music.rooms.ListeningRoomActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
         )
+        overridePendingTransition(R.anim.nexus_page_enter, R.anim.nexus_page_exit)
     }
 
     /**

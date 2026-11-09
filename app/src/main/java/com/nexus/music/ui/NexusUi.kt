@@ -9,7 +9,10 @@ import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
+import android.view.View
 import android.widget.Button
+import android.widget.FrameLayout
+import java.lang.ref.WeakReference
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -43,7 +46,7 @@ object NexusUi {
         const val miniPlayerArtwork = 48
     }
 
-    enum class NavigationTab { HOME, ROOM }
+    enum class NavigationTab { HOME, LIBRARY, ROOM, YOU }
 
     data class MiniPlayerViews(
         val container: LinearLayout,
@@ -79,63 +82,171 @@ object NexusUi {
         ellipsize = TextUtils.TruncateAt.END
     }
 
-    fun actionButton(
-        context: Context,
-        value: String,
-        primary: Boolean
-    ): Button = Button(context).apply {
-        text = value
-        textSize = 12f
-        isAllCaps = false
-        minWidth = 0
-        minimumWidth = 0
-        minHeight = dp(context, Spacing.controlHeight)
-        minimumHeight = dp(context, Spacing.controlHeight)
-        setPadding(dp(context, 12), 0, dp(context, 12), 0)
-        setTextColor(if (primary) Colors.accentForeground else Colors.foreground)
-        typeface = Type.medium(context)
-        background = rounded(context, if (primary) Colors.accent else Colors.raised, 10)
+    fun actionButton(context: Context, value: String, primary: Boolean): Button =
+        Button(context).apply {
+            text = value
+            textSize = 12f
+            isAllCaps = false
+            minWidth = 0
+            minimumWidth = 0
+            minHeight = dp(context, Spacing.controlHeight)
+            minimumHeight = dp(context, Spacing.controlHeight)
+            setPadding(dp(context, 12), 0, dp(context, 12), 0)
+            setTextColor(if (primary) Colors.accentForeground else Colors.foreground)
+            typeface = Type.medium(context)
+            background = rounded(context, if (primary) Colors.accent else Colors.raised, 10)
+        }
+
+    @Volatile var unreadRoomCount: Int = 0
+        private set
+    private val unreadBadgeViews = mutableListOf<WeakReference<TextView>>()
+
+    fun setUnreadCount(count: Int) {
+        unreadRoomCount = count.coerceAtLeast(0)
+        val iterator = unreadBadgeViews.iterator()
+        while (iterator.hasNext()) {
+            val view = iterator.next().get()
+            if (view == null) iterator.remove() else updateUnreadBadge(view)
+        }
     }
 
+    private fun updateUnreadBadge(view: TextView) {
+        view.text = if (unreadRoomCount > 99) "99+" else unreadRoomCount.toString()
+        view.visibility = if (unreadRoomCount > 0) View.VISIBLE else View.GONE
+    }
+
+    /** Four destination tabs; unread room count is supplied through setUnreadCount(). */
     fun bottomNavigation(
         context: Context,
         selected: NavigationTab,
         onHome: () -> Unit,
-        onRoom: () -> Unit
+        onLibrary: () -> Unit,
+        onRoom: () -> Unit,
+        onYou: () -> Unit
     ): LinearLayout {
         val bar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            background = rounded(context, Colors.surface, 18)
-            setPadding(dp(context, 10), dp(context, 7), dp(context, 10), dp(context, 7))
+            background = rounded(context, Colors.surface, 22)
+            setPadding(dp(context, 6), dp(context, 6), dp(context, 6), dp(context, 6))
+            elevation = dp(context, 8).toFloat()
+            contentDescription = "Main navigation"
+        }
+        val items = listOf(
+            Triple(NavigationTab.HOME, "Home", onHome),
+            Triple(NavigationTab.LIBRARY, "Library", onLibrary),
+            Triple(NavigationTab.ROOM, "Room", onRoom),
+            Triple(NavigationTab.YOU, "You", onYou)
+        )
+        items.forEach { (tab, label, callback) ->
+            val active = selected == tab
+            val item = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                background = if (active) rounded(context, Theme.ColorToken.mineral, 18)
+                    else rounded(context, Color.TRANSPARENT, 18)
+                isClickable = true
+                isFocusable = true
+                contentDescription = label
+                setOnClickListener { callback() }
+                setPadding(0, dp(context, 2), 0, dp(context, 2))
+            }
+            val iconFrame = FrameLayout(context)
+            val icon = ImageView(context).apply {
+                setImageDrawable(NavGlyphDrawable(context, tab, if (active) Colors.surface else Colors.muted))
+                contentDescription = "$label tab"
+            }
+            iconFrame.addView(icon, FrameLayout.LayoutParams(dp(context, 21), dp(context, 21), Gravity.CENTER))
+            if (tab == NavigationTab.ROOM) {
+                val badge = TextView(context).apply {
+                    textSize = 9f
+                    typeface = Typeface.DEFAULT_BOLD
+                    gravity = Gravity.CENTER
+                    minWidth = dp(context, 18)
+                    minHeight = dp(context, 18)
+                    setPadding(dp(context, 3), 0, dp(context, 3), 0)
+                    setTextColor(Colors.surface)
+                    background = rounded(context, Theme.ColorToken.unread, 10)
+                    elevation = dp(context, 2).toFloat()
+                    updateUnreadBadge(this)
+                }
+                unreadBadgeViews.add(WeakReference(badge))
+                iconFrame.addView(badge, FrameLayout.LayoutParams(-2, dp(context, 18), Gravity.TOP or Gravity.END))
+            }
+            item.addView(iconFrame, LinearLayout.LayoutParams(-1, dp(context, 24)))
+            item.addView(TextView(context).apply {
+                text = label
+                textSize = 11f
+                typeface = if (active) Type.medium(context) else Type.body(context)
+                setTextColor(if (active) Colors.surface else Colors.muted)
+                gravity = Gravity.CENTER
+                maxLines = 1
+            }, LinearLayout.LayoutParams(-1, -2))
+            Drawables.pressState(item)
+            bar.addView(item, LinearLayout.LayoutParams(0, dp(context, 56), 1f).apply {
+                marginStart = dp(context, 2)
+                marginEnd = dp(context, 2)
+            })
+        }
+        return bar
+    }
+
+    private class NavGlyphDrawable(
+        context: Context,
+        private val tab: NavigationTab,
+        color: Int
+    ) : Drawable() {
+        private val density = context.resources.displayMetrics.density
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = color
+            style = Paint.Style.STROKE
+            strokeWidth = 1.8f * density
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+        }
+        private val path = Path()
+
+        override fun draw(canvas: Canvas) {
+            val b = bounds
+            val s = minOf(b.width(), b.height()).toFloat()
+            val ox = b.left + (b.width() - s) / 2f
+            val oy = b.top + (b.height() - s) / 2f
+            canvas.save()
+            canvas.translate(ox, oy)
+            canvas.scale(s / (24f * density), s / (24f * density))
+            path.reset()
+            when (tab) {
+                NavigationTab.HOME -> {
+                    path.moveTo(3f, 11f); path.lineTo(12f, 3.5f); path.lineTo(21f, 11f)
+                    path.moveTo(5.5f, 9.5f); path.lineTo(5.5f, 20f); path.lineTo(18.5f, 20f); path.lineTo(18.5f, 9.5f)
+                    path.moveTo(9.5f, 20f); path.lineTo(9.5f, 14f); path.lineTo(14.5f, 14f); path.lineTo(14.5f, 20f)
+                }
+                NavigationTab.LIBRARY -> {
+                    path.moveTo(4f, 4f); path.lineTo(4f, 20f); path.lineTo(20f, 20f); path.lineTo(20f, 4f); path.close()
+                    path.moveTo(8f, 4f); path.lineTo(8f, 20f)
+                    path.moveTo(11f, 8f); path.lineTo(17f, 8f)
+                    path.moveTo(11f, 12f); path.lineTo(17f, 12f)
+                }
+                NavigationTab.ROOM -> {
+                    path.moveTo(3f, 5f); path.lineTo(21f, 5f); path.lineTo(21f, 17f); path.lineTo(11f, 17f); path.lineTo(6f, 21f); path.lineTo(6f, 17f); path.lineTo(3f, 17f); path.close()
+                    path.moveTo(7f, 10f); path.lineTo(17f, 10f)
+                    path.moveTo(7f, 13f); path.lineTo(14f, 13f)
+                }
+                NavigationTab.YOU -> {
+                    canvas.drawCircle(12f, 8f, 3.5f, paint)
+                    path.moveTo(4f, 21f); path.cubicTo(4f, 14f, 20f, 14f, 20f, 21f)
+                }
+            }
+            canvas.drawPath(path, paint)
+            canvas.restore()
         }
 
-        fun tab(title: String, tab: NavigationTab, onClick: () -> Unit) =
-            Button(context).apply {
-                text = title
-                textSize = 14f
-                isAllCaps = false
-                minWidth = 0
-                minimumWidth = 0
-                    minimumHeight = dp(context, Spacing.controlHeight)
-                typeface = Typeface.DEFAULT_BOLD
-                val isSelected = selected == tab
-                setTextColor(if (isSelected) Colors.accentForeground else Colors.foreground)
-                background = rounded(context, if (isSelected) Colors.accent else Colors.raised, 12)
-                setOnClickListener { onClick() }
-            }
-
-        bar.addView(
-            tab("Home", NavigationTab.HOME, onHome),
-            LinearLayout.LayoutParams(0, dp(context, Spacing.controlHeight), 1f).apply {
-                marginEnd = dp(context, 7)
-            }
-        )
-        bar.addView(
-            tab("Room", NavigationTab.ROOM, onRoom),
-            LinearLayout.LayoutParams(0, dp(context, Spacing.controlHeight), 1f)
-        )
-        return bar
+        override fun setAlpha(alpha: Int) { paint.alpha = alpha }
+        override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) { paint.colorFilter = colorFilter }
+        @Deprecated("Deprecated in Android graphics API")
+        override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
+        override fun getIntrinsicWidth(): Int = (24 * density).toInt()
+        override fun getIntrinsicHeight(): Int = (24 * density).toInt()
     }
 
     fun miniPlayer(

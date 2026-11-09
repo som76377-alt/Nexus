@@ -232,9 +232,14 @@ class ListeningRoomActivity : Activity() {
             topMargin = dp(12)
         })
         bottomNavigation = buildBottomNavigation()
-        root.addView(bottomNavigation, LinearLayout.LayoutParams(-1, dp(62)))
+        root.addView(bottomNavigation, LinearLayout.LayoutParams(-1, dp(68)).apply {
+            leftMargin = dp(16)
+            rightMargin = dp(16)
+            bottomMargin = dp(10)
+        })
 
         setContentView(root)
+        applySystemBarInsets(root)
         registerBackNavigation()
         playback = PlaybackConnection(
             context = this,
@@ -600,19 +605,51 @@ class ListeningRoomActivity : Activity() {
         }
     }
 
+    private fun applySystemBarInsets(root: LinearLayout) {
+        root.setOnApplyWindowInsetsListener { view, insets ->
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                val safe = insets.getInsets(android.view.WindowInsets.Type.systemBars())
+                view.setPadding(dp(20) + safe.left, dp(24) + safe.top,
+                    dp(20) + safe.right, dp(18) + safe.bottom)
+            } else {
+                view.setPadding(dp(20) + insets.systemWindowInsetLeft,
+                    dp(24) + insets.systemWindowInsetTop,
+                    dp(20) + insets.systemWindowInsetRight,
+                    dp(18) + insets.systemWindowInsetBottom)
+            }
+            insets
+        }
+        root.requestApplyInsets()
+    }
+
     private fun buildBottomNavigation(): LinearLayout =
         NexusUi.bottomNavigation(
             context = this,
             selected = NexusUi.NavigationTab.ROOM,
             onHome = ::navigateHome,
-            onRoom = {}
+            onLibrary = ::navigateLibrary,
+            onRoom = {},
+            onYou = ::navigateProfile
         )
+
+    private fun navigateLibrary() {
+        startActivity(Intent(this, com.nexus.music.LibraryActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+        overridePendingTransition(com.nexus.music.R.anim.nexus_page_enter, com.nexus.music.R.anim.nexus_page_exit)
+    }
+
+    private fun navigateProfile() {
+        startActivity(Intent(this, com.nexus.music.ProfileActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+        overridePendingTransition(com.nexus.music.R.anim.nexus_page_enter, com.nexus.music.R.anim.nexus_page_exit)
+    }
 
     private fun navigateHome() {
         startActivity(
             Intent(this, MainActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
         )
+        overridePendingTransition(com.nexus.music.R.anim.nexus_page_enter, com.nexus.music.R.anim.nexus_page_exit)
     }
 
     private fun setBusy(busy: Boolean, message: String? = null) {
