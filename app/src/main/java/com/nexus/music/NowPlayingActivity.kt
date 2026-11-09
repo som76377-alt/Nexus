@@ -321,7 +321,8 @@ class NowPlayingActivity : Activity() {
 
     private fun syncDisc(snapshot: PlaybackSnapshot) {
         if (snapshot.title.isNotBlank()) {
-            val artUri = snapshot.sourceId.takeIf { it.startsWith("http") }
+            val artUri = getSharedPreferences("nexus_home", MODE_PRIVATE)
+                .getString("last_track_thumbnail", null)?.takeIf { it.isNotBlank() }
             if (artUri != null && discArtwork.tag != artUri) {
                 discArtwork.tag = artUri
                 discArtwork.load(artUri)
