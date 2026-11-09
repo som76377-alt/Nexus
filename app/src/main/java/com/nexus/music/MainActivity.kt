@@ -17,6 +17,7 @@ import android.os.Looper
 import android.net.Uri
 import android.provider.Settings
 import android.view.Gravity
+import android.view.animation.LinearInterpolator
 import android.view.View
 import android.view.WindowInsets
 import android.view.inputmethod.EditorInfo
@@ -91,6 +92,7 @@ class MainActivity : Activity() {
     private var isActivityStarted = false
     private var lastPlaybackSnapshot = PlaybackSnapshot(connected = false)
     private var backInvokedCallback: android.window.OnBackInvokedCallback? = null
+    private var miniVinylAnimator: ObjectAnimator? = null
 
     private val screenBackground = Theme.ColorToken.parchment
     private val surface = Theme.ColorToken.paperStock
@@ -538,7 +540,40 @@ class MainActivity : Activity() {
         playerTitle = player.title
         playerSubtitle = player.subtitle
         playPauseButton = player.playPause
+        player.container.isClickable = true
+        player.container.setOnClickListener { openNowPlaying() }
+        playerArtwork.setOnClickListener { openNowPlaying() }
+        playerTitle.setOnClickListener { openNowPlaying() }
+        playerSubtitle.setOnClickListener { openNowPlaying() }
         return player.container
+    }
+
+    private fun openNowPlaying() {
+        startActivity(Intent(this, NowPlayingActivity::class.java))
+        overridePendingTransition(R.anim.nexus_player_enter, R.anim.nexus_player_exit)
+    }
+
+    private fun updateMiniVinylAnimation(snapshot: PlaybackSnapshot) {
+        if (!::playerArtwork.isInitialized) return
+        if (isActivityStarted && snapshot.isPlaying) {
+            if (miniVinylAnimator?.isStarted != true) {
+                miniVinylAnimator?.cancel()
+                miniVinylAnimator = ObjectAnimator.ofFloat(playerArtwork, View.ROTATION, 0f, 360f).apply {
+                    duration = 3_600L
+                    repeatCount = ValueAnimator.INFINITE
+                    interpolator = LinearInterpolator()
+                    start()
+                }
+            }
+        } else {
+            stopMiniVinylAnimation()
+        }
+    }
+
+    private fun stopMiniVinylAnimation() {
+        miniVinylAnimator?.cancel()
+        miniVinylAnimator = null
+        if (::playerArtwork.isInitialized) playerArtwork.rotation = 0f
     }
 
     private fun connectPlaybackService() {
@@ -558,6 +593,7 @@ class MainActivity : Activity() {
     private fun updatePlaybackUi(snapshot: PlaybackSnapshot) {
         lastPlaybackSnapshot = snapshot
         scheduleProgressTicker(snapshot)
+        updateMiniVinylAnimation(snapshot)
         if (!snapshot.connected) {
             playerSubtitle.text = "Connecting to playback service…"
             playPauseButton.isEnabled = false
@@ -894,6 +930,7 @@ class MainActivity : Activity() {
     override fun onStop() {
         isActivityStarted = false
         progressHandler.removeCallbacks(progressTicker)
+        stopMiniVinylAnimation()
         super.onStop()
     }
 
@@ -906,6 +943,7 @@ class MainActivity : Activity() {
         searchJob?.cancel()
         searchJob = null
         progressHandler.removeCallbacks(progressTicker)
+        stopMiniVinylAnimation()
         playbackConnection?.close()
         playbackConnection = null
         updateCheckJob?.cancel()
