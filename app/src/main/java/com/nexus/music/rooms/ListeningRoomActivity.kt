@@ -21,6 +21,8 @@ import android.widget.TextView
 import android.widget.Toast
 import com.nexus.music.MainActivity
 import com.nexus.music.ui.NexusUi
+import com.nexus.music.ui.Drawables
+import com.nexus.music.ui.Motion
 import com.nexus.music.ui.Theme
 import com.nexus.music.ui.Type
 import com.nexus.music.ui.PaperTexture
@@ -80,6 +82,9 @@ class ListeningRoomActivity : Activity() {
     private var lastChatSignalVersion = 0L
     private var isActivityStarted = false
     private var backInvokedCallback: android.window.OnBackInvokedCallback? = null
+    private data class PendingChatMessage(val id: String, val body: String)
+    private val pendingMessages = mutableListOf<PendingChatMessage>()
+    private lateinit var chatScroll: ScrollView
 
     private val background = Theme.ColorToken.parchment
     private val surface = Theme.ColorToken.paperStock
@@ -192,7 +197,7 @@ class ListeningRoomActivity : Activity() {
         roomPanel.addView(roomHeader, params(0))
 
         roomPanel.addView(label("Room chat", 15f, foreground, true), params(16))
-        val chatScroll = ScrollView(this).apply {
+        chatScroll = ScrollView(this).apply {
             background = rounded(surface, 12)
             isFillViewport = false
             clipToPadding = false
@@ -213,18 +218,24 @@ class ListeningRoomActivity : Activity() {
         }
         messageInput = EditText(this).apply {
             hint = "Write a message…"
-            setHintTextColor(muted)
-            setTextColor(this@ListeningRoomActivity.foreground)
+            setHintTextColor(Theme.ColorToken.ink3)
+            setTextColor(Theme.ColorToken.ink)
             textSize = 14f
+            typeface = Type.body(this@ListeningRoomActivity)
             maxLines = 3
-            setBackground(rounded(surface, 10))
-            setPadding(dp(12), dp(10), dp(12), dp(10))
+            minHeight = dp(48)
+            minimumHeight = dp(48)
+            background = Drawables.rounded(this@ListeningRoomActivity, Theme.ColorToken.paperStock, 14f)
+            elevation = dp(1).toFloat()
+            setPadding(dp(14), dp(10), dp(14), dp(10))
         }
         sendRow.addView(messageInput, LinearLayout.LayoutParams(0, -2, 1f))
         sendButton = actionButton("Send", true).apply {
-            setOnClickListener { sendMessage() }
+            minHeight = dp(48)
+            minimumHeight = dp(48)
+            setOnClickListener { Motion.playHaptic(it); sendMessage() }
         }
-        sendRow.addView(sendButton, LinearLayout.LayoutParams(-2, dp(44)).apply {
+        sendRow.addView(sendButton, LinearLayout.LayoutParams(-2, dp(48)).apply {
             marginStart = dp(8)
         })
         roomPanel.addView(sendRow, params(0))
