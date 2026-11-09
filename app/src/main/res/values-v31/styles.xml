@@ -13,6 +13,5 @@
         <item name="android:windowSplashScreenBackground">@color/nexus_parchment</item>
         <item name="android:windowSplashScreenAnimatedIcon">@drawable/nexus_launcher_foreground</item>
         <item name="android:windowSplashScreenIconBackgroundColor">@color/nexus_mineral</item>
-        <item name="android:postSplashScreenTheme">@style/AppTheme</item>
     </style>
 </resources>
