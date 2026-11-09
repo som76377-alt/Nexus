@@ -36,6 +36,7 @@ import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackSnapshot
 import com.nexus.music.ui.Drawables
 import com.nexus.music.ui.NexusUi
+import com.nexus.music.ui.Motion
 import com.nexus.music.ui.Theme
 import com.nexus.music.ui.Type
 
@@ -218,7 +219,7 @@ class NowPlayingActivity : Activity() {
             background = Drawables.copperButton(this@NowPlayingActivity)
             setPadding(dp(14), dp(14), dp(14), dp(14))
             setImageDrawable(TransportGlyphDrawable(this@NowPlayingActivity, TransportGlyph.PLAY))
-            setOnClickListener { playback?.togglePlayback() }
+            setOnClickListener { Motion.playHaptic(this); playback?.togglePlayback() }
         }
         controls.addView(previous, LinearLayout.LayoutParams(dp(52), dp(52)).apply { marginEnd = dp(26) })
         controls.addView(playPause, LinearLayout.LayoutParams(dp(56), dp(56)))
