@@ -85,12 +85,12 @@ class MainActivity : Activity() {
     private var lastPlaybackSnapshot = PlaybackSnapshot(connected = false)
     private var backInvokedCallback: android.window.OnBackInvokedCallback? = null
 
-    private val screenBackground = Color.rgb(12, 14, 18)
-    private val surface = Color.rgb(24, 28, 35)
-    private val surfaceRaised = Color.rgb(31, 36, 44)
-    private val accent = Color.rgb(167, 240, 106)
-    private val primaryText = Color.rgb(244, 247, 250)
-    private val secondaryText = Color.rgb(160, 172, 187)
+    private val screenBackground = NexusDesignSystem.Palette.archiveIvory
+    private val surface = NexusDesignSystem.Palette.sleeveWhite
+    private val surfaceRaised = NexusDesignSystem.Palette.sleeveWhite
+    private val accent = NexusDesignSystem.Palette.terracotta
+    private val primaryText = NexusDesignSystem.Palette.carbonInk
+    private val secondaryText = Color.rgb(104, 94, 82)
 
     private val progressTicker = object : Runnable {
         override fun run() {
@@ -111,6 +111,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         window.statusBarColor = screenBackground
         window.navigationBarColor = screenBackground
+        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
         window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
         val root = LinearLayout(this).apply {
