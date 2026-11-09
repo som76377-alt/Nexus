@@ -209,7 +209,7 @@ class LibraryActivity : Activity() {
             addTab("Liked", Section.LIKED)
             addTab("Saved", Section.SAVED)
             addTab("Playlists", Section.PLAYLISTS)
-            content.addView(tabs, LinearLayout.LayoutParams(-1, dp(48)))
+            content.addView(tabs, LinearLayout.LayoutParams(-1, -2))
         }
 
         when {
