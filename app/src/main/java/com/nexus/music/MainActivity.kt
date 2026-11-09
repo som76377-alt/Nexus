@@ -35,6 +35,7 @@ import coil3.load
 import com.nexus.music.catalog.CatalogTrack
 import com.nexus.music.ui.NexusUi
 import com.nexus.music.ui.Theme
+import com.nexus.music.ui.Drawables
 import com.nexus.music.ui.Type
 import com.nexus.music.ui.PaperTexture
 import com.nexus.music.ui.SearchPanel
@@ -807,6 +808,13 @@ class MainActivity : Activity() {
 
     private fun startResolvingTrack(track: CatalogTrack) {
         if (isResolving) return
+        getSharedPreferences("nexus_home", MODE_PRIVATE).edit()
+            .putString("last_track_url", track.url)
+            .putString("last_track_title", track.title)
+            .putString("last_track_artist", track.artist)
+            .putString("last_track_thumbnail", track.thumbnailUrl)
+            .putLong("last_track_duration", track.durationSeconds ?: -1L)
+            .apply()
         isResolving = true
         playerSubtitle.text = "Preparing audio…"
         activityScope.launch {
