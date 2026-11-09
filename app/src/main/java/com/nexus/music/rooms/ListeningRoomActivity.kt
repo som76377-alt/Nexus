@@ -635,11 +635,13 @@ class ListeningRoomActivity : Activity() {
     private fun navigateLibrary() {
         startActivity(Intent(this, com.nexus.music.LibraryActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+        overridePendingTransition(com.nexus.music.R.anim.nexus_page_enter, com.nexus.music.R.anim.nexus_page_exit)
     }
 
     private fun navigateProfile() {
         startActivity(Intent(this, com.nexus.music.ProfileActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+        overridePendingTransition(com.nexus.music.R.anim.nexus_page_enter, com.nexus.music.R.anim.nexus_page_exit)
     }
 
     private fun navigateHome() {
@@ -647,6 +649,7 @@ class ListeningRoomActivity : Activity() {
             Intent(this, MainActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
         )
+        overridePendingTransition(com.nexus.music.R.anim.nexus_page_enter, com.nexus.music.R.anim.nexus_page_exit)
     }
 
     private fun setBusy(busy: Boolean, message: String? = null) {
