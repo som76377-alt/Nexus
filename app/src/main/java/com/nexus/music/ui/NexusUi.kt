@@ -48,6 +48,55 @@ object NexusUi {
 
     enum class NavigationTab { HOME, LIBRARY, ROOM, YOU }
 
+    data class MiniPlayerViews(
+        val container: LinearLayout,
+        val progress: SeekBar,
+        val artwork: ImageView,
+        val title: TextView,
+        val subtitle: TextView,
+        val playPause: ImageButton
+    )
+
+    fun dp(context: Context, value: Int): Int =
+        (value * context.resources.displayMetrics.density).toInt()
+
+    fun rounded(context: Context, color: Int, radiusDp: Int): GradientDrawable =
+        GradientDrawable().apply {
+            setColor(color)
+            cornerRadius = dp(context, radiusDp).toFloat()
+        }
+
+    fun text(
+        context: Context,
+        value: String,
+        sizeSp: Float,
+        color: Int,
+        bold: Boolean = false,
+        maxLines: Int = Int.MAX_VALUE
+    ): TextView = TextView(context).apply {
+        text = value
+        textSize = sizeSp
+        setTextColor(color)
+        if (bold) typeface = Type.medium(context)
+        this.maxLines = maxLines
+        ellipsize = TextUtils.TruncateAt.END
+    }
+
+    fun actionButton(context: Context, value: String, primary: Boolean): Button =
+        Button(context).apply {
+            text = value
+            textSize = 12f
+            isAllCaps = false
+            minWidth = 0
+            minimumWidth = 0
+            minHeight = dp(context, Spacing.controlHeight)
+            minimumHeight = dp(context, Spacing.controlHeight)
+            setPadding(dp(context, 12), 0, dp(context, 12), 0)
+            setTextColor(if (primary) Colors.accentForeground else Colors.foreground)
+            typeface = Type.medium(context)
+            background = rounded(context, if (primary) Colors.accent else Colors.raised, 10)
+        }
+
     @Volatile var unreadRoomCount: Int = 0
         private set
     private val unreadBadgeViews = mutableListOf<WeakReference<TextView>>()
