@@ -93,8 +93,8 @@ object PaperTexture {
                     70 + random.nextInt(30),
                     48 + random.nextInt(25)
                 )
-                val dx = kotlin.math.cos(angle) * length
-                val dy = kotlin.math.sin(angle) * length
+                val dx = kotlin.math.cos(angle.toDouble()).toFloat() * length
+                val dy = kotlin.math.sin(angle.toDouble()).toFloat() * length
                 val path = Path().apply {
                     moveTo(x, y)
                     quadTo(x + dx * .52f, y + dy * .52f + bend, x + dx, y + dy)
