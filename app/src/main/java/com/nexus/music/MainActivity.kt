@@ -1,9 +1,13 @@
 package com.nexus.music
 
 import android.annotation.SuppressLint
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
@@ -12,9 +16,11 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.net.Uri
 import android.provider.Settings
 import android.view.Gravity
+import android.view.animation.LinearInterpolator
 import android.view.View
 import android.view.WindowInsets
 import android.view.inputmethod.EditorInfo
@@ -22,7 +28,9 @@ import android.widget.Button
 import android.widget.ImageView
 import android.widget.ImageButton
 import android.widget.ProgressBar
+import android.widget.PopupMenu
 import android.widget.LinearLayout
+import android.widget.HorizontalScrollView
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
@@ -31,12 +39,19 @@ import androidx.media3.common.Player
 import coil3.load
 import com.nexus.music.catalog.CatalogTrack
 import com.nexus.music.ui.NexusUi
+import com.nexus.music.ui.Theme
+import com.nexus.music.ui.Drawables
+import com.nexus.music.ui.Type
+import com.nexus.music.ui.PaperTexture
 import com.nexus.music.ui.SearchPanel
 import com.nexus.music.catalog.ResolvedAudio
 import com.nexus.music.catalog.YoutubeCatalogRepository
 import com.nexus.music.catalog.YoutubeSearchScope
 import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackSnapshot
+import com.nexus.music.library.PlaybackHistoryTracker
+import com.nexus.music.library.SqliteLibraryRepository
+import com.nexus.music.library.currentCatalogTrack
 import com.nexus.music.update.GitHubReleaseUpdater
 import com.nexus.music.update.InstallPermissionRequiredException
 import com.nexus.music.update.NexusUpdate
@@ -72,6 +87,8 @@ class MainActivity : Activity() {
     private lateinit var playbackProgress: SeekBar
 
     private var playbackConnection: PlaybackConnection? = null
+    private val libraryRepositoryDelegate = lazy { SqliteLibraryRepository(applicationContext) }
+    private val libraryRepository by libraryRepositoryDelegate
     private var updateCheckJob: Job? = null
     private var downloadJob: Job? = null
     private var pendingUpdate: NexusUpdate? = null
@@ -84,13 +101,45 @@ class MainActivity : Activity() {
     private var isActivityStarted = false
     private var lastPlaybackSnapshot = PlaybackSnapshot(connected = false)
     private var backInvokedCallback: android.window.OnBackInvokedCallback? = null
+    private var miniVinylAnimator: ObjectAnimator? = null
 
-    private val screenBackground = Color.rgb(12, 14, 18)
-    private val surface = Color.rgb(24, 28, 35)
-    private val surfaceRaised = Color.rgb(31, 36, 44)
-    private val accent = Color.rgb(167, 240, 106)
-    private val primaryText = Color.rgb(244, 247, 250)
-    private val secondaryText = Color.rgb(160, 172, 187)
+    private data class DiscoveryCategory(
+        val label: String,
+        val query: String,
+        val note: String,
+        val color: Int
+    )
+
+    private enum class DiscoverySort { RECOMMENDED, TITLE, ARTIST, LONGEST, SHORTEST }
+
+    private val discoveryCategories = listOf(
+        DiscoveryCategory("Popular", "popular music", "A little of everything", Theme.ColorToken.cobalt),
+        DiscoveryCategory("Trending", "trending songs", "What's in rotation", Theme.ColorToken.vermilion),
+        DiscoveryCategory("Ghazals", "popular ghazals", "Poetry in melody", Theme.ColorToken.saffron),
+        DiscoveryCategory("Qawwali", "qawwali songs", "Voices that soar", Theme.ColorToken.rose),
+        DiscoveryCategory("Indie", "indian indie music", "Independent voices", Theme.ColorToken.teal),
+        DiscoveryCategory("Classical", "hindustani classical music", "Timeless ragas", Theme.ColorToken.leaf),
+        DiscoveryCategory("Focus", "instrumental focus music", "A quieter soundtrack", Theme.ColorToken.mineral),
+        DiscoveryCategory("Pop", "popular pop songs", "Bright familiar hooks", Theme.ColorToken.copper)
+    )
+    private var selectedDiscoveryCategory = discoveryCategories.first()
+    private var discoverySort = DiscoverySort.RECOMMENDED
+    private var discoveryJob: Job? = null
+    private var discoveryGeneration = 0L
+    private var discoveryResults: List<CatalogTrack> = emptyList()
+    private lateinit var discoveryPanel: LinearLayout
+    private lateinit var discoveryCategoryStrip: LinearLayout
+    private lateinit var discoverySectionTitle: TextView
+    private lateinit var discoverySectionNote: TextView
+    private lateinit var discoverySortButton: TextView
+    private lateinit var discoveryTracksContainer: LinearLayout
+
+    private val screenBackground = Theme.ColorToken.parchment
+    private val surface = Theme.ColorToken.paperStock
+    private val surfaceRaised = Theme.ColorToken.paperStock
+    private val accent = Theme.ColorToken.copper
+    private val primaryText = Theme.ColorToken.ink
+    private val secondaryText = Theme.ColorToken.ink2
 
     private val progressTicker = object : Runnable {
         override fun run() {
@@ -111,12 +160,18 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         window.statusBarColor = screenBackground
         window.navigationBarColor = screenBackground
+        window.decorView.systemUiVisibility = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+        } else {
+            View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+        }
         window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(screenBackground)
         }
+        PaperTexture.prepare(this, PaperTexture.Material.HOME_PAPER) { texture -> if (texture != null && !isDestroyed) root.background = texture }
         val scroll = ScrollView(this).apply {
             isFillViewport = true
             clipToPadding = false
@@ -125,6 +180,27 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(22), dp(28), dp(22), dp(32))
         }
+        val wordmark = text("Nexus", 32f, Theme.ColorToken.ink, bold = true).apply {
+            typeface = Type.title(this@MainActivity)
+            letterSpacing = -0.02f
+        }
+        content.addView(wordmark, verticalParams(0))
+        val greeting = when (java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)) {
+            in 5..11 -> "GOOD MORNING"
+            in 12..16 -> "GOOD AFTERNOON"
+            else -> "GOOD EVENING"
+        }
+        content.addView(text(greeting, 11f, Theme.ColorToken.mineral).apply {
+            letterSpacing = 0.08f
+            setPadding(0, dp(24), 0, dp(6))
+        })
+        val displayName = getSharedPreferences("nexus_home", MODE_PRIVATE)
+            .getString("display_name", "Listener")?.takeIf { it.isNotBlank() } ?: "Listener"
+        content.addView(text(displayName, 32f, Theme.ColorToken.ink, bold = true).apply {
+            typeface = Type.display(this@MainActivity)
+            setLineSpacing(dp(2).toFloat(), 1f)
+        })
+        buildContinueCard()?.let { content.addView(it, verticalParams(22)) }
 
         updatePanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -144,8 +220,8 @@ class MainActivity : Activity() {
             isAllCaps = false
             minWidth = 0
             minimumWidth = 0
-            setTextColor(Color.rgb(14, 20, 12))
-            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Theme.ColorToken.paperStock)
+            typeface = Type.medium(this@MainActivity)
             background = rounded(accent, 10)
             setPadding(dp(12), 0, dp(12), 0)
             visibility = View.GONE
@@ -192,16 +268,27 @@ class MainActivity : Activity() {
             onScopeSelected = ::selectScope
         )
         content.addView(searchPanel, verticalParams(18))
+        discoveryPanel = buildDiscoverySection()
+        content.addView(discoveryPanel, verticalParams(22))
 
         scroll.addView(content)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        root.addView(buildPlayerPanel(), LinearLayout.LayoutParams(-1, -2))
-        root.addView(buildBottomNavigation(), LinearLayout.LayoutParams(-1, dp(62)))
+        root.addView(buildPlayerPanel(), LinearLayout.LayoutParams(-1, -2).apply {
+            leftMargin = dp(16)
+            rightMargin = dp(16)
+            bottomMargin = dp(8)
+        })
+        root.addView(buildBottomNavigation(), LinearLayout.LayoutParams(-1, dp(68)).apply {
+            leftMargin = dp(16)
+            rightMargin = dp(16)
+            bottomMargin = dp(10)
+        })
         setContentView(root)
         registerBackNavigation()
         applySystemBarInsets(root)
         connectPlaybackService()
         NexusUpdateScheduler.disableBackgroundUpdates(this)
+        loadDiscovery(selectedDiscoveryCategory)
     }
 
     private fun registerBackNavigation() {
@@ -220,14 +307,27 @@ class MainActivity : Activity() {
             context = this,
             selected = NexusUi.NavigationTab.HOME,
             onHome = {},
-            onRoom = ::openRoomPage
+            onLibrary = ::openLibraryPage,
+            onRoom = ::openRoomPage,
+            onYou = ::openProfilePage
         )
+
+    private fun openLibraryPage() {
+        startActivity(Intent(this, LibraryActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+        overridePendingTransition(R.anim.nexus_page_enter, R.anim.nexus_page_exit)
+    }
+
+    private fun openProfilePage() {
+        startActivity(Intent(this, ProfileActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+        overridePendingTransition(R.anim.nexus_page_enter, R.anim.nexus_page_exit)
+    }
 
     private fun openRoomPage() {
         startActivity(
             Intent(this, com.nexus.music.rooms.ListeningRoomActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
         )
+        overridePendingTransition(R.anim.nexus_page_enter, R.anim.nexus_page_exit)
     }
 
     /**
@@ -487,7 +587,41 @@ class MainActivity : Activity() {
         playerTitle = player.title
         playerSubtitle = player.subtitle
         playPauseButton = player.playPause
+        player.container.isClickable = true
+        player.container.setOnClickListener { openNowPlaying() }
+        playerArtwork.setOnClickListener { openNowPlaying() }
+        playerTitle.setOnClickListener { openNowPlaying() }
+        playerSubtitle.setOnClickListener { openNowPlaying() }
         return player.container
+    }
+
+    private fun openNowPlaying() {
+        stopMiniVinylAnimation()
+        startActivity(Intent(this, NowPlayingActivity::class.java))
+        overridePendingTransition(R.anim.nexus_player_enter, R.anim.nexus_player_exit)
+    }
+
+    private fun updateMiniVinylAnimation(snapshot: PlaybackSnapshot) {
+        if (!::playerArtwork.isInitialized) return
+        if (isActivityStarted && snapshot.isPlaying) {
+            if (miniVinylAnimator?.isStarted != true) {
+                miniVinylAnimator?.cancel()
+                miniVinylAnimator = ObjectAnimator.ofFloat(playerArtwork, View.ROTATION, 0f, 360f).apply {
+                    duration = 3_600L
+                    repeatCount = ValueAnimator.INFINITE
+                    interpolator = LinearInterpolator()
+                    start()
+                }
+            }
+        } else {
+            stopMiniVinylAnimation()
+        }
+    }
+
+    private fun stopMiniVinylAnimation() {
+        miniVinylAnimator?.cancel()
+        miniVinylAnimator = null
+        if (::playerArtwork.isInitialized) playerArtwork.rotation = 0f
     }
 
     private fun connectPlaybackService() {
@@ -506,7 +640,9 @@ class MainActivity : Activity() {
 
     private fun updatePlaybackUi(snapshot: PlaybackSnapshot) {
         lastPlaybackSnapshot = snapshot
+        if (isActivityStarted) observeLibraryHistory(snapshot)
         scheduleProgressTicker(snapshot)
+        updateMiniVinylAnimation(snapshot)
         if (!snapshot.connected) {
             playerSubtitle.text = "Connecting to playback service…"
             playPauseButton.isEnabled = false
@@ -541,6 +677,17 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun observeLibraryHistory(snapshot: PlaybackSnapshot) {
+        val track = currentCatalogTrack(this, snapshot)
+        PlaybackHistoryTracker.shared.observe(
+            snapshot = snapshot,
+            track = track,
+            elapsedRealtimeMillis = SystemClock.elapsedRealtime()
+        ) { item ->
+            libraryRepository.recordHistory(item, System.currentTimeMillis())
+        }
+    }
+
     private fun selectScope(scope: YoutubeSearchScope) {
         if (selectedScope == scope) return
         selectedScope = scope
@@ -548,8 +695,299 @@ class MainActivity : Activity() {
         if (searchPanel.queryInput.text.toString().isNotBlank()) performSearch()
     }
 
+    private fun buildDiscoverySection(): LinearLayout {
+        val section = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        section.addView(text("DISCOVER", 10f, Theme.ColorToken.mineral).apply {
+            letterSpacing = 0.12f
+        })
+        section.addView(text("Find your next favourite", 22f, Theme.ColorToken.ink, bold = true).apply {
+            typeface = Type.display(this@MainActivity)
+            setPadding(0, dp(5), 0, dp(4))
+        })
+        section.addView(text(
+            "A colourful crate of sounds, refreshed from the music catalogue.",
+            12f, Theme.ColorToken.ink2
+        ).apply {
+            setLineSpacing(dp(2).toFloat(), 1f)
+        })
+
+        val shelf = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            clipToPadding = false
+            setPadding(0, dp(14), 0, dp(4))
+        }
+        discoveryCategoryStrip = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        discoveryCategories.forEach { category ->
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.BOTTOM
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                tag = category.query
+                background = discoveryCategoryBackground(category, category == selectedDiscoveryCategory)
+                isClickable = true
+                isFocusable = true
+                contentDescription = "Explore " + category.label
+                setOnClickListener { loadDiscovery(category) }
+            }
+            val lightText = if (category.color == Theme.ColorToken.saffron ||
+                category.color == Theme.ColorToken.leaf) Theme.ColorToken.ink else Color.WHITE
+            card.addView(text("NEXUS MIX", 9f, lightText).apply {
+                letterSpacing = 0.10f
+                alpha = 0.82f
+            })
+            card.addView(text(category.label, 17f, lightText, bold = true).apply {
+                setPadding(0, dp(4), 0, 0)
+            })
+            discoveryCategoryStrip.addView(card, LinearLayout.LayoutParams(dp(132), dp(82)).apply {
+                marginEnd = dp(10)
+            })
+        }
+        shelf.addView(discoveryCategoryStrip)
+        section.addView(shelf, LinearLayout.LayoutParams(-1, -2))
+
+        val resultsHeader = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(19), 0, dp(8))
+        }
+        val labels = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        discoverySectionTitle = text("Popular songs", 18f, Theme.ColorToken.ink, bold = true)
+        discoverySectionNote = text(selectedDiscoveryCategory.note, 11f, Theme.ColorToken.ink2).apply {
+            setPadding(0, dp(3), 0, 0)
+        }
+        labels.addView(discoverySectionTitle)
+        labels.addView(discoverySectionNote)
+        resultsHeader.addView(labels, LinearLayout.LayoutParams(0, -2, 1f))
+        discoverySortButton = TextView(this).apply {
+            text = "Sort · Recommended"
+            textSize = 11f
+            typeface = Type.medium(this@MainActivity)
+            setTextColor(Theme.ColorToken.mineral)
+            gravity = Gravity.CENTER
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            background = rounded(Theme.ColorToken.paperStock, 12)
+            contentDescription = "Sort recommended songs"
+            setOnClickListener { showDiscoverySortMenu() }
+        }
+        resultsHeader.addView(discoverySortButton)
+        section.addView(resultsHeader)
+
+        discoveryTracksContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        section.addView(discoveryTracksContainer)
+        return section
+    }
+
+    private fun discoveryCategoryBackground(category: DiscoveryCategory, selected: Boolean) =
+        android.graphics.drawable.GradientDrawable().apply {
+            setColor(category.color)
+            cornerRadius = dp(17).toFloat()
+            if (selected) setStroke(dp(2), Color.argb(220, 255, 255, 255))
+        }
+
+    private fun updateDiscoveryCategorySelection() {
+        for (index in 0 until discoveryCategoryStrip.childCount) {
+            val view = discoveryCategoryStrip.getChildAt(index)
+            val category = discoveryCategories.firstOrNull { it.query == view.tag } ?: continue
+            view.background = discoveryCategoryBackground(category, category == selectedDiscoveryCategory)
+            view.alpha = if (category == selectedDiscoveryCategory) 1f else .91f
+        }
+    }
+
+    private fun showDiscoverySortMenu() {
+        val menu = PopupMenu(this, discoverySortButton)
+        menu.menu.add(0, 0, 0, "Recommended order")
+        menu.menu.add(0, 1, 1, "Title · A to Z")
+        menu.menu.add(0, 2, 2, "Artist · A to Z")
+        menu.menu.add(0, 3, 3, "Longest first")
+        menu.menu.add(0, 4, 4, "Shortest first")
+        menu.setOnMenuItemClickListener { item ->
+            discoverySort = when (item.itemId) {
+                1 -> DiscoverySort.TITLE
+                2 -> DiscoverySort.ARTIST
+                3 -> DiscoverySort.LONGEST
+                4 -> DiscoverySort.SHORTEST
+                else -> DiscoverySort.RECOMMENDED
+            }
+            discoverySortButton.text = "Sort · " + when (discoverySort) {
+                DiscoverySort.RECOMMENDED -> "Recommended"
+                DiscoverySort.TITLE -> "Title A–Z"
+                DiscoverySort.ARTIST -> "Artist A–Z"
+                DiscoverySort.LONGEST -> "Longest"
+                DiscoverySort.SHORTEST -> "Shortest"
+            }
+            renderDiscoveryResults()
+            true
+        }
+        menu.show()
+    }
+
+    private fun loadDiscovery(category: DiscoveryCategory) {
+        selectedDiscoveryCategory = category
+        discoverySectionTitle.text = category.label + " picks"
+        discoverySectionNote.text = category.note
+        updateDiscoveryCategorySelection()
+        discoveryJob?.cancel()
+        val request = ++discoveryGeneration
+        discoveryResults = emptyList()
+        discoveryTracksContainer.removeAllViews()
+        discoveryTracksContainer.addView(text("Finding a few good listens…", 13f, Theme.ColorToken.ink2).apply {
+            setPadding(0, dp(12), 0, dp(12))
+        })
+        discoveryJob = activityScope.launch {
+            try {
+                val results = repository.search(category.query, YoutubeSearchScope.MUSIC_SONGS)
+                if (request != discoveryGeneration || isDestroyed) return@launch
+                discoveryResults = results
+                renderDiscoveryResults()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (request == discoveryGeneration && !isDestroyed) {
+                    discoveryTracksContainer.removeAllViews()
+                    val message = text("Could not refresh this mix · Tap to retry", 13f, Theme.ColorToken.ink2).apply {
+                        setPadding(dp(2), dp(12), dp(2), dp(12))
+                        isClickable = true
+                        setOnClickListener { loadDiscovery(selectedDiscoveryCategory) }
+                    }
+                    discoveryTracksContainer.addView(message)
+                }
+            } finally {
+                if (request == discoveryGeneration) discoveryJob = null
+            }
+        }
+    }
+
+    private fun renderDiscoveryResults() {
+        if (!::discoveryTracksContainer.isInitialized) return
+        discoveryTracksContainer.removeAllViews()
+        val sorted = when (discoverySort) {
+            DiscoverySort.RECOMMENDED -> discoveryResults
+            DiscoverySort.TITLE -> discoveryResults.sortedBy { it.title.lowercase() }
+            DiscoverySort.ARTIST -> discoveryResults.sortedBy { it.artist.orEmpty().lowercase() }
+            DiscoverySort.LONGEST -> discoveryResults.sortedByDescending { it.durationSeconds ?: 0L }
+            DiscoverySort.SHORTEST -> discoveryResults.sortedBy {
+                it.durationSeconds?.takeIf { duration -> duration > 0L } ?: Long.MAX_VALUE
+            }
+        }
+        if (sorted.isEmpty()) {
+            discoveryTracksContainer.addView(text(
+                "No tracks came back for this mix. Choose another style or tap the category again.",
+                13f, Theme.ColorToken.ink2
+            ).apply {
+                setPadding(dp(2), dp(12), dp(2), dp(12))
+            })
+            return
+        }
+        sorted.take(12).forEachIndexed { index, track ->
+            discoveryTracksContainer.addView(
+                resultRow(track),
+                LinearLayout.LayoutParams(-1, dp(66)).apply {
+                    if (index > 0) topMargin = dp(2)
+                }
+            )
+        }
+    }
+
+    private fun buildContinueCard(): LinearLayout? {
+        val prefs = getSharedPreferences("nexus_home", MODE_PRIVATE)
+        val url = prefs.getString("last_track_url", null)?.takeIf { it.isNotBlank() } ?: return null
+        val title = prefs.getString("last_track_title", "Untitled") ?: "Untitled"
+        val artist = prefs.getString("last_track_artist", "Unknown artist")
+        val thumbnailUrl = prefs.getString("last_track_thumbnail", null)
+        val duration = prefs.getLong("last_track_duration", -1L).takeIf { it >= 0L }
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(Theme.ColorToken.paperStock, 18)
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            Drawables.raised(this, 1f)
+        }
+        card.addView(text("PICK UP WHERE YOU LEFT OFF", 10f, Theme.ColorToken.mineral).apply {
+            letterSpacing = 0.08f
+        })
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(10), 0, 0)
+        }
+        val art = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            background = rounded(Theme.ColorToken.parchment, 10)
+            contentDescription = "Last played artwork"
+        }
+        thumbnailUrl?.let { art.load(it) }
+        row.addView(art, LinearLayout.LayoutParams(dp(48), dp(48)))
+        val labels = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), 0, dp(8), 0)
+        }
+        labels.addView(text(title, 14f, Theme.ColorToken.ink, bold = true, maxLines = 1))
+        labels.addView(text(artist ?: "Unknown artist", 12f, Theme.ColorToken.ink2, maxLines = 1).apply {
+            setPadding(0, dp(4), 0, 0)
+        })
+        row.addView(labels, LinearLayout.LayoutParams(0, -2, 1f))
+        val play = TextView(this).apply {
+            text = "Play"
+            textSize = 12f
+            typeface = Type.medium(this@MainActivity)
+            gravity = Gravity.CENTER
+            setTextColor(Theme.ColorToken.paperStock)
+            background = rounded(Theme.ColorToken.mineral, 14)
+            minWidth = dp(56)
+            minHeight = dp(44)
+            contentDescription = "Play last track"
+            setOnClickListener {
+                startResolvingTrack(CatalogTrack(url, title, artist, thumbnailUrl, duration, null))
+            }
+        }
+        row.addView(play)
+        card.addView(row)
+        return card
+    }
+
+    private fun showSearchSkeletons() {
+        searchPanel.statusText.text = "Searching…"
+        searchPanel.statusText.visibility = View.VISIBLE
+        searchPanel.statusText.setOnClickListener(null)
+        searchPanel.resultsContainer.removeAllViews()
+        repeat(4) { index ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, dp(4), 0, dp(4))
+            }
+            val art = View(this).apply {
+                background = rounded(Theme.ColorToken.ink3, 10)
+                alpha = 0.22f
+            }
+            row.addView(art, LinearLayout.LayoutParams(dp(56), dp(56)))
+            val lines = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(12), 0, 0, 0)
+            }
+            lines.addView(View(this).apply {
+                background = rounded(Theme.ColorToken.ink3, 4)
+                alpha = 0.22f
+            }, LinearLayout.LayoutParams(dp(if (index % 2 == 0) 150 else 120), dp(10)))
+            lines.addView(View(this).apply {
+                background = rounded(Theme.ColorToken.ink3, 4)
+                alpha = 0.15f
+            }, LinearLayout.LayoutParams(dp(90), dp(8)).apply { topMargin = dp(8) })
+            row.addView(lines, LinearLayout.LayoutParams(0, -2, 1f))
+            searchPanel.resultsContainer.addView(row, LinearLayout.LayoutParams(-1, dp(64)))
+        }
+    }
+
     private fun performSearch() {
         val query = searchPanel.queryInput.text.toString().trim()
+        discoveryPanel.visibility = if (query.isBlank()) View.VISIBLE else View.GONE
         if (query.isEmpty()) {
             searchGeneration++
             searchJob?.cancel()
@@ -562,85 +1000,119 @@ class MainActivity : Activity() {
             return
         }
 
-        // A newer query or scope always supersedes the previous request.
         searchJob?.cancel()
         searchPanel.queryInput.error = null
         val requestGeneration = ++searchGeneration
         val requestScope = selectedScope
-        searchPanel.statusText.text = ""
-        searchPanel.statusText.visibility = View.GONE
-        searchPanel.statusText.setOnClickListener(null)
-        searchPanel.resultsContainer.removeAllViews()
+        showSearchSkeletons()
 
         searchJob = activityScope.launch {
             try {
                 val results = repository.search(query, requestScope)
                 if (requestGeneration != searchGeneration) return@launch
-
                 searchPanel.resultsContainer.removeAllViews()
+                searchPanel.statusText.setOnClickListener(null)
                 if (results.isEmpty()) {
-                    searchPanel.statusText.text = "No results"
+                    searchPanel.statusText.text = "No tracks found · Clear search"
                     searchPanel.statusText.visibility = View.VISIBLE
+                    searchPanel.statusText.setOnClickListener {
+                        searchPanel.queryInput.text.clear()
+                        performSearch()
+                    }
                 } else {
+                    searchPanel.statusText.visibility = View.GONE
                     results.forEachIndexed { index, track ->
-                        searchPanel.resultsContainer.addView(resultCard(track), verticalParams(if (index == 0) 0 else 10))
+                        searchPanel.resultsContainer.addView(
+                            resultRow(track),
+                            LinearLayout.LayoutParams(-1, dp(64)).apply {
+                                if (index > 0) topMargin = dp(2)
+                            }
+                        )
                     }
                 }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
                 if (requestGeneration == searchGeneration) {
-                    searchPanel.statusText.text = "Search failed · Retry"
+                    searchPanel.resultsContainer.removeAllViews()
+                    searchPanel.statusText.text = "Search failed · Tap to retry"
                     searchPanel.statusText.visibility = View.VISIBLE
                     searchPanel.statusText.setOnClickListener { performSearch() }
                 }
             } finally {
-                if (requestGeneration == searchGeneration && !isDestroyed) {
-                    searchJob = null
-                }
+                if (requestGeneration == searchGeneration && !isDestroyed) searchJob = null
             }
         }
     }
 
-    private fun resultCard(track: CatalogTrack): LinearLayout {
-        val card = LinearLayout(this).apply {
+    private fun resultRow(track: CatalogTrack): LinearLayout {
+        val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = rounded(surface, 16)
-            setPadding(dp(10), dp(10), dp(12), dp(10))
+            setPadding(0, dp(4), 0, dp(4))
             isClickable = true
             isFocusable = true
+            contentDescription = "Play ${track.title} by ${track.artist ?: "Unknown artist"}"
             setOnClickListener { startResolvingTrack(track) }
         }
         val thumbnail = ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
-            background = rounded(surfaceRaised, 10)
-            contentDescription = "Track thumbnail"
+            background = rounded(Theme.ColorToken.paperStock, 10)
+            contentDescription = "Track artwork"
         }
         track.thumbnailUrl?.let { thumbnail.load(it) }
-        card.addView(thumbnail, LinearLayout.LayoutParams(dp(112), dp(72)))
-
+        row.addView(thumbnail, LinearLayout.LayoutParams(dp(56), dp(56)))
         val details = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), 0, 0, 0)
+            setPadding(dp(12), 0, dp(4), 0)
         }
-        details.addView(text(track.title.ifBlank { "Untitled" }, 14f, primaryText, bold = true, maxLines = 2))
-        details.addView(text(track.artist ?: "Unknown artist", 12f, secondaryText, maxLines = 1).apply {
-            setPadding(0, dp(5), 0, 0)
+        details.addView(text(track.title.ifBlank { "Untitled" }, 14f, Theme.ColorToken.ink, bold = true, maxLines = 1))
+        details.addView(text(track.artist ?: "Unknown artist", 12f, Theme.ColorToken.ink2, maxLines = 1).apply {
+            setPadding(0, dp(4), 0, 0)
         })
-        val metadata = listOfNotNull(
-            track.durationSeconds?.takeIf { it >= 0 }?.let(CatalogFormatting::duration),
-            track.viewCount?.takeIf { it >= 0 }?.let(CatalogFormatting::views)
-        ).joinToString("  ·  ")
-        if (metadata.isNotBlank()) details.addView(text(metadata, 11f, secondaryText).apply {
-            setPadding(0, dp(5), 0, 0)
-        })
-        card.addView(details, LinearLayout.LayoutParams(0, -2, 1f))
-        return card
+        row.addView(details, LinearLayout.LayoutParams(0, -2, 1f))
+        val duration = track.durationSeconds?.takeIf { it >= 0L }?.let(CatalogFormatting::duration).orEmpty()
+        if (duration.isNotBlank()) {
+            row.addView(text(duration, 11f, Theme.ColorToken.ink3).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(4), 0, dp(2), 0)
+            })
+        }
+        val overflow = TextView(this).apply {
+            text = "•••"
+            textSize = 18f
+            gravity = Gravity.CENTER
+            minWidth = dp(44)
+            minHeight = dp(48)
+            contentDescription = "More options for ${track.title}"
+            setOnClickListener { anchor ->
+                PopupMenu(this@MainActivity, anchor).apply {
+                    menu.add("Play now").setOnMenuItemClickListener {
+                        startResolvingTrack(track); true
+                    }
+                    menu.add("Copy link").setOnMenuItemClickListener {
+                        val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("YouTube link", track.url))
+                        Toast.makeText(this@MainActivity, "Link copied", Toast.LENGTH_SHORT).show()
+                        true
+                    }
+                    show()
+                }
+            }
+        }
+        row.addView(overflow, LinearLayout.LayoutParams(dp(44), dp(48)))
+        return row
     }
 
     private fun startResolvingTrack(track: CatalogTrack) {
         if (isResolving) return
+        getSharedPreferences("nexus_home", MODE_PRIVATE).edit()
+            .putString("last_track_url", track.url)
+            .putString("last_track_title", track.title)
+            .putString("last_track_artist", track.artist)
+            .putString("last_track_thumbnail", track.thumbnailUrl)
+            .putLong("last_track_duration", track.durationSeconds ?: -1L)
+            .apply()
         isResolving = true
         playerSubtitle.text = "Preparing audio…"
         activityScope.launch {
@@ -682,7 +1154,7 @@ class MainActivity : Activity() {
         text = value
         textSize = size
         setTextColor(color)
-        if (bold) typeface = Typeface.DEFAULT_BOLD
+        if (bold) typeface = Type.medium(this@MainActivity)
         this.maxLines = maxLines
         ellipsize = android.text.TextUtils.TruncateAt.END
     }
@@ -719,7 +1191,9 @@ class MainActivity : Activity() {
 
     override fun onStop() {
         isActivityStarted = false
+        PlaybackHistoryTracker.shared.suspendObservation()
         progressHandler.removeCallbacks(progressTicker)
+        stopMiniVinylAnimation()
         super.onStop()
     }
 
@@ -732,8 +1206,10 @@ class MainActivity : Activity() {
         searchJob?.cancel()
         searchJob = null
         progressHandler.removeCallbacks(progressTicker)
+        stopMiniVinylAnimation()
         playbackConnection?.close()
         playbackConnection = null
+        if (libraryRepositoryDelegate.isInitialized()) libraryRepository.close()
         updateCheckJob?.cancel()
         updateCheckJob = null
         downloadJob?.cancel()
