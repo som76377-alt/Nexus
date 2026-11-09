@@ -487,7 +487,9 @@ class ListeningRoomActivity : Activity() {
             roomSessionGeneration != sessionGeneration ||
             requestGeneration != messageRefreshGeneration
         ) return
-        if (messages.isEmpty()) {
+
+        val orderedMessages = messages.sortedBy { parseTimestamp(it.createdAt) ?: Long.MAX_VALUE }
+        if (orderedMessages.isEmpty() && pendingMessages.isEmpty()) {
             if (messagesBox.childCount == 1 && messagesBox.getChildAt(0).tag == "empty") return
             messagesBox.removeAllViews()
             messagesBox.addView(
@@ -497,32 +499,75 @@ class ListeningRoomActivity : Activity() {
             )
             return
         }
+
         val currentIds = (0 until messagesBox.childCount).mapNotNull { index ->
             messagesBox.getChildAt(index).tag as? String
         }.toSet()
-        if (messages.all { it.id in currentIds } && messages.size == currentIds.size) return
+        val allVisible = orderedMessages.all { it.id in currentIds } &&
+            pendingMessages.all { it.id in currentIds } &&
+            currentIds.size == orderedMessages.size + pendingMessages.size
+        if (allVisible) return
+
         messagesBox.removeAllViews()
-        messages.forEach { message ->
-                val mine = message.senderId == userId
-                val bubble = LinearLayout(this).apply {
-                    orientation = LinearLayout.VERTICAL
-                    background = rounded(if (mine) Color.rgb(45, 62, 39) else raised, 12)
-                    setPadding(dp(10), dp(8), dp(10), dp(8))
-                }
-                bubble.addView(label(if (mine) "You" else "Room member", 10f, if (mine) accent else muted, true))
-                bubble.addView(label(message.body, 13f, foreground))
-                bubble.addView(label(formatTime(message.createdAt), 9f, muted))
-                val row = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = if (mine) Gravity.END else Gravity.START
-                }
-                row.tag = message.id
-                row.addView(bubble, LinearLayout.LayoutParams(-2, -2).apply {
-                    weight = 0f
-                    width = (resources.displayMetrics.widthPixels * 0.72f).toInt()
-                    bottomMargin = dp(8)
-                })
-                messagesBox.addView(row)
+        orderedMessages.forEach { message ->
+            addChatBubble(
+                id = message.id,
+                mine = message.senderId == userId,
+                body = message.body,
+                timeLabel = formatTime(message.createdAt),
+                pending = false
+            )
+        }
+        pendingMessages.toList().forEach { pending ->
+            addChatBubble(pending.id, true, pending.body, "Sending…", true)
+        }
+        chatScroll.post { chatScroll.fullScroll(View.FOCUS_DOWN) }
+    }
+
+    private fun addChatBubble(
+        id: String,
+        mine: Boolean,
+        body: String,
+        timeLabel: String,
+        pending: Boolean
+    ) {
+        val bubble = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(
+                if (mine) Theme.ColorToken.mineral else Theme.ColorToken.paperStock,
+                16
+            )
+            elevation = dp(1).toFloat()
+            alpha = if (pending) 0.82f else 1f
+            setPadding(dp(12), dp(9), dp(12), dp(9))
+        }
+        val bodyColor = if (mine) Theme.ColorToken.paperStock else Theme.ColorToken.ink
+        val metaColor = if (mine) Color.argb(205, 238, 229, 208) else Theme.ColorToken.ink3
+        bubble.addView(label(if (mine) "You" else "Room member", 10f, metaColor, true))
+        bubble.addView(label(body, 13f, bodyColor).apply {
+            setPadding(0, dp(3), 0, dp(3))
+            setLineSpacing(dp(2).toFloat(), 1f)
+        })
+        bubble.addView(label(timeLabel, 9f, metaColor))
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = if (mine) Gravity.END else Gravity.START
+            tag = id
+        }
+        row.addView(bubble, LinearLayout.LayoutParams(-2, -2).apply {
+            width = (resources.displayMetrics.widthPixels * 0.72f).toInt()
+            bottomMargin = dp(8)
+        })
+        messagesBox.addView(row)
+    }
+
+    private fun removePendingMessage(id: String) {
+        pendingMessages.removeAll { it.id == id }
+        for (index in messagesBox.childCount - 1 downTo 0) {
+            if (messagesBox.getChildAt(index).tag == id) {
+                messagesBox.removeViewAt(index)
+                break
+            }
         }
     }
 
@@ -532,18 +577,27 @@ class ListeningRoomActivity : Activity() {
         val body = messageInput.text.toString().trim()
         if (body.isEmpty()) return
         val sessionGeneration = roomSessionGeneration
+        val pending = PendingChatMessage("pending-${System.nanoTime()}", body)
+        pendingMessages.add(pending)
+        if (messagesBox.childCount == 1 && messagesBox.getChildAt(0).tag == "empty") {
+            messagesBox.removeAllViews()
+        }
+        addChatBubble(pending.id, true, body, "Sending…", true)
+        chatScroll.post { chatScroll.fullScroll(View.FOCUS_DOWN) }
+        messageInput.text.clear()
         sendButton.isEnabled = false
         scope.launch {
             try {
                 val api = PlaybackService.awaitRoomsApi()
                 api.sendMessage(id, sender, body)
                 if (roomId != id || roomSessionGeneration != sessionGeneration) return@launch
-                messageInput.text.clear()
+                removePendingMessage(pending.id)
                 refreshMessages()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
                 if (roomId == id && roomSessionGeneration == sessionGeneration) {
+                    removePendingMessage(pending.id)
                     status.text = error.message ?: "Message could not be sent."
                 }
             } finally {
@@ -600,6 +654,7 @@ class ListeningRoomActivity : Activity() {
         createButton.visibility = View.VISIBLE
         codeInput.visibility = View.VISIBLE
         joinButton.visibility = View.VISIBLE
+        pendingMessages.clear()
         messagesBox.removeAllViews()
         sendButton.isEnabled = true
         status.text = "Exited this room. Its history remains until one hour of inactivity."
