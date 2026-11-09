@@ -30,6 +30,7 @@ import android.widget.ImageButton
 import android.widget.ProgressBar
 import android.widget.PopupMenu
 import android.widget.LinearLayout
+import android.widget.HorizontalScrollView
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
@@ -101,6 +102,37 @@ class MainActivity : Activity() {
     private var lastPlaybackSnapshot = PlaybackSnapshot(connected = false)
     private var backInvokedCallback: android.window.OnBackInvokedCallback? = null
     private var miniVinylAnimator: ObjectAnimator? = null
+
+    private data class DiscoveryCategory(
+        val label: String,
+        val query: String,
+        val note: String,
+        val color: Int
+    )
+
+    private enum class DiscoverySort { RECOMMENDED, TITLE, ARTIST, LONGEST, SHORTEST }
+
+    private val discoveryCategories = listOf(
+        DiscoveryCategory("Popular", "popular music", "A little of everything", Theme.ColorToken.cobalt),
+        DiscoveryCategory("Trending", "trending songs", "What's in rotation", Theme.ColorToken.vermilion),
+        DiscoveryCategory("Ghazals", "popular ghazals", "Poetry in melody", Theme.ColorToken.saffron),
+        DiscoveryCategory("Qawwali", "qawwali songs", "Voices that soar", Theme.ColorToken.rose),
+        DiscoveryCategory("Indie", "indian indie music", "Independent voices", Theme.ColorToken.teal),
+        DiscoveryCategory("Classical", "hindustani classical music", "Timeless ragas", Theme.ColorToken.leaf),
+        DiscoveryCategory("Focus", "instrumental focus music", "A quieter soundtrack", Theme.ColorToken.mineral),
+        DiscoveryCategory("Pop", "popular pop songs", "Bright familiar hooks", Theme.ColorToken.copper)
+    )
+    private var selectedDiscoveryCategory = discoveryCategories.first()
+    private var discoverySort = DiscoverySort.RECOMMENDED
+    private var discoveryJob: Job? = null
+    private var discoveryGeneration = 0L
+    private var discoveryResults: List<CatalogTrack> = emptyList()
+    private lateinit var discoveryPanel: LinearLayout
+    private lateinit var discoveryCategoryStrip: LinearLayout
+    private lateinit var discoverySectionTitle: TextView
+    private lateinit var discoverySectionNote: TextView
+    private lateinit var discoverySortButton: TextView
+    private lateinit var discoveryTracksContainer: LinearLayout
 
     private val screenBackground = Theme.ColorToken.parchment
     private val surface = Theme.ColorToken.paperStock
@@ -236,6 +268,8 @@ class MainActivity : Activity() {
             onScopeSelected = ::selectScope
         )
         content.addView(searchPanel, verticalParams(18))
+        discoveryPanel = buildDiscoverySection()
+        content.addView(discoveryPanel, verticalParams(22))
 
         scroll.addView(content)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -254,6 +288,7 @@ class MainActivity : Activity() {
         applySystemBarInsets(root)
         connectPlaybackService()
         NexusUpdateScheduler.disableBackgroundUpdates(this)
+        loadDiscovery(selectedDiscoveryCategory)
     }
 
     private fun registerBackNavigation() {
@@ -660,6 +695,207 @@ class MainActivity : Activity() {
         if (searchPanel.queryInput.text.toString().isNotBlank()) performSearch()
     }
 
+    private fun buildDiscoverySection(): LinearLayout {
+        val section = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        section.addView(text("DISCOVER", 10f, Theme.ColorToken.mineral).apply {
+            letterSpacing = 0.12f
+        })
+        section.addView(text("Find your next favourite", 22f, Theme.ColorToken.ink, bold = true).apply {
+            typeface = Type.display(this@MainActivity)
+            setPadding(0, dp(5), 0, dp(4))
+        })
+        section.addView(text(
+            "A colourful crate of sounds, refreshed from the music catalogue.",
+            12f, Theme.ColorToken.ink2
+        ).apply {
+            setLineSpacing(dp(2).toFloat(), 1f)
+        })
+
+        val shelf = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            clipToPadding = false
+            setPadding(0, dp(14), 0, dp(4))
+        }
+        discoveryCategoryStrip = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        discoveryCategories.forEach { category ->
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.BOTTOM
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                tag = category.query
+                background = discoveryCategoryBackground(category, category == selectedDiscoveryCategory)
+                isClickable = true
+                isFocusable = true
+                contentDescription = "Explore " + category.label
+                setOnClickListener { loadDiscovery(category) }
+            }
+            val lightText = if (category.color == Theme.ColorToken.saffron ||
+                category.color == Theme.ColorToken.leaf) Theme.ColorToken.ink else Color.WHITE
+            card.addView(text("NEXUS MIX", 9f, lightText).apply {
+                letterSpacing = 0.10f
+                alpha = 0.82f
+            })
+            card.addView(text(category.label, 17f, lightText, bold = true).apply {
+                setPadding(0, dp(4), 0, 0)
+            })
+            discoveryCategoryStrip.addView(card, LinearLayout.LayoutParams(dp(132), dp(82)).apply {
+                marginEnd = dp(10)
+            })
+        }
+        shelf.addView(discoveryCategoryStrip)
+        section.addView(shelf, LinearLayout.LayoutParams(-1, -2))
+
+        val resultsHeader = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(19), 0, dp(8))
+        }
+        val labels = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        discoverySectionTitle = text("Popular songs", 18f, Theme.ColorToken.ink, bold = true)
+        discoverySectionNote = text(selectedDiscoveryCategory.note, 11f, Theme.ColorToken.ink2).apply {
+            setPadding(0, dp(3), 0, 0)
+        }
+        labels.addView(discoverySectionTitle)
+        labels.addView(discoverySectionNote)
+        resultsHeader.addView(labels, LinearLayout.LayoutParams(0, -2, 1f))
+        discoverySortButton = TextView(this).apply {
+            text = "Sort · Recommended"
+            textSize = 11f
+            typeface = Type.medium(this@MainActivity)
+            setTextColor(Theme.ColorToken.mineral)
+            gravity = Gravity.CENTER
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            background = rounded(Theme.ColorToken.paperStock, 12)
+            contentDescription = "Sort recommended songs"
+            setOnClickListener { showDiscoverySortMenu() }
+        }
+        resultsHeader.addView(discoverySortButton)
+        section.addView(resultsHeader)
+
+        discoveryTracksContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        section.addView(discoveryTracksContainer)
+        return section
+    }
+
+    private fun discoveryCategoryBackground(category: DiscoveryCategory, selected: Boolean) =
+        android.graphics.drawable.GradientDrawable().apply {
+            setColor(category.color)
+            cornerRadius = dp(17).toFloat()
+            if (selected) setStroke(dp(2), Color.argb(220, 255, 255, 255))
+        }
+
+    private fun updateDiscoveryCategorySelection() {
+        for (index in 0 until discoveryCategoryStrip.childCount) {
+            val view = discoveryCategoryStrip.getChildAt(index)
+            val category = discoveryCategories.firstOrNull { it.query == view.tag } ?: continue
+            view.background = discoveryCategoryBackground(category, category == selectedDiscoveryCategory)
+            view.alpha = if (category == selectedDiscoveryCategory) 1f else .91f
+        }
+    }
+
+    private fun showDiscoverySortMenu() {
+        val menu = PopupMenu(this, discoverySortButton)
+        menu.menu.add(0, 0, 0, "Recommended order")
+        menu.menu.add(0, 1, 1, "Title · A to Z")
+        menu.menu.add(0, 2, 2, "Artist · A to Z")
+        menu.menu.add(0, 3, 3, "Longest first")
+        menu.menu.add(0, 4, 4, "Shortest first")
+        menu.setOnMenuItemClickListener { item ->
+            discoverySort = when (item.itemId) {
+                1 -> DiscoverySort.TITLE
+                2 -> DiscoverySort.ARTIST
+                3 -> DiscoverySort.LONGEST
+                4 -> DiscoverySort.SHORTEST
+                else -> DiscoverySort.RECOMMENDED
+            }
+            discoverySortButton.text = "Sort · " + when (discoverySort) {
+                DiscoverySort.RECOMMENDED -> "Recommended"
+                DiscoverySort.TITLE -> "Title A–Z"
+                DiscoverySort.ARTIST -> "Artist A–Z"
+                DiscoverySort.LONGEST -> "Longest"
+                DiscoverySort.SHORTEST -> "Shortest"
+            }
+            renderDiscoveryResults()
+            true
+        }
+        menu.show()
+    }
+
+    private fun loadDiscovery(category: DiscoveryCategory) {
+        selectedDiscoveryCategory = category
+        discoverySectionTitle.text = category.label + " picks"
+        discoverySectionNote.text = category.note
+        updateDiscoveryCategorySelection()
+        discoveryJob?.cancel()
+        val request = ++discoveryGeneration
+        discoveryResults = emptyList()
+        discoveryTracksContainer.removeAllViews()
+        discoveryTracksContainer.addView(text("Finding a few good listens…", 13f, Theme.ColorToken.ink2).apply {
+            setPadding(0, dp(12), 0, dp(12))
+        })
+        discoveryJob = activityScope.launch {
+            try {
+                val results = repository.search(category.query, YoutubeSearchScope.MUSIC_SONGS)
+                if (request != discoveryGeneration || isDestroyed) return@launch
+                discoveryResults = results
+                renderDiscoveryResults()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (request == discoveryGeneration && !isDestroyed) {
+                    discoveryTracksContainer.removeAllViews()
+                    val message = text("Could not refresh this mix · Tap to retry", 13f, Theme.ColorToken.ink2).apply {
+                        setPadding(dp(2), dp(12), dp(2), dp(12))
+                        isClickable = true
+                        setOnClickListener { loadDiscovery(selectedDiscoveryCategory) }
+                    }
+                    discoveryTracksContainer.addView(message)
+                }
+            } finally {
+                if (request == discoveryGeneration) discoveryJob = null
+            }
+        }
+    }
+
+    private fun renderDiscoveryResults() {
+        if (!::discoveryTracksContainer.isInitialized) return
+        discoveryTracksContainer.removeAllViews()
+        val sorted = when (discoverySort) {
+            DiscoverySort.RECOMMENDED -> discoveryResults
+            DiscoverySort.TITLE -> discoveryResults.sortedBy { it.title.lowercase() }
+            DiscoverySort.ARTIST -> discoveryResults.sortedBy { it.artist.orEmpty().lowercase() }
+            DiscoverySort.LONGEST -> discoveryResults.sortedByDescending { it.durationSeconds ?: 0L }
+            DiscoverySort.SHORTEST -> discoveryResults.sortedBy {
+                it.durationSeconds?.takeIf { duration -> duration > 0L } ?: Long.MAX_VALUE
+            }
+        }
+        if (sorted.isEmpty()) {
+            discoveryTracksContainer.addView(text(
+                "No tracks came back for this mix. Choose another style or tap the category again.",
+                13f, Theme.ColorToken.ink2
+            ).apply {
+                setPadding(dp(2), dp(12), dp(2), dp(12))
+            })
+            return
+        }
+        sorted.take(12).forEachIndexed { index, track ->
+            discoveryTracksContainer.addView(
+                resultRow(track),
+                LinearLayout.LayoutParams(-1, dp(66)).apply {
+                    if (index > 0) topMargin = dp(2)
+                }
+            )
+        }
+    }
+
     private fun buildContinueCard(): LinearLayout? {
         val prefs = getSharedPreferences("nexus_home", MODE_PRIVATE)
         val url = prefs.getString("last_track_url", null)?.takeIf { it.isNotBlank() } ?: return null
@@ -751,6 +987,7 @@ class MainActivity : Activity() {
 
     private fun performSearch() {
         val query = searchPanel.queryInput.text.toString().trim()
+        discoveryPanel.visibility = if (query.isBlank()) View.VISIBLE else View.GONE
         if (query.isEmpty()) {
             searchGeneration++
             searchJob?.cancel()
