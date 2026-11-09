@@ -502,11 +502,9 @@ class ListeningRoomActivity : Activity() {
 
         val currentIds = (0 until messagesBox.childCount).mapNotNull { index ->
             messagesBox.getChildAt(index).tag as? String
-        }.toSet()
-        val allVisible = orderedMessages.all { it.id in currentIds } &&
-            pendingMessages.all { it.id in currentIds } &&
-            currentIds.size == orderedMessages.size + pendingMessages.size
-        if (allVisible) return
+        }
+        val expectedIds = orderedMessages.map { it.id } + pendingMessages.map { it.id }
+        if (currentIds == expectedIds) return
 
         messagesBox.removeAllViews()
         orderedMessages.forEach { message ->
@@ -759,7 +757,7 @@ class ListeningRoomActivity : Activity() {
         setPadding(dp(12), 0, dp(12), 0)
         setTextColor(if (primary) Theme.ColorToken.paperStock else this@ListeningRoomActivity.foreground)
         typeface = Type.medium(this@ListeningRoomActivity)
-        background = rounded(if (primary) accent else raised, 10)
+        background = if (primary) Drawables.copperButton(this@ListeningRoomActivity) else rounded(raised, 10)
     }
 
     private fun params(top: Int) = LinearLayout.LayoutParams(-1, -2).apply {
