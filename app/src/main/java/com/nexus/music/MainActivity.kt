@@ -16,6 +16,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.net.Uri
 import android.provider.Settings
 import android.view.Gravity
@@ -47,6 +48,9 @@ import com.nexus.music.catalog.YoutubeCatalogRepository
 import com.nexus.music.catalog.YoutubeSearchScope
 import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackSnapshot
+import com.nexus.music.library.PlaybackHistoryTracker
+import com.nexus.music.library.SqliteLibraryRepository
+import com.nexus.music.library.currentCatalogTrack
 import com.nexus.music.update.GitHubReleaseUpdater
 import com.nexus.music.update.InstallPermissionRequiredException
 import com.nexus.music.update.NexusUpdate
@@ -82,6 +86,8 @@ class MainActivity : Activity() {
     private lateinit var playbackProgress: SeekBar
 
     private var playbackConnection: PlaybackConnection? = null
+    private val libraryRepositoryDelegate = lazy { SqliteLibraryRepository(applicationContext) }
+    private val libraryRepository by libraryRepositoryDelegate
     private var updateCheckJob: Job? = null
     private var downloadJob: Job? = null
     private var pendingUpdate: NexusUpdate? = null
@@ -599,6 +605,7 @@ class MainActivity : Activity() {
 
     private fun updatePlaybackUi(snapshot: PlaybackSnapshot) {
         lastPlaybackSnapshot = snapshot
+        if (isActivityStarted) observeLibraryHistory(snapshot)
         scheduleProgressTicker(snapshot)
         updateMiniVinylAnimation(snapshot)
         if (!snapshot.connected) {
@@ -632,6 +639,17 @@ class MainActivity : Activity() {
                 ((snapshot.positionMs.toDouble() / snapshot.durationMs.toDouble()) * playbackProgress.max)
                     .toInt().coerceIn(0, playbackProgress.max)
             } else 0
+        }
+    }
+
+    private fun observeLibraryHistory(snapshot: PlaybackSnapshot) {
+        val track = currentCatalogTrack(this, snapshot)
+        PlaybackHistoryTracker.shared.observe(
+            snapshot = snapshot,
+            track = track,
+            elapsedRealtimeMillis = SystemClock.elapsedRealtime()
+        ) { item ->
+            libraryRepository.recordHistory(item, System.currentTimeMillis())
         }
     }
 
@@ -936,6 +954,7 @@ class MainActivity : Activity() {
 
     override fun onStop() {
         isActivityStarted = false
+        PlaybackHistoryTracker.shared.suspendObservation()
         progressHandler.removeCallbacks(progressTicker)
         stopMiniVinylAnimation()
         super.onStop()
@@ -953,6 +972,7 @@ class MainActivity : Activity() {
         stopMiniVinylAnimation()
         playbackConnection?.close()
         playbackConnection = null
+        if (libraryRepositoryDelegate.isInitialized()) libraryRepository.close()
         updateCheckJob?.cancel()
         updateCheckJob = null
         downloadJob?.cancel()
