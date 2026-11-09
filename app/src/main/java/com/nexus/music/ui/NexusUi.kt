@@ -313,7 +313,7 @@ object NexusUi {
             background = Drawables.copperButton(context)
             setPadding(dp(context, 10), dp(context, 10), dp(context, 10), dp(context, 10))
             setImageDrawable(PlaybackGlyphDrawable(context, playing = false))
-            setOnClickListener { onTogglePlayback() }
+            setOnClickListener { Motion.playHaptic(this); onTogglePlayback() }
         }
         row.addView(playPause, LinearLayout.LayoutParams(dp(context, 44), dp(context, 44)))
         panel.addView(row, LinearLayout.LayoutParams(-1, dp(context, 44)))
