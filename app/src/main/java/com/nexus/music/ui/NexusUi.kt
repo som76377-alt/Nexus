@@ -258,69 +258,65 @@ object NexusUi {
     ): MiniPlayerViews {
         val panel = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(context, Colors.raised, 16)
-            setPadding(dp(context, 14), dp(context, 5), dp(context, 14), dp(context, 12))
+            background = rounded(context, Theme.ColorToken.recordBlack, 20)
+            setPadding(dp(context, 12), dp(context, 8), dp(context, 12), dp(context, 8))
+            minimumHeight = dp(context, 64)
+            elevation = dp(context, 8).toFloat()
+            clipToOutline = true
         }
         val progress = SeekBar(context).apply {
             max = 1000
-            progressTintList = android.content.res.ColorStateList.valueOf(Colors.accent)
-            thumbTintList = android.content.res.ColorStateList.valueOf(Colors.accent)
+            isEnabled = false
+            minimumHeight = dp(context, 2)
+            setPadding(0, 0, 0, 0)
+            progressTintList = android.content.res.ColorStateList.valueOf(Theme.ColorToken.saffron)
+            progressBackgroundTintList = android.content.res.ColorStateList.valueOf(Theme.ColorToken.groove)
+            thumbTintList = android.content.res.ColorStateList.valueOf(Color.TRANSPARENT)
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, value: Int, fromUser: Boolean) {
                     if (fromUser) onSeekChanged()
                 }
-
-                override fun onStartTrackingTouch(seekBar: SeekBar?) {
-                    onSeekStarted()
-                }
-
+                override fun onStartTrackingTouch(seekBar: SeekBar?) { onSeekStarted() }
                 override fun onStopTrackingTouch(seekBar: SeekBar?) {
                     onSeekFinished(seekBar?.progress ?: 0)
                 }
             })
         }
-        panel.addView(progress, LinearLayout.LayoutParams(-1, dp(context, Spacing.controlHeight)))
-
+        panel.addView(progress, LinearLayout.LayoutParams(-1, dp(context, 2)))
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
         val artwork = ImageView(context).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
-            background = rounded(context, Colors.surface, 10)
-            contentDescription = "Now playing artwork"
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(Theme.ColorToken.groove)
+            }
+            clipToOutline = true
+            contentDescription = "Now playing vinyl label artwork"
         }
-        row.addView(
-            artwork,
-            LinearLayout.LayoutParams(
-                dp(context, Spacing.miniPlayerArtwork),
-                dp(context, Spacing.miniPlayerArtwork)
-            )
-        )
-
+        row.addView(artwork, LinearLayout.LayoutParams(dp(context, 44), dp(context, 44)))
         val labels = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(context, 12), 0, dp(context, 8), 0)
         }
-        val title = text(context, "Nothing playing", 14f, Colors.foreground, bold = true, maxLines = 1)
-        val subtitle = text(context, "Nothing playing", 12f, Colors.muted, maxLines = 1)
+        val title = text(context, "Nothing playing", 13f, Theme.ColorToken.paperStock, bold = true, maxLines = 1)
+        val subtitle = text(context, "Nothing playing", 11f, Theme.ColorToken.ink3, maxLines = 1)
         labels.addView(title)
-        labels.addView(subtitle.apply { setPadding(0, dp(context, 4), 0, 0) })
+        labels.addView(subtitle.apply { setPadding(0, dp(context, 3), 0, 0) })
         row.addView(labels, LinearLayout.LayoutParams(0, -2, 1f))
-
         val playPause = ImageButton(context).apply {
             contentDescription = "Play"
             isEnabled = false
-            background = rounded(context, Colors.accent, 12)
-            setPadding(dp(context, 14), dp(context, 12), dp(context, 14), dp(context, 12))
+            background = Drawables.copperButton(context)
+            setPadding(dp(context, 10), dp(context, 10), dp(context, 10), dp(context, 10))
             setImageDrawable(PlaybackGlyphDrawable(context, playing = false))
-            setOnClickListener { onTogglePlayback() }
+            setOnClickListener { Motion.playHaptic(this); onTogglePlayback() }
         }
-        row.addView(
-            playPause,
-            LinearLayout.LayoutParams(dp(context, 52), dp(context, Spacing.controlHeight))
-        )
-        panel.addView(row)
+        row.addView(playPause, LinearLayout.LayoutParams(dp(context, 44), dp(context, 44)))
+        panel.addView(row, LinearLayout.LayoutParams(-1, dp(context, 44)))
         return MiniPlayerViews(panel, progress, artwork, title, subtitle, playPause)
     }
 

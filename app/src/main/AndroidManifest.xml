@@ -41,6 +41,11 @@
             android:windowSoftInputMode="adjustResize" />
 
         <activity
+            android:name=".NowPlayingActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
             android:name=".update.UpdateInstallStatusActivity"
             android:excludeFromRecents="true"
             android:exported="false"
