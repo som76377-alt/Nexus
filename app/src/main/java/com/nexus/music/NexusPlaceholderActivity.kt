@@ -30,6 +30,7 @@ import com.nexus.music.ui.NexusUi
 import com.nexus.music.ui.Theme
 import com.nexus.music.ui.Type
 import com.nexus.music.ui.Widgets
+import com.nexus.music.ui.PaperTexture
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -146,6 +147,9 @@ class LibraryActivity : Activity() {
         root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Theme.ColorToken.parchment)
+        }
+        PaperTexture.prepare(this, PaperTexture.Material.LIBRARY_STOCK) { texture ->
+            if (texture != null && !isDestroyed) root.background = texture
         }
         val scroll = ScrollView(this).apply { isFillViewport = true; clipToPadding = false }
         content = LinearLayout(this).apply {
