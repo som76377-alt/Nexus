@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="nexus_parchment">#EEE5D0</color>
+    <color name="nexus_paper_stock">#F7F1E3</color>
+    <color name="nexus_ink">#26211B</color>
+    <color name="nexus_ink_2">#6B6153</color>
+    <color name="nexus_ink_3">#9A8F7E</color>
+    <color name="nexus_mineral">#1F4A40</color>
+    <color name="nexus_copper">#A4552F</color>
+    <color name="nexus_copper_pressed">#8A4424</color>
+    <color name="nexus_saffron">#E3B04B</color>
+    <color name="nexus_record_black">#17130F</color>
+    <color name="nexus_groove">#221D18</color>
+    <color name="nexus_unread">#D62828</color>
+</resources>
