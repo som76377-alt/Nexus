@@ -2,6 +2,7 @@ package com.nexus.music.ui
 
 import android.content.Context
 import android.graphics.Typeface
+import android.os.Build
 
 /** Font lookup is optional by design: builds without bundled font files use platform faces. */
 object Type {
@@ -16,8 +17,7 @@ object Type {
 
     private fun resolve(context: Context, resourceName: String, fallback: Typeface): Typeface {
         val id = context.resources.getIdentifier(resourceName, "font", context.packageName)
-        return if (id == 0) fallback else runCatching {
-            context.resources.getFont(id)
-        }.getOrDefault(fallback)
+        if (id == 0 || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return fallback
+        return runCatching { context.resources.getFont(id) }.getOrDefault(fallback)
     }
 }
