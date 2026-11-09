@@ -35,6 +35,7 @@ import com.nexus.music.ui.Theme
 import com.nexus.music.ui.Type
 import com.nexus.music.ui.PaperTexture
 import com.nexus.music.ui.SearchPanel
+import com.nexus.music.ui.Theme
 import com.nexus.music.catalog.ResolvedAudio
 import com.nexus.music.catalog.YoutubeCatalogRepository
 import com.nexus.music.catalog.YoutubeSearchScope
@@ -210,7 +211,7 @@ class MainActivity : Activity() {
         scroll.addView(content)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         root.addView(buildPlayerPanel(), LinearLayout.LayoutParams(-1, -2))
-        root.addView(buildBottomNavigation(), LinearLayout.LayoutParams(-1, dp(62)))
+        root.addView(buildBottomNavigation(), LinearLayout.LayoutParams(-1, dp(68)).apply {\n            leftMargin = dp(16); rightMargin = dp(16); bottomMargin = dp(10)\n        })
         setContentView(root)
         registerBackNavigation()
         applySystemBarInsets(root)
@@ -234,8 +235,18 @@ class MainActivity : Activity() {
             context = this,
             selected = NexusUi.NavigationTab.HOME,
             onHome = {},
-            onRoom = ::openRoomPage
+            onLibrary = ::openLibraryPage,
+            onRoom = ::openRoomPage,
+            onYou = ::openProfilePage
         )
+
+    private fun openLibraryPage() {
+        startActivity(Intent(this, LibraryActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+    }
+
+    private fun openProfilePage() {
+        startActivity(Intent(this, ProfileActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+    }
 
     private fun openRoomPage() {
         startActivity(
