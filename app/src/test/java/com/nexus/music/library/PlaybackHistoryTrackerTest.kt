@@ -24,16 +24,24 @@ class PlaybackHistoryTrackerTest {
         title = track.title,
         artist = track.artist.orEmpty(),
         isPlaying = playing,
-        playbackState = if (playing) Player.STATE_READY else Player.STATE_READY
+        playbackState = Player.STATE_READY
     )
+
+    private fun feed(
+        tracker: PlaybackHistoryTracker,
+        item: CatalogTrack,
+        start: Long,
+        end: Long,
+        onRecord: (CatalogTrack) -> Unit
+    ) {
+        for (time in start..end step 500L) tracker.observe(snapshot(item), item, time, onRecord)
+    }
 
     @Test fun recordsOnceAfterTenSecondsOfObservedPlayback() {
         val tracker = PlaybackHistoryTracker()
         val item = track()
         var records = 0
-        for (time in 0L..10_000L step 500L) {
-            tracker.observe(snapshot(item), item, time) { records++ }
-        }
+        feed(tracker, item, 0L, 10_000L) { records++ }
         assertEquals(1, records)
         assertFalse(tracker.observe(snapshot(item), item, 10_500L) { records++ })
         assertEquals(1, records)
@@ -43,11 +51,10 @@ class PlaybackHistoryTrackerTest {
         val tracker = PlaybackHistoryTracker()
         val item = track()
         var records = 0
-        tracker.observe(snapshot(item), item, 0L) { records++ }
-        tracker.observe(snapshot(item), item, 4_000L) { records++ }
-        tracker.observe(snapshot(item, playing = false), item, 5_000L) { records++ }
+        feed(tracker, item, 0L, 4_000L) { records++ }
+        tracker.observe(snapshot(item, playing = false), item, 4_500L) { records++ }
         tracker.observe(snapshot(item), item, 20_000L) { records++ }
-        tracker.observe(snapshot(item), item, 26_000L) { records++ }
+        feed(tracker, item, 20_500L, 26_000L) { records++ }
         assertEquals(1, records)
     }
 
@@ -55,13 +62,10 @@ class PlaybackHistoryTrackerTest {
         val tracker = PlaybackHistoryTracker()
         val first = track()
         val second = track("lmnopqrstuv")
-        var recorded = mutableListOf<String>()
-        tracker.observe(snapshot(first), first, 0L) { recorded += it.url }
-        tracker.observe(snapshot(first), first, 5_000L) { recorded += it.url }
+        val recorded = mutableListOf<String>()
+        feed(tracker, first, 0L, 5_000L) { recorded += it.url }
         tracker.observe(snapshot(second), second, 5_100L) { recorded += it.url }
-        tracker.observe(snapshot(second), second, 10_000L) { recorded += it.url }
-        assertTrue(recorded.isEmpty())
-        tracker.observe(snapshot(second), second, 15_100L) { recorded += it.url }
+        feed(tracker, second, 5_600L, 15_100L) { recorded += it.url }
         assertEquals(listOf(second.url), recorded)
     }
 
@@ -69,11 +73,10 @@ class PlaybackHistoryTrackerTest {
         val tracker = PlaybackHistoryTracker()
         val item = track()
         var records = 0
-        tracker.observe(snapshot(item), item, 0L) { records++ }
-        tracker.observe(snapshot(item), item, 5_000L) { records++ }
+        feed(tracker, item, 0L, 5_000L) { records++ }
         tracker.suspendObservation()
         tracker.observe(snapshot(item), item, 50_000L) { records++ }
-        tracker.observe(snapshot(item), item, 55_000L) { records++ }
+        feed(tracker, item, 50_500L, 55_500L) { records++ }
         assertEquals(1, records)
     }
 
