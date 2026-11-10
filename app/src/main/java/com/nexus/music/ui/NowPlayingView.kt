@@ -456,7 +456,7 @@ class NowPlayingView(
     }
 
     private fun refreshLayers() {
-        val animating = currentSpeed > 0.001f || speedAnimator?.isRunning == true || armAnimator?.isRunning == true
+        val animating = discAnimator?.isRunning == true || speedAnimator?.isRunning == true || armAnimator?.isRunning == true
         val layer = if (animating) View.LAYER_TYPE_HARDWARE else View.LAYER_TYPE_NONE
         disc.setLayerType(layer, null)
         tonearm.setLayerType(layer, null)
