@@ -234,7 +234,7 @@ class NowPlayingView(
                 armPhase = VinylMotion.ArmPhase.LOWERING
                 lateinit var settle: ValueAnimator
                 settle = ValueAnimator.ofFloat(0f, 1f).apply {
-                    duration = ARM_SETTLE_MS
+                    this.duration = ARM_SETTLE_MS
                     interpolator = DecelerateInterpolator(1.4f)
                     addUpdateListener { animator ->
                         val fraction = animator.animatedValue as Float
