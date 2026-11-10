@@ -12,7 +12,7 @@ on:
         description: URL of the tonearm source image
         required: true
         type: string
-        default: 'https://banner2.cleanpng.com/20180528/jgs/kisspng-car-plumbing-fixtures-technology-record-player-5b0bb4e5dd3d52.4504014915274938619062.jpg'
+        default: 'https://toppng.com/uploads/preview/record-needle-arm-11549346677l6asht7yrz.png'
 
 permissions:
   contents: write
