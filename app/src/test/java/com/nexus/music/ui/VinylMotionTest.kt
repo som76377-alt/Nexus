@@ -44,6 +44,6 @@ class VinylMotionTest {
         assertEquals(VinylMotion.DeckState.STOPPED, VinylMotion.deckStateFor(false, 0f))
         assertEquals(0.42f, VinylMotion.blend(0.42f, 1f, 0f), 0.001f)
         assertEquals(0.71f, VinylMotion.blend(0.42f, 1f, 0.5f), 0.001f)
-        assertEquals(0.42f, VinylMotion.blend(0.71f, 0f, 0.5f), 0.001f)
+        assertEquals(0.355f, VinylMotion.blend(0.71f, 0f, 0.5f), 0.001f)
     }
 }
