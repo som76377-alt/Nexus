@@ -589,7 +589,7 @@ class NowPlayingView(
         const val TONEARM_TRANSLATION_X_DP = 101
         const val TONEARM_TRANSLATION_Y_DP = -69
         const val REST_ANGLE = -44f
-        const val PLAY_START_ANGLE = -30f
+        const val PLAY_START_ANGLE = -27f
         const val PLAY_END_ANGLE = -13f
         const val LIFT_HEIGHT_DP = 4
         const val ARM_SHADOW_HEIGHT_DP = 6
