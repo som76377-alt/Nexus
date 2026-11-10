@@ -103,12 +103,12 @@ fetch_tonearm() {
   echo "Removing corner-connected background from tonearm.png..."
   local width height
   read -r width height <<< "$("${IDENTIFY[@]}" -format '%w %h' "$download")"
-  "${CONVERT[@]}" "$download" \\
-    -alpha set -fuzz 12% -fill none \\
-    -draw 'color 0,0 floodfill' \\
-    -draw "color $((width - 1)),0 floodfill" \\
-    -draw "color 0,$((height - 1)) floodfill" \\
-    -draw "color $((width - 1)),$((height - 1)) floodfill" \\
+  "${CONVERT[@]}" "$download" \
+    -alpha set -fuzz 12% -fill none \
+    -draw 'color 0,0 floodfill' \
+    -draw "color $((width - 1)),0 floodfill" \
+    -draw "color 0,$((height - 1)) floodfill" \
+    -draw "color $((width - 1)),$((height - 1)) floodfill" \
     -trim +repage "PNG:$converted"
 
   verify_and_install "tonearm.png" "$converted"
@@ -130,7 +130,7 @@ run_asset() {
   local mode="$2"
   local log="$TMP_DIR/$name.log"
   if bash "$0" "$mode" >"$log" 2>&1; then
-    printf '%s: OK\\n' "$name"
+    printf '%s: OK\n' "$name"
     return 0
   fi
 
@@ -142,7 +142,7 @@ run_asset() {
   if [[ -z "$reason" ]]; then
     reason="asset processing failed without an error message"
   fi
-  printf '%s: FAILED: %s\\n' "$name" "$reason"
+  printf '%s: FAILED: %s\n' "$name" "$reason"
   return 1
 }
 
