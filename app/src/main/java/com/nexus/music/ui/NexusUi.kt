@@ -26,20 +26,21 @@ import android.graphics.Typeface
  */
 object NexusUi {
     object Colors {
-        val background: Int = Color.rgb(12, 14, 18)
-        val surface: Int = Color.rgb(24, 28, 35)
-        val raised: Int = Color.rgb(31, 36, 44)
-        val accent: Int = Color.rgb(167, 240, 106)
-        val foreground: Int = Color.rgb(244, 247, 250)
-        val muted: Int = Color.rgb(160, 172, 187)
-        val accentForeground: Int = Color.rgb(14, 20, 12)
+        // Compatibility facade: existing screens migrate to semantic tokens incrementally.
+        val background: Int get() = NexusDesignSystem.Palette.background
+        val surface: Int get() = NexusDesignSystem.Palette.surface
+        val raised: Int get() = NexusDesignSystem.Palette.raised
+        val accent: Int get() = NexusDesignSystem.Palette.accent
+        val foreground: Int get() = NexusDesignSystem.Palette.foreground
+        val muted: Int get() = NexusDesignSystem.Palette.muted
+        val accentForeground: Int get() = NexusDesignSystem.Palette.accentForeground
     }
 
     object Spacing {
         const val screenHorizontal = 20
         const val screenVertical = 24
         const val controlHeight = 48
-        const val navigationHeight = 62
+        const val navigationHeight = 68
         const val miniPlayerArtwork = 48
     }
 
@@ -74,7 +75,7 @@ object NexusUi {
         text = value
         textSize = sizeSp
         setTextColor(color)
-        if (bold) typeface = Typeface.DEFAULT_BOLD
+        typeface = if (bold) NexusDesignSystem.Type.interfaceText(context).let { Typeface.create(it, Typeface.BOLD) } else NexusDesignSystem.Type.interfaceText(context)
         this.maxLines = maxLines
         ellipsize = TextUtils.TruncateAt.END
     }
@@ -93,7 +94,7 @@ object NexusUi {
         minimumHeight = dp(context, Spacing.controlHeight)
         setPadding(dp(context, 12), 0, dp(context, 12), 0)
         setTextColor(if (primary) Colors.accentForeground else Colors.foreground)
-        typeface = Typeface.DEFAULT_BOLD
+        typeface = Typeface.create(NexusDesignSystem.Type.interfaceText(context), Typeface.BOLD)
         background = rounded(context, if (primary) Colors.accent else Colors.raised, 10)
     }
 
