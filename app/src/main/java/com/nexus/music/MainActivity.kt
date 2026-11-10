@@ -22,6 +22,7 @@ import android.widget.Button
 import android.widget.ImageView
 import android.widget.ImageButton
 import android.widget.ProgressBar
+import android.widget.PopupMenu
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
@@ -54,6 +55,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class MainActivity : Activity() {
+    private enum class SearchSort { RELEVANCE, POPULAR, TITLE, DURATION }
     private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val repository by lazy { YoutubeCatalogRepository() }
     private val updateChecker by lazy { GitHubReleaseUpdater() }
@@ -84,6 +86,8 @@ class MainActivity : Activity() {
     private var isSeeking = false
     private var isActivityStarted = false
     private var lastPlaybackSnapshot = PlaybackSnapshot(connected = false)
+    private var lastSearchResults: List<CatalogTrack> = emptyList()
+    private var currentSort = SearchSort.RELEVANCE
     private var backInvokedCallback: android.window.OnBackInvokedCallback? = null
 
     private val screenBackground = NexusDesignSystem.Palette.archiveIvory
@@ -127,6 +131,13 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(22), dp(28), dp(22), dp(32))
         }
+
+        content.addView(com.nexus.music.ui.HomeDiscoveryView(this) { query ->
+            searchPanel.queryInput.setText(query)
+            selectedScope = YoutubeSearchScope.MUSIC_SONGS
+            searchPanel.setSelectedScope(selectedScope)
+            performSearch()
+        }, verticalParams(18))
 
         updatePanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -193,6 +204,10 @@ class MainActivity : Activity() {
             onSearchRequested = ::performSearch,
             onScopeSelected = ::selectScope
         )
+        val sortButton = NexusUi.actionButton(this, "Sort results", primary = false).apply {
+            setOnClickListener { showSearchSortMenu(this) }
+        }
+        content.addView(sortButton, verticalParams(8))
         content.addView(searchPanel, verticalParams(18))
 
         scroll.addView(content)
