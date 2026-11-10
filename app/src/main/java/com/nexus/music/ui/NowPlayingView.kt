@@ -213,6 +213,7 @@ class NowPlayingView(
 
     private fun beginPlay(positionMs: Long, duration: Long) {
         if (!animationsEnabled()) {
+            stopAllMotion()
             currentSpeed = 1f
             deckState = VinylMotion.DeckState.PLAYING
             armAngle = VinylMotion.trackingAngle(positionMs, duration, PLAY_START_ANGLE, PLAY_END_ANGLE)
@@ -261,6 +262,7 @@ class NowPlayingView(
 
     private fun beginPause() {
         if (!animationsEnabled()) {
+            stopAllMotion()
             currentSpeed = 0f
             deckState = VinylMotion.DeckState.STOPPED
             armAngle = REST_ANGLE
@@ -293,6 +295,7 @@ class NowPlayingView(
         val target = VinylMotion.trackingAngle(positionMs, duration, PLAY_START_ANGLE, PLAY_END_ANGLE)
         if (kotlin.math.abs(target - armAngle) < TRACKING_EPSILON_DEGREES) return
         if (!animationsEnabled()) {
+            cancelArmAnimation()
             armAngle = target
             applyArmFrame()
             return
