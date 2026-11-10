@@ -139,11 +139,11 @@ class MainActivity : Activity() {
             clipToPadding = false
         }
         mainScroll = scroll
-        homeContent = content
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(22), dp(28), dp(22), dp(32))
         }
+        homeContent = content
 
         content.addView(com.nexus.music.ui.HomeDiscoveryView(this) { query ->
             searchPanel.queryInput.setText(query)
@@ -919,7 +919,7 @@ class MainActivity : Activity() {
     override fun onBackPressed() {
         if (::nowPlayingView.isInitialized && nowPlayingView.visibility == View.VISIBLE) {
             nowPlayingView.visibility = View.GONE
-        } else if (::mainScroll.isInitialized && mainScroll.childCount > 0 && mainScroll.getChildAt(0) !is HomeDiscoveryView) {
+        } else if (::mainScroll.isInitialized && mainScroll.childCount > 0 && mainScroll.getChildAt(0) !== homeContent) {
             showHome()
         } else {
             finishAffinity()
