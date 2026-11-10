@@ -605,8 +605,17 @@ class ListeningRoomActivity : Activity() {
             selected = NexusUi.NavigationTab.ROOM,
             onHome = ::navigateHome,
             onLibrary = ::navigateLibrary,
-            onRoom = {}
+            onRoom = {},
+            onYou = ::navigateYou
         )
+
+    private fun navigateYou() {
+        startActivity(
+            Intent(this, MainActivity::class.java)
+                .putExtra(MainActivity.EXTRA_OPEN_YOU, true)
+                .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+        )
+    }
 
     private fun navigateLibrary() {
         startActivity(
