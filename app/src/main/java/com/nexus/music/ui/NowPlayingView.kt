@@ -218,7 +218,6 @@ class NowPlayingView(
             armAngle = VinylMotion.trackingAngle(positionMs, duration, PLAY_START_ANGLE, PLAY_END_ANGLE)
             armLift = 0f
             applyArmFrame()
-            startFrameTicker()
             return
         }
         animateSpeedTo(1f)
