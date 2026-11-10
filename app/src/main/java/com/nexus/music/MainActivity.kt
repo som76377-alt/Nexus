@@ -244,6 +244,7 @@ class MainActivity : Activity() {
         }
         root.addView(nowPlayingView, FrameLayout.LayoutParams(-1, -1))
         setContentView(root)
+        if (intent.getBooleanExtra(EXTRA_OPEN_LIBRARY, false)) showLibrary()
         loadHomeShelves()
         registerBackNavigation()
         applySystemBarInsets(base)
@@ -926,6 +927,12 @@ class MainActivity : Activity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_OPEN_LIBRARY, false)) showLibrary() else showHome()
+    }
+
     override fun onStart() {
         super.onStart()
         isActivityStarted = true
@@ -959,5 +966,6 @@ class MainActivity : Activity() {
     }
 
     companion object {
+        const val EXTRA_OPEN_LIBRARY = "com.nexus.music.extra.OPEN_LIBRARY"
     }
 }
