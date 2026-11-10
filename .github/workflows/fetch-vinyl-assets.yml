@@ -2,6 +2,17 @@ name: Fetch vinyl player assets
 
 on:
   workflow_dispatch:
+    inputs:
+      disc_url:
+        description: URL of the vinyl disc source image
+        required: true
+        type: string
+        default: 'https://img.magnific.com/free-psd/vintage-vinyl-record-with-red-label-classic-music-icon_191095-78705.jpg?semt=ais_hybrid&w=740&q=80'
+      arm_url:
+        description: URL of the tonearm source image
+        required: true
+        type: string
+        default: 'https://banner2.cleanpng.com/20180528/jgs/kisspng-car-plumbing-fixtures-technology-record-player-5b0bb4e5dd3d52.4504014915274938619062.jpg'
 
 permissions:
   contents: write
@@ -22,6 +33,9 @@ jobs:
           sudo apt-get install --yes imagemagick
 
       - name: Download, convert, and verify assets
+        env:
+          DISC_URL: ${{ inputs.disc_url }}
+          ARM_URL: ${{ inputs.arm_url }}
         run: bash scripts/fetch-vinyl-assets.sh
 
       - name: Commit and push the PNG assets
