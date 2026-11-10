@@ -520,7 +520,7 @@ class MainActivity : Activity() {
             }
         )
         player.container.setOnClickListener {
-            nowPlayingView.setArtwork(lastPlaybackSnapshot.sourceId.takeIf { false })
+            nowPlayingView.setArtwork(lastPlaybackSnapshot.artworkUrl)
             nowPlayingView.render(lastPlaybackSnapshot)
             nowPlayingView.visibility = View.VISIBLE
         }
@@ -548,8 +548,9 @@ class MainActivity : Activity() {
 
     private fun updatePlaybackUi(snapshot: PlaybackSnapshot) {
         lastPlaybackSnapshot = snapshot
-        if (::nowPlayingView.isInitialized && nowPlayingView.visibility == View.VISIBLE) {
-            nowPlayingView.render(snapshot)
+        if (::nowPlayingView.isInitialized) {
+            nowPlayingView.setArtwork(snapshot.artworkUrl)
+            if (nowPlayingView.visibility == View.VISIBLE) nowPlayingView.render(snapshot)
         }
         scheduleProgressTicker(snapshot)
         if (!snapshot.connected) {
