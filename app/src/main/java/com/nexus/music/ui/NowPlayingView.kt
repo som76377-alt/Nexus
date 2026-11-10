@@ -75,20 +75,23 @@ class NowPlayingView(
             setImageResource(R.drawable.vinyl_disc)
             scaleType = ImageView.ScaleType.FIT_CENTER
             contentDescription = "Vinyl record"
+            visibility = View.VISIBLE
         }
         stage.addView(disc, FrameLayout.LayoutParams(dp(286), dp(286), Gravity.CENTER))
         tonearm.apply {
             setImageResource(R.drawable.tonearm)
             scaleType = ImageView.ScaleType.FIT_CENTER
             contentDescription = "Tonearm"
-            // The source PNG's pivot bearing is at (225, 50) in a 276x348 image.
-            // At 0.8x scale this places the real pivot outside the record's rim.
+            visibility = View.VISIBLE
+            // The baked vector's pivot bearing is at (225, 50) in a 276x348 viewport.
+            // At this ImageView size the bearing sits just beyond the record's rim.
             pivotX = dp(180).toFloat()
             pivotY = dp(40).toFloat()
             translationX = dp(63).toFloat()
         }
         stage.addView(tonearm, FrameLayout.LayoutParams(dp(221), dp(278), Gravity.CENTER))
-        addView(stage, LayoutParams(dp(320), 0, 1f).apply {
+        // A fixed stage prevents the artwork area from collapsing during layout.
+        addView(stage, LayoutParams(dp(320), dp(320)).apply {
             gravity = Gravity.CENTER_HORIZONTAL
         })
 
