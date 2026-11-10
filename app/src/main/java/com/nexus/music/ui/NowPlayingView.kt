@@ -237,7 +237,8 @@ class NowPlayingView(
                     interpolator = DecelerateInterpolator(1.4f)
                     addUpdateListener { animator ->
                         val fraction = animator.animatedValue as Float
-                        armAngle = target + sin(PI * fraction).toFloat() * ARM_OVERSHOOT_DEGREES
+                        armAngle = VinylMotion.blend(target - ARM_OVERSHOOT_DEGREES, target, fraction) +
+                            sin(PI * fraction).toFloat() * ARM_OVERSHOOT_DEGREES
                         armLift = 1f - fraction
                         applyArmFrame()
                     }
