@@ -54,9 +54,8 @@ object NexusDesignSystem {
 
     object Type {
         /**
-         * Temporary platform fallbacks until the licensed display/interface font assets
-         * are added. Callers use semantic roles now, so the actual font files can be
-         * introduced without changing individual screens.
+         * Resolve the bundled, SIL OFL-licensed font resources by semantic role.
+         * Platform fallback keeps rendering safe if an asset is unavailable.
          */
         fun display(context: Context): Typeface =
             bundledOrFallback(context, "fraunces", Typeface.create("serif", Typeface.NORMAL))
