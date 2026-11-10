@@ -212,6 +212,7 @@ class NowPlayingView(
 
     override fun onDetachedFromWindow() {
         stopDisc()
+        tonearmAnimator?.cancel()
         super.onDetachedFromWindow()
     }
 
