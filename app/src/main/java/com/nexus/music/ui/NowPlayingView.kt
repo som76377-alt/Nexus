@@ -9,6 +9,10 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.RectF
+import android.graphics.LinearGradient
+import android.graphics.RadialGradient
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
@@ -51,6 +55,8 @@ class NowPlayingView(
         orientation = VERTICAL
         gravity = Gravity.CENTER_HORIZONTAL
         setPadding(dp(24), dp(16), dp(24), dp(24))
+        clipChildren = false
+        clipToPadding = false
         setBackgroundColor(paper)
 
         val top = LinearLayout(context).apply {
@@ -72,24 +78,23 @@ class NowPlayingView(
             clipToPadding = false
         }
         disc.apply {
-            setImageResource(R.drawable.vinyl_disc)
-            scaleType = ImageView.ScaleType.FIT_CENTER
+            setImageDrawable(VinylRecordDrawable())
+            scaleType = ImageView.ScaleType.FIT_XY
             contentDescription = "Vinyl record"
             visibility = View.VISIBLE
         }
         stage.addView(disc, FrameLayout.LayoutParams(dp(286), dp(286), Gravity.CENTER))
         tonearm.apply {
-            setImageResource(R.drawable.tonearm)
-            scaleType = ImageView.ScaleType.FIT_CENTER
+            setImageDrawable(RealTonearmDrawable())
+            scaleType = ImageView.ScaleType.FIT_XY
             contentDescription = "Tonearm"
             visibility = View.VISIBLE
-            // The baked vector's pivot bearing is at (225, 50) in a 276x348 viewport.
-            // At this ImageView size the bearing sits just beyond the record's rim.
-            pivotX = dp(180).toFloat()
-            pivotY = dp(40).toFloat()
-            translationX = dp(63).toFloat()
+            // Pivot bearing remains outside the record; parent clipping is disabled.
+            pivotX = dp(184).toFloat()
+            pivotY = dp(43).toFloat()
+            translationX = dp(58).toFloat()
         }
-        stage.addView(tonearm, FrameLayout.LayoutParams(dp(221), dp(278), Gravity.CENTER))
+        stage.addView(tonearm, FrameLayout.LayoutParams(dp(232), dp(286), Gravity.CENTER))
         // A fixed stage prevents the artwork area from collapsing during layout.
         addView(stage, LayoutParams(dp(320), dp(320)).apply {
             gravity = Gravity.CENTER_HORIZONTAL
@@ -183,8 +188,8 @@ class NowPlayingView(
         tonearmPlaying = playing
         tonearm.animate().cancel()
         tonearm.animate()
-            .rotation(if (playing) 0f else -42f)
-            .translationY(if (playing) 0f else -dp(3).toFloat())
+            .rotation(if (playing) 0f else 31f)
+            .translationY(0f)
             .setDuration(480L)
             .setInterpolator(android.view.animation.DecelerateInterpolator(1.5f))
             .start()
@@ -228,6 +233,86 @@ class NowPlayingView(
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+
+
+    private class VinylRecordDrawable : android.graphics.drawable.Drawable() {
+        private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        override fun draw(c: Canvas) {
+            val side = minOf(bounds.width(), bounds.height()).toFloat()
+            val x = bounds.exactCenterX(); val y = bounds.exactCenterY(); val r = side * .485f
+            p.shader = RadialGradient(x-r*.22f,y-r*.3f,r*1.5f,
+                intArrayOf(0xff555558.toInt(),0xff29292b.toInt(),0xff101011.toInt()),
+                floatArrayOf(0f,.52f,1f),Shader.TileMode.CLAMP)
+            c.drawCircle(x,y,r,p); p.shader=null
+            p.style=Paint.Style.STROKE
+            for (i in 0..22) {
+                val rr=r*(.31f+i*.029f)
+                p.strokeWidth=if(i%4==0) side*.007f else side*.0025f
+                p.color=if(i%2==0) 0x66595a5d else 0x77303032
+                c.drawCircle(x,y,rr,p)
+                p.color=0x447f8082
+                c.drawCircle(x-side*.002f,y-side*.002f,rr-side*.004f,p)
+            }
+            p.style=Paint.Style.FILL
+            p.shader=LinearGradient(x-r,y-r,x+r,y+r,
+                intArrayOf(0x00ffffff,0x30ffffff,0x08ffffff,0x00ffffff),
+                floatArrayOf(0f,.24f,.57f,1f),Shader.TileMode.CLAMP)
+            c.save(); c.rotate(-35f,x,y)
+            c.drawOval(RectF(x-r*.78f,y-r*.78f,x+r*.78f,y-r*.48f),p)
+            c.restore(); p.shader=null
+            p.style=Paint.Style.STROKE; p.strokeWidth=side*.016f; p.color=0x22ffffff
+            c.drawArc(RectF(x-r*.91f,y-r*.91f,x+r*.91f,y+r*.91f),205f,110f,false,p)
+            p.style=Paint.Style.FILL
+            p.color=0xffb65c40.toInt(); c.drawCircle(x,y,r*.255f,p)
+            p.color=0xffdfbd96.toInt(); c.drawCircle(x,y,r*.216f,p)
+            p.color=0xff243e38.toInt(); c.drawCircle(x,y,r*.181f,p)
+            p.color=0xffefe1c6.toInt(); c.drawCircle(x,y,r*.028f,p)
+        }
+        override fun setAlpha(a:Int) { p.alpha=a }
+        override fun setColorFilter(f:android.graphics.ColorFilter?) { p.colorFilter=f }
+        @Deprecated("Deprecated in Android graphics API") override fun getOpacity()=android.graphics.PixelFormat.TRANSLUCENT
+    }
+
+    private class RealTonearmDrawable : android.graphics.drawable.Drawable() {
+        private val p=Paint(Paint.ANTI_ALIAS_FLAG)
+        private fun line(c:Canvas,color:Int,w:Float,path:Path) {
+            p.color=color; p.style=Paint.Style.STROKE; p.strokeWidth=w; p.strokeCap=Paint.Cap.ROUND
+            c.drawPath(path,p)
+        }
+        override fun draw(c:Canvas) {
+            c.save(); c.scale(bounds.width()/276f,bounds.height()/348f)
+            p.style=Paint.Style.FILL
+            p.shader=RadialGradient(225f,49f,34f,
+                intArrayOf(0xffeee9df.toInt(),0xffaaa69e.toInt(),0xff55534f.toInt()),null,Shader.TileMode.CLAMP)
+            c.drawCircle(225f,49f,33f,p); p.shader=null
+            p.color=0xff77736d.toInt(); c.drawCircle(225f,49f,24f,p)
+            p.color=0xffd7d2c9.toInt(); c.drawCircle(225f,49f,19f,p)
+            p.color=0xff66635e.toInt(); c.drawCircle(225f,49f,12f,p)
+            p.color=0xffc8c2b8.toInt(); c.drawCircle(225f,49f,7f,p)
+            val arm=Path().apply { moveTo(224f,69f); cubicTo(219f,111f,178f,185f,139f,248f) }
+            line(c,0xff45433f.toInt(),18f,arm); line(c,0xffc9c4bb.toInt(),12f,arm)
+            line(c,0xfff4f0e8.toInt(),3f,arm); line(c,0xff89857d.toInt(),1f,arm)
+            p.style=Paint.Style.FILL
+            p.shader=LinearGradient(177f,180f,202f,207f,
+                intArrayOf(0xfff0ece4.toInt(),0xff77736c.toInt(),0xffd0cbc2.toInt()),null,Shader.TileMode.CLAMP)
+            c.drawRoundRect(RectF(177f,178f,201f,207f),7f,7f,p); p.shader=null
+            p.color=0xff4b4945.toInt(); c.drawRoundRect(RectF(181f,184f,198f,203f),5f,5f,p)
+            val head=Path().apply { moveTo(129f,238f); lineTo(151f,248f); lineTo(138f,278f); lineTo(115f,267f); close() }
+            p.shader=LinearGradient(118f,245f,150f,275f,
+                intArrayOf(0xffe5e0d7.toInt(),0xff77736c.toInt(),0xffc8c2b8.toInt()),null,Shader.TileMode.CLAMP)
+            c.drawPath(head,p); p.shader=null
+            p.color=0xff383735.toInt(); c.drawRoundRect(RectF(116f,263f,141f,286f),3f,3f,p)
+            p.color=0xffc5beb3.toInt(); c.drawCircle(121f,266f,2f,p); c.drawCircle(136f,274f,2f,p)
+            p.color=0xff33312f.toInt(); c.drawRect(125f,284f,128f,297f,p)
+            p.color=0xffd6d0c6.toInt(); c.drawLine(126f,297f,124f,304f,p)
+            p.style=Paint.Style.STROKE; p.strokeWidth=1f; p.color=0xff77736d.toInt()
+            for(i in 0..4) c.drawLine(183f+i*3f,187f,183f+i*3f,194f,p)
+            c.restore()
+        }
+        override fun setAlpha(a:Int) { p.alpha=a }
+        override fun setColorFilter(f:android.graphics.ColorFilter?) { p.colorFilter=f }
+        @Deprecated("Deprecated in Android graphics API") override fun getOpacity()=android.graphics.PixelFormat.TRANSLUCENT
+    }
 
     private class TransportGlyph(context: Context, private val playing: Boolean) : android.graphics.drawable.Drawable() {
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
