@@ -922,7 +922,8 @@ class MainActivity : Activity() {
         text = value
         textSize = size
         setTextColor(color)
-        if (bold) typeface = Typeface.DEFAULT_BOLD
+        typeface = if (bold) Typeface.create(NexusDesignSystem.Type.interfaceText(this@MainActivity), Typeface.BOLD)
+            else NexusDesignSystem.Type.interfaceText(this@MainActivity)
         this.maxLines = maxLines
         ellipsize = android.text.TextUtils.TruncateAt.END
     }
