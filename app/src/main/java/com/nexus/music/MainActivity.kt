@@ -594,14 +594,11 @@ class MainActivity : Activity() {
                 val results = repository.search(query, requestScope)
                 if (requestGeneration != searchGeneration) return@launch
 
-                searchPanel.resultsContainer.removeAllViews()
+                lastSearchResults = results
+                renderSearchResults()
                 if (results.isEmpty()) {
                     searchPanel.statusText.text = "No results"
                     searchPanel.statusText.visibility = View.VISIBLE
-                } else {
-                    results.forEachIndexed { index, track ->
-                        searchPanel.resultsContainer.addView(resultCard(track), verticalParams(if (index == 0) 0 else 10))
-                    }
                 }
             } catch (error: CancellationException) {
                 throw error
@@ -616,6 +613,34 @@ class MainActivity : Activity() {
                     searchJob = null
                 }
             }
+        }
+    }
+
+    private fun showSearchSortMenu(anchor: View) {
+        PopupMenu(this, anchor).apply {
+            menu.add(0, 0, 0, "YouTube relevance")
+            menu.add(0, 1, 1, "Most viewed")
+            menu.add(0, 2, 2, "Title A–Z")
+            menu.add(0, 3, 3, "Longest first")
+            setOnMenuItemClickListener { item ->
+                currentSort = SearchSort.values().getOrElse(item.itemId) { SearchSort.RELEVANCE }
+                renderSearchResults()
+                true
+            }
+            show()
+        }
+    }
+
+    private fun renderSearchResults() {
+        searchPanel.resultsContainer.removeAllViews()
+        val sorted = when (currentSort) {
+            SearchSort.RELEVANCE -> lastSearchResults
+            SearchSort.POPULAR -> lastSearchResults.sortedByDescending { it.viewCount ?: -1L }
+            SearchSort.TITLE -> lastSearchResults.sortedBy { it.title.lowercase() }
+            SearchSort.DURATION -> lastSearchResults.sortedByDescending { it.durationSeconds ?: -1L }
+        }
+        sorted.forEachIndexed { index, track ->
+            searchPanel.resultsContainer.addView(resultCard(track), verticalParams(if (index == 0) 0 else 10))
         }
     }
 
