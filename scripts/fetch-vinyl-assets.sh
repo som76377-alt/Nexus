@@ -9,7 +9,7 @@ if [[ -z "$DISC_URL" ]]; then
   echo "DISC_URL is empty; using default URL."
 fi
 if [[ -z "$ARM_URL" ]]; then
-  ARM_URL='https://banner2.cleanpng.com/20180528/jgs/kisspng-car-plumbing-fixtures-technology-record-player-5b0bb4e5dd3d52.4504014915274938619062.jpg'
+  ARM_URL='https://toppng.com/uploads/preview/record-needle-arm-11549346677l6asht7yrz.png'
   echo "ARM_URL is empty; using default URL."
 fi
 export DISC_URL ARM_URL
@@ -99,18 +99,25 @@ fetch_tonearm() {
   referer="$(printf '%s' "$ARM_URL" | sed -E 's#^(https?://[^/]+).*#\1/#')"
   curl -fL --retry 3 --retry-delay 2 -A "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36" -e "$referer" -H "Accept: image/*" "$ARM_URL" -o "$download"
 
-  echo "Removing corner-connected background from tonearm.png..."
-  local width height
-  read -r width height <<< "$("${IDENTIFY[@]}" -format '%w %h' "$download")"
-  "${CONVERT[@]}" "$download" \
-    -alpha set -fuzz 4% -fill none \
-    -draw 'color 0,0 floodfill' \
-    -draw "color $((width - 1)),0 floodfill" \
-    -draw "color 0,$((height - 1)) floodfill" \
-    -draw "color $((width - 1)),$((height - 1)) floodfill" \
-    \( +clone -alpha extract -morphology Erode Disk:1 -blur 0x0.7 \) \
-    -compose CopyOpacity -composite \
-    -trim +repage "PNG:$converted"
+  local alpha_min
+  alpha_min="$("${IDENTIFY[@]}" -format '%[fx:minima.a]' "$download")"
+  if awk -v alpha="$alpha_min" 'BEGIN { exit !(alpha < 0.99) }'; then
+    echo "tonearm: already transparent"
+    "${CONVERT[@]}" "$download" -trim +repage "PNG:$converted"
+  else
+    echo "tonearm: flood-fill fallback"
+    local width height
+    read -r width height <<< "$("${IDENTIFY[@]}" -format '%w %h' "$download")"
+    "${CONVERT[@]}" "$download" \
+      -alpha set -fuzz 4% -fill none \
+      -draw 'color 0,0 floodfill' \
+      -draw "color $((width - 1)),0 floodfill" \
+      -draw "color 0,$((height - 1)) floodfill" \
+      -draw "color $((width - 1)),$((height - 1)) floodfill" \
+      \( +clone -alpha extract -morphology Erode Disk:1 -blur 0x0.7 \) \
+      -compose CopyOpacity -composite \
+      -trim +repage "PNG:$converted"
+  fi
 
   verify_and_install "tonearm.png" "$converted"
   local final_dimensions
