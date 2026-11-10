@@ -244,7 +244,7 @@ class MainActivity : Activity() {
         }
         root.addView(nowPlayingView, FrameLayout.LayoutParams(-1, -1))
         setContentView(root)
-        if (intent.getBooleanExtra(EXTRA_OPEN_LIBRARY, false)) showLibrary()
+        if (intent.getBooleanExtra(EXTRA_OPEN_YOU, false)) showYou() else if (intent.getBooleanExtra(EXTRA_OPEN_LIBRARY, false)) showLibrary()
         loadHomeShelves()
         registerBackNavigation()
         applySystemBarInsets(base)
@@ -277,7 +277,8 @@ class MainActivity : Activity() {
             selected = selected,
             onHome = ::showHome,
             onLibrary = ::showLibrary,
-            onRoom = ::openRoomPage
+            onRoom = ::openRoomPage,
+            onYou = ::showYou
         )
 
     private fun showHome() {
@@ -303,6 +304,34 @@ class MainActivity : Activity() {
         )
         bottomNavigationHost.removeAllViews()
         bottomNavigationHost.addView(buildBottomNavigation(NexusUi.NavigationTab.LIBRARY), LinearLayout.LayoutParams(-1, dp(62)))
+    }
+
+    private fun showYou() {
+        if (!::mainScroll.isInitialized) return
+        mainScroll.removeAllViews()
+        mainScroll.addView(
+            YouView(
+                context = this,
+                savedCount = libraryStore.savedTracks().size,
+                recentCount = libraryStore.recentTracks().size,
+                onLibrary = ::showLibrary,
+                onAbout = ::showAboutNexus
+            )
+        )
+        bottomNavigationHost.removeAllViews()
+        bottomNavigationHost.addView(buildBottomNavigation(NexusUi.NavigationTab.YOU), LinearLayout.LayoutParams(-1, dp(62)))
+    }
+
+    private fun showAboutNexus() {
+        AlertDialog.Builder(this)
+            .setTitle("Nexus")
+            .setMessage(
+                "The art of listening.\n\nDiscover music, keep a personal collection, " +
+                    "listen in the background and share listening rooms.\n\n" +
+                    "Official project and releases: github.com/som76377-alt/Nexus"
+            )
+            .setPositiveButton("Close", null)
+            .show()
     }
 
     private fun openRoomPage() {
@@ -930,7 +959,11 @@ class MainActivity : Activity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (intent.getBooleanExtra(EXTRA_OPEN_LIBRARY, false)) showLibrary() else showHome()
+        when {
+            intent.getBooleanExtra(EXTRA_OPEN_YOU, false) -> showYou()
+            intent.getBooleanExtra(EXTRA_OPEN_LIBRARY, false) -> showLibrary()
+            else -> showHome()
+        }
     }
 
     override fun onStart() {
@@ -967,5 +1000,6 @@ class MainActivity : Activity() {
 
     companion object {
         const val EXTRA_OPEN_LIBRARY = "com.nexus.music.extra.OPEN_LIBRARY"
+        const val EXTRA_OPEN_YOU = "com.nexus.music.extra.OPEN_YOU"
     }
 }
