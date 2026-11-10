@@ -1,5 +1,7 @@
 package com.nexus.music.ui
 
+import com.nexus.music.R
+
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.content.Context
@@ -18,7 +20,6 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
-import coil3.load
 import com.nexus.music.playback.PlaybackSnapshot
 
 /** Full-screen Now Playing presentation. All transport commands are delegated to PlaybackConnection. */
@@ -33,9 +34,8 @@ class NowPlayingView(
     private val muted = Color.rgb(112, 99, 84)
     private val green = Color.rgb(32, 82, 71)
     private val copper = Color.rgb(194, 93, 64)
-    private val disc = VinylDiscView(context)
-    private val tonearm = TonearmView(context)
-    private val artwork = ImageView(context)
+    private val disc = ImageView(context)
+    private val tonearm = ImageView(context)
     private val title = TextView(context)
     private val artist = TextView(context)
     private val elapsed = TextView(context)
@@ -43,7 +43,7 @@ class NowPlayingView(
     private val seek = SeekBar(context)
     private val play = ImageButton(context)
     private var durationMs = 0L
-    private var currentArtworkUrl: String? = null
+    private var tonearmPlaying: Boolean? = null
     private var isSeeking = false
     private var discAnimator: ObjectAnimator? = null
 
@@ -71,21 +71,23 @@ class NowPlayingView(
             clipChildren = false
             clipToPadding = false
         }
-        stage.addView(disc, FrameLayout.LayoutParams(dp(286), dp(286), Gravity.CENTER))
-        artwork.apply {
-            scaleType = ImageView.ScaleType.CENTER_CROP
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(Color.rgb(211, 164, 77))
-                setStroke(dp(3), Color.rgb(29, 27, 24))
-            }
-            clipToOutline = true
-            contentDescription = "Album artwork"
+        disc.apply {
+            setImageResource(R.drawable.vinyl_disc)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            contentDescription = "Vinyl record"
         }
-        stage.addView(artwork, FrameLayout.LayoutParams(dp(102), dp(102), Gravity.CENTER))
-        stage.addView(tonearm, FrameLayout.LayoutParams(dp(286), dp(286), Gravity.CENTER))
-        tonearm.pivotX = dp(238).toFloat()
-        tonearm.pivotY = dp(48).toFloat()
+        stage.addView(disc, FrameLayout.LayoutParams(dp(286), dp(286), Gravity.CENTER))
+        tonearm.apply {
+            setImageResource(R.drawable.tonearm)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            contentDescription = "Tonearm"
+            // The source PNG's pivot bearing is at (225, 50) in a 276x348 image.
+            // At 0.8x scale this places the real pivot outside the record's rim.
+            pivotX = dp(180).toFloat()
+            pivotY = dp(40).toFloat()
+            translationX = dp(63).toFloat()
+        }
+        stage.addView(tonearm, FrameLayout.LayoutParams(dp(221), dp(278), Gravity.CENTER))
         addView(stage, LayoutParams(dp(320), 0, 1f).apply {
             gravity = Gravity.CENTER_HORIZONTAL
         })
@@ -164,21 +166,32 @@ class NowPlayingView(
         seek.isEnabled = durationMs > 0L
         play.setImageDrawable(TransportGlyph(context, snapshot.playWhenReady))
         play.contentDescription = if (snapshot.playWhenReady) "Pause" else "Play"
-        tonearm.animateTo(if (snapshot.title.isBlank()) 0f else if (snapshot.playWhenReady) 13f else 8f)
-        if (snapshot.playWhenReady) startDisc() else stopDisc()
+        val playing = snapshot.title.isNotBlank() && snapshot.playWhenReady
+        animateTonearmTo(playing)
+        if (playing) startDisc() else stopDisc()
     }
 
-    fun setArtwork(url: String?) {
-        if (currentArtworkUrl == url) return
-        currentArtworkUrl = url
-        if (url.isNullOrBlank()) artwork.setImageDrawable(null) else artwork.load(url)
+    /** Album artwork is intentionally not shown on the record in this player design. */
+    @Suppress("UNUSED_PARAMETER")
+    fun setArtwork(url: String?) = Unit
+
+    private fun animateTonearmTo(playing: Boolean) {
+        if (tonearmPlaying == playing) return
+        tonearmPlaying = playing
+        tonearm.animate().cancel()
+        tonearm.animate()
+            .rotation(if (playing) 0f else -42f)
+            .translationY(if (playing) 0f else -dp(3).toFloat())
+            .setDuration(480L)
+            .setInterpolator(android.view.animation.DecelerateInterpolator(1.5f))
+            .start()
     }
 
     private fun startDisc() {
         if (discAnimator?.isRunning == true) return
         discAnimator?.cancel()
         discAnimator = ObjectAnimator.ofFloat(disc, View.ROTATION, disc.rotation, disc.rotation + 360f).apply {
-            duration = 9000L
+            duration = 3600L
             repeatCount = ValueAnimator.INFINITE
             interpolator = LinearInterpolator()
             start()
@@ -212,48 +225,6 @@ class NowPlayingView(
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
-
-    private class VinylDiscView(context: Context) : View(context) {
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        override fun onDraw(canvas: Canvas) {
-            super.onDraw(canvas)
-            val cx = width / 2f; val cy = height / 2f
-            val radius = minOf(width, height) * .47f
-            paint.color = Color.rgb(28, 27, 25); paint.style = Paint.Style.FILL
-            canvas.drawCircle(cx, cy, radius, paint)
-            paint.style = Paint.Style.STROKE
-            for (i in 0..22) {
-                paint.color = if (i % 3 == 0) 0xFF55514B.toInt() else 0xFF393632.toInt()
-                paint.strokeWidth = if (i % 3 == 0) 1.4f else .7f
-                val r = radius * (.42f + i * .024f)
-                canvas.drawCircle(cx, cy, r, paint)
-            }
-            paint.style = Paint.Style.FILL
-            paint.color = Color.rgb(194, 93, 64)
-            canvas.drawCircle(cx, cy, radius * .055f, paint)
-        }
-    }
-
-    private class TonearmView(context: Context) : View(context) {
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(194, 93, 64); strokeWidth = 7f; strokeCap = Paint.Cap.ROUND }
-        private var target = 0f
-        override fun onDraw(canvas: Canvas) {
-            super.onDraw(canvas)
-            val pivotX = width * .83f; val pivotY = height * .17f
-            paint.style = Paint.Style.FILL
-            canvas.drawCircle(pivotX, pivotY, 13f, paint)
-            paint.style = Paint.Style.STROKE
-            canvas.drawLine(pivotX, pivotY, width * .62f, height * .52f, paint)
-            canvas.drawLine(width * .62f, height * .52f, width * .57f, height * .62f, paint)
-            paint.style = Paint.Style.FILL
-            canvas.drawCircle(width * .57f, height * .62f, 5f, paint)
-        }
-        fun animateTo(degrees: Float) {
-            if (target == degrees) return
-            target = degrees
-            animate().rotation(degrees).setDuration(420L).start()
-        }
-    }
 
     private class TransportGlyph(context: Context, private val playing: Boolean) : android.graphics.drawable.Drawable() {
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
