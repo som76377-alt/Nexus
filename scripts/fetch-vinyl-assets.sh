@@ -71,7 +71,6 @@ verify_and_install() {
 
 fetch_disc() {
   local download="$TMP_DIR/vinyl_disc.jpg"
-  local trimmed="$TMP_DIR/vinyl_disc_trimmed.png"
   local cropped="$TMP_DIR/vinyl_disc_cropped.png"
   local mask="$TMP_DIR/vinyl_disc_mask.png"
   local converted="$TMP_DIR/vinyl_disc.png"
@@ -81,12 +80,11 @@ fetch_disc() {
   referer="$(printf '%s' "$DISC_URL" | sed -E 's#^(https?://[^/]+).*#\1/#')"
   curl -fL --retry 3 --retry-delay 2 -A "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36" -e "$referer" -H "Accept: image/*" "$DISC_URL" -o "$download"
 
-  echo "Trimming, square-cropping, resizing, and masking vinyl_disc.png..."
-  "${CONVERT[@]}" "$download" -trim +repage "$trimmed"
-  local square
-  square="$("${IDENTIFY[@]}" -format '%[fx:min(w,h)]' "$trimmed")"
-  "${CONVERT[@]}" "$trimmed" -gravity center -crop "${square}x${square}+0+0" +repage -resize 1024x1024 "$cropped"
-  "${CONVERT[@]}" -size 1024x1024 xc:none -fill white -draw 'circle 512,512 512,0' "$mask"
+  echo "Center-cropping 75% of the shorter side, resizing, and masking vinyl_disc.png..."
+  local crop_size
+  crop_size="$("${IDENTIFY[@]}" -format '%[fx:floor(min(w,h)*0.75)]' "$download")"
+  "${CONVERT[@]}" "$download" -gravity center -crop "${crop_size}x${crop_size}+0+0" +repage -resize 1024x1024 "$cropped"
+  "${CONVERT[@]}" -size 1024x1024 xc:none -fill white -draw 'circle 512,512 1012,512' "$mask"
   "${CONVERT[@]}" "$cropped" "$mask" -alpha set -compose DstIn -composite "PNG:$converted"
 
   verify_and_install "vinyl_disc.png" "$converted"
