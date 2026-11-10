@@ -85,12 +85,13 @@ class NowPlayingView(
             visibility = View.VISIBLE
         }
         stage.addView(disc, FrameLayout.LayoutParams(dp(286), dp(286), Gravity.CENTER))
+        stage.addView(VinylLightView(context), FrameLayout.LayoutParams(dp(286), dp(286), Gravity.CENTER))
         tonearm.apply {
             contentDescription = "Tonearm"
             visibility = View.VISIBLE
             // Keep the pivot just beyond the platter rim and the arm artwork inside
             // the stage so its real outward rest movement is never clipped.
-            translationX = dp(42).toFloat()
+            translationX = dp(78).toFloat()
         }
         stage.addView(tonearm, FrameLayout.LayoutParams(dp(232), dp(286), Gravity.CENTER))
         // A fixed stage prevents the artwork area from collapsing during layout.
@@ -185,7 +186,7 @@ class NowPlayingView(
         if (tonearmPlaying == playing) return
         tonearmPlaying = playing
         tonearmAnimator?.cancel()
-        val targetAngle = if (playing) 0f else -14f
+        val targetAngle = if (playing) 0f else -24f
         tonearmAnimator = ValueAnimator.ofFloat(tonearm.angleDegrees, targetAngle).apply {
             duration = 520L
             interpolator = android.view.animation.DecelerateInterpolator(1.4f)
@@ -249,6 +250,33 @@ class NowPlayingView(
         }
     }
 
+    private class VinylLightView(context: Context) : View(context) {
+        private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            val side=minOf(width,height).toFloat(); val x=width/2f; val y=height/2f; val r=side*.485f
+            canvas.save()
+            canvas.clipPath(Path().apply { addCircle(x,y,r,Path.Direction.CW) })
+            val tri=Path().apply {
+                moveTo(x-r*.88f,y-r*.52f); lineTo(x-r*.49f,y-r*.84f)
+                cubicTo(x-r*.12f,y-r*.72f,x+r*.23f,y-r*.43f,x+r*.46f,y-r*.10f)
+                lineTo(x+r*.13f,y-r*.31f); cubicTo(x-r*.18f,y-r*.57f,x-r*.54f,y-r*.65f,x-r*.88f,y-r*.52f); close()
+            }
+            p.style=Paint.Style.FILL
+            p.shader=LinearGradient(x-r*.7f,y-r*.75f,x+r*.35f,y-r*.12f,
+                intArrayOf(0x00ffffff,0x12ffffff,0x30ffffff,0x0effffff,0x00ffffff),
+                floatArrayOf(0f,.25f,.48f,.76f,1f),Shader.TileMode.CLAMP)
+            canvas.drawPath(tri,p); p.shader=null
+            val edge=Path().apply { moveTo(x-r*.82f,y-r*.55f); cubicTo(x-r*.45f,y-r*.78f,x-r*.02f,y-r*.48f,x+r*.32f,y-r*.10f) }
+            p.style=Paint.Style.STROKE; p.strokeCap=Paint.Cap.ROUND; p.strokeWidth=side*.010f
+            p.shader=LinearGradient(x-r*.7f,y-r*.6f,x+r*.2f,y-r*.2f,
+                intArrayOf(0x00ffffff,0x24ffffff,0x0affffff,0x00ffffff),
+                floatArrayOf(0f,.42f,.76f,1f),Shader.TileMode.CLAMP)
+            canvas.drawPath(edge,p); p.shader=null
+            canvas.restore()
+        }
+    }
+
     /** High-gloss black record with fine groove relief and curved light reflections. */
     private class VinylRecordDrawable : android.graphics.drawable.Drawable() {
         private val p = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -260,7 +288,7 @@ class NowPlayingView(
 
             p.style = Paint.Style.FILL
             p.shader = RadialGradient(x-r*.28f, y-r*.34f, r*1.65f,
-                intArrayOf(0xff4b4b4e.toInt(), 0xff242426.toInt(), 0xff09090a.toInt()),
+                intArrayOf(0xff202022.toInt(), 0xff0d0d0f.toInt(), 0xff020203.toInt()),
                 floatArrayOf(0f, .48f, 1f), Shader.TileMode.CLAMP)
             c.drawCircle(x, y, r, p)
             p.shader = null
@@ -272,51 +300,25 @@ class NowPlayingView(
             // Very fine concentric groove cuts, with a restrained raised edge on each groove.
             p.style = Paint.Style.STROKE
             p.strokeCap = Paint.Cap.BUTT
-            for (i in 0..42) {
-                val rr = r * (.285f + i * .0158f)
-                p.strokeWidth = if (i % 5 == 0) side * .0048f else side * .0019f
-                p.color = if (i % 2 == 0) 0x665f6063 else 0x88303032.toInt()
+            for (i in 0..56) {
+                val rr = r * (.285f + i * .0122f)
+                p.strokeWidth = if (i % 4 == 0) side * .0052f else side * .0021f
+                p.color = if (i % 2 == 0) 0x665b5b60 else 0xaa030304.toInt()
                 c.drawCircle(x, y, rr, p)
-                p.strokeWidth = side * .0015f
-                p.color = 0x447f8083
+                p.strokeWidth = side * .0018f
+                p.color = 0x557b7b80
                 c.drawCircle(x - side*.001f, y - side*.001f, rr - side*.003f, p)
+                p.strokeWidth = side * .0016f
+                p.color = 0x665f6064
+                for (tick in 0 until 180) {
+                    val a = tick * (Math.PI * 2.0 / 180.0)
+                    val inner = rr - side * .0025f
+                    val outer = rr + side * if (tick % 6 == 0) .0038f else .0018f
+                    c.drawLine(x + kotlin.math.cos(a).toFloat() * inner, y + kotlin.math.sin(a).toFloat() * inner,
+                        x + kotlin.math.cos(a).toFloat() * outer, y + kotlin.math.sin(a).toFloat() * outer, p)
+                }
             }
 
-            // Broad, curved lacquer reflection rather than a flat white oval.
-            val reflection = Path().apply {
-                moveTo(x-r*.78f, y-r*.20f)
-                cubicTo(x-r*.55f, y-r*.58f, x-r*.08f, y-r*.66f, x+r*.34f, y-r*.40f)
-            }
-            p.style = Paint.Style.STROKE
-            p.strokeCap = Paint.Cap.ROUND
-            p.strokeWidth = side * .060f
-            p.shader = LinearGradient(x-r*.55f, y-r*.55f, x+r*.32f, y-r*.35f,
-                intArrayOf(0x00ffffff, 0x0cffffff, 0x24ffffff, 0x10ffffff, 0x00ffffff),
-                floatArrayOf(0f, .22f, .52f, .78f, 1f), Shader.TileMode.CLAMP)
-            c.drawPath(reflection, p)
-            p.strokeWidth = side * .009f
-            p.shader = LinearGradient(x-r*.65f, y-r*.5f, x+r*.26f, y-r*.3f,
-                intArrayOf(0x00ffffff, 0x35ffffff, 0x12ffffff, 0x00ffffff),
-                floatArrayOf(0f, .42f, .75f, 1f), Shader.TileMode.CLAMP)
-            c.drawPath(reflection, p)
-            p.shader = null
-
-            // A softer secondary light source gives the surface a curved, polished falloff.
-            p.style = Paint.Style.FILL
-            p.shader = RadialGradient(x-r*.30f, y-r*.38f, r*.88f,
-                intArrayOf(0x18ffffff, 0x08ffffff, 0x00ffffff),
-                floatArrayOf(0f, .5f, 1f), Shader.TileMode.CLAMP)
-            c.drawCircle(x-r*.30f, y-r*.38f, r*.88f, p)
-            p.shader = null
-
-            // Narrow edge catches, broken into arcs so the record does not look chrome-plated.
-            p.style = Paint.Style.STROKE
-            p.strokeWidth = side * .012f
-            p.color = 0x2affffff
-            c.drawArc(RectF(x-r*.94f, y-r*.94f, x+r*.94f, y+r*.94f), 205f, 50f, false, p)
-            p.strokeWidth = side * .006f
-            p.color = 0x20ffffff
-            c.drawArc(RectF(x-r*.90f, y-r*.90f, x+r*.90f, y+r*.90f), 28f, 34f, false, p)
             c.restore()
 
             // Label and spindle.
@@ -435,15 +437,6 @@ class NowPlayingView(
             p.color = 0xff77736c.toInt()
             p.strokeWidth = 1f
             c.drawPath(tube, p)
-
-            // Ferrule at the root of the tube, visually seated into the fixed bearing.
-            p.style = Paint.Style.FILL
-            p.shader = RadialGradient(225f, 60f, 10f,
-                intArrayOf(0xffeeeae2.toInt(), 0xff858078.toInt(), 0xff45423d.toInt()),
-                null, Shader.TileMode.CLAMP)
-            c.drawCircle(225f, 61f, 8.5f, p)
-            p.shader = null
-            p.color = 0xff55514b.toInt(); c.drawCircle(225f, 61f, 3f, p)
 
             // Tapered headshell, cartridge and stylus at the record end.
             val shell = Path().apply {
