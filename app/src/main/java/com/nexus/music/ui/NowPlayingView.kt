@@ -1,5 +1,7 @@
 package com.nexus.music.ui
 
+import com.nexus.music.R
+
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.content.Context
