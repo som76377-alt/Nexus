@@ -217,7 +217,10 @@ class NowPlayingView(
             deckState = VinylMotion.DeckState.PLAYING
             armAngle = VinylMotion.trackingAngle(positionMs, duration, PLAY_START_ANGLE, PLAY_END_ANGLE)
             armLift = 0f
+            armPhase = VinylMotion.ArmPhase.TRACKING
+            disc.rotation = discAngle
             applyArmFrame()
+            refreshLayers()
             return
         }
         animateSpeedTo(1f)
@@ -261,8 +264,11 @@ class NowPlayingView(
             deckState = VinylMotion.DeckState.STOPPED
             armAngle = REST_ANGLE
             armLift = 0f
+            armPhase = VinylMotion.ArmPhase.RESTING
+            disc.rotation = discAngle
             applyArmFrame()
             stopFrameTicker()
+            refreshLayers()
             return
         }
         animateSpeedTo(0f)
@@ -366,6 +372,9 @@ class NowPlayingView(
     }
 
     private fun animateArmAngle(target: Float, durationMs: Long, end: () -> Unit) {
+        val previousAnimator = armAnimator
+        armAnimator = null
+        previousAnimator?.cancel()
         val from = armAngle
         lateinit var animator: ValueAnimator
         animator = ValueAnimator.ofFloat(from, target).apply {
