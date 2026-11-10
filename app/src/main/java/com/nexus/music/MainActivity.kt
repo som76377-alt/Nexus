@@ -62,6 +62,7 @@ class MainActivity : Activity() {
     private val progressHandler = Handler(Looper.getMainLooper())
 
     private lateinit var searchPanel: SearchPanel
+    private lateinit var homeShelvesContainer: LinearLayout
     private lateinit var updateButton: Button
     private lateinit var updateStatusText: TextView
     private lateinit var updatePanel: LinearLayout
@@ -139,6 +140,9 @@ class MainActivity : Activity() {
             performSearch()
         }, verticalParams(18))
 
+        homeShelvesContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        content.addView(homeShelvesContainer, verticalParams(18))
+
         updatePanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = rounded(surface, 14)
@@ -215,6 +219,7 @@ class MainActivity : Activity() {
         root.addView(buildPlayerPanel(), LinearLayout.LayoutParams(-1, -2))
         root.addView(buildBottomNavigation(), LinearLayout.LayoutParams(-1, dp(62)))
         setContentView(root)
+        loadHomeShelves()
         registerBackNavigation()
         applySystemBarInsets(root)
         connectPlaybackService()
