@@ -32,6 +32,8 @@ import android.widget.Toast
 import androidx.media3.common.Player
 import coil3.load
 import com.nexus.music.catalog.CatalogTrack
+import com.nexus.music.library.LocalLibraryStore
+import com.nexus.music.ui.LibraryView
 import com.nexus.music.ui.NexusUi
 import com.nexus.music.ui.NowPlayingView
 import com.nexus.music.ui.NexusDesignSystem
@@ -60,6 +62,7 @@ class MainActivity : Activity() {
     private enum class SearchSort { RELEVANCE, POPULAR, TITLE, DURATION }
     private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val repository by lazy { YoutubeCatalogRepository() }
+    private val libraryStore by lazy { LocalLibraryStore(this) }
     private val updateChecker by lazy { GitHubReleaseUpdater() }
     private val progressHandler = Handler(Looper.getMainLooper())
 
@@ -77,6 +80,9 @@ class MainActivity : Activity() {
     private lateinit var playPauseButton: ImageButton
     private lateinit var playbackProgress: SeekBar
     private lateinit var nowPlayingView: NowPlayingView
+    private lateinit var mainScroll: ScrollView
+    private lateinit var homeContent: LinearLayout
+    private lateinit var bottomNavigationHost: LinearLayout
 
     private var playbackConnection: PlaybackConnection? = null
     private var updateCheckJob: Job? = null
@@ -132,10 +138,12 @@ class MainActivity : Activity() {
             isFillViewport = true
             clipToPadding = false
         }
+        mainScroll = scroll
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(22), dp(28), dp(22), dp(32))
         }
+        homeContent = content
 
         content.addView(com.nexus.music.ui.HomeDiscoveryView(this) { query ->
             searchPanel.queryInput.setText(query)
@@ -221,7 +229,9 @@ class MainActivity : Activity() {
         scroll.addView(content)
         base.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         base.addView(buildPlayerPanel(), LinearLayout.LayoutParams(-1, -2))
-        base.addView(buildBottomNavigation(), LinearLayout.LayoutParams(-1, dp(62)))
+        bottomNavigationHost = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        bottomNavigationHost.addView(buildBottomNavigation(), LinearLayout.LayoutParams(-1, dp(62)))
+        base.addView(bottomNavigationHost, LinearLayout.LayoutParams(-1, dp(62)))
         root.addView(base, FrameLayout.LayoutParams(-1, -1))
         nowPlayingView = NowPlayingView(
             context = this,
@@ -234,6 +244,7 @@ class MainActivity : Activity() {
         }
         root.addView(nowPlayingView, FrameLayout.LayoutParams(-1, -1))
         setContentView(root)
+        if (intent.getBooleanExtra(EXTRA_OPEN_LIBRARY, false)) showLibrary()
         loadHomeShelves()
         registerBackNavigation()
         applySystemBarInsets(base)
@@ -243,7 +254,15 @@ class MainActivity : Activity() {
 
     private fun registerBackNavigation() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val callback = android.window.OnBackInvokedCallback { finishAffinity() }
+            val callback = android.window.OnBackInvokedCallback {
+                if (::nowPlayingView.isInitialized && nowPlayingView.visibility == View.VISIBLE) {
+                    nowPlayingView.visibility = View.GONE
+                } else if (::mainScroll.isInitialized && mainScroll.childCount > 0 && mainScroll.getChildAt(0) !== homeContent) {
+                    showHome()
+                } else {
+                    finishAffinity()
+                }
+            }
             onBackInvokedDispatcher.registerOnBackInvokedCallback(
                 android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,
                 callback
@@ -252,13 +271,39 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun buildBottomNavigation(): LinearLayout =
+    private fun buildBottomNavigation(selected: NexusUi.NavigationTab = NexusUi.NavigationTab.HOME): LinearLayout =
         NexusUi.bottomNavigation(
             context = this,
-            selected = NexusUi.NavigationTab.HOME,
-            onHome = {},
+            selected = selected,
+            onHome = ::showHome,
+            onLibrary = ::showLibrary,
             onRoom = ::openRoomPage
         )
+
+    private fun showHome() {
+        if (!::mainScroll.isInitialized) return
+        mainScroll.removeAllViews()
+        mainScroll.addView(homeContent)
+        bottomNavigationHost.removeAllViews()
+        bottomNavigationHost.addView(buildBottomNavigation(NexusUi.NavigationTab.HOME), LinearLayout.LayoutParams(-1, dp(62)))
+    }
+
+    private fun showLibrary() {
+        if (!::mainScroll.isInitialized) return
+        mainScroll.removeAllViews()
+        mainScroll.addView(
+            LibraryView(
+                context = this,
+                saved = libraryStore.savedTracks(),
+                recent = libraryStore.recentTracks(),
+                onPlay = ::startResolvingTrack,
+                onRemove = { track -> libraryStore.remove(track); showLibrary() },
+                onBack = ::showHome
+            )
+        )
+        bottomNavigationHost.removeAllViews()
+        bottomNavigationHost.addView(buildBottomNavigation(NexusUi.NavigationTab.LIBRARY), LinearLayout.LayoutParams(-1, dp(62)))
+    }
 
     private fun openRoomPage() {
         startActivity(
@@ -773,6 +818,24 @@ class MainActivity : Activity() {
             setPadding(0, dp(5), 0, 0)
         })
         card.addView(details, LinearLayout.LayoutParams(0, -2, 1f))
+        val saved = libraryStore.isSaved(track)
+        card.addView(TextView(this).apply {
+            text = if (saved) "✓" else "＋"
+            textSize = 21f
+            setTextColor(if (saved) NexusDesignSystem.Palette.deepVinylGreen else NexusDesignSystem.Palette.terracotta)
+            gravity = Gravity.CENTER
+            contentDescription = if (saved) "Saved to Library" else "Save to Library"
+            setOnClickListener {
+                if (libraryStore.isSaved(track)) {
+                    libraryStore.remove(track)
+                    Toast.makeText(this@MainActivity, "Removed from Library", Toast.LENGTH_SHORT).show()
+                } else {
+                    libraryStore.save(track)
+                    Toast.makeText(this@MainActivity, "Saved to Library", Toast.LENGTH_SHORT).show()
+                }
+                renderSearchResults()
+            }
+        }, LinearLayout.LayoutParams(dp(38), dp(54)))
         return card
     }
 
@@ -807,6 +870,16 @@ class MainActivity : Activity() {
             return
         }
         playerSubtitle.text = "Starting playback…"
+        libraryStore.recordPlayed(
+            CatalogTrack(
+                url = audio.sourceUrl,
+                title = audio.title,
+                artist = audio.artist,
+                thumbnailUrl = audio.thumbnailUrl,
+                durationSeconds = audio.durationSeconds,
+                viewCount = null
+            )
+        )
         Toast.makeText(this, "Starting playback", Toast.LENGTH_SHORT).show()
     }
 
@@ -845,7 +918,19 @@ class MainActivity : Activity() {
     @SuppressLint("GestureBackNavigation")
     @Deprecated("Use the platform back callback on Android 13 and newer.")
     override fun onBackPressed() {
-        finishAffinity()
+        if (::nowPlayingView.isInitialized && nowPlayingView.visibility == View.VISIBLE) {
+            nowPlayingView.visibility = View.GONE
+        } else if (::mainScroll.isInitialized && mainScroll.childCount > 0 && mainScroll.getChildAt(0) !== homeContent) {
+            showHome()
+        } else {
+            finishAffinity()
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_OPEN_LIBRARY, false)) showLibrary() else showHome()
     }
 
     override fun onStart() {
@@ -881,5 +966,6 @@ class MainActivity : Activity() {
     }
 
     companion object {
+        const val EXTRA_OPEN_LIBRARY = "com.nexus.music.extra.OPEN_LIBRARY"
     }
 }

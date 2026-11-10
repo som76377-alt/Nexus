@@ -44,7 +44,7 @@ object NexusUi {
         const val miniPlayerArtwork = 48
     }
 
-    enum class NavigationTab { HOME, ROOM }
+    enum class NavigationTab { HOME, LIBRARY, ROOM }
 
     data class MiniPlayerViews(
         val container: LinearLayout,
@@ -102,6 +102,7 @@ object NexusUi {
         context: Context,
         selected: NavigationTab,
         onHome: () -> Unit,
+        onLibrary: () -> Unit,
         onRoom: () -> Unit
     ): LinearLayout {
         val bar = LinearLayout(context).apply {
@@ -129,7 +130,13 @@ object NexusUi {
         bar.addView(
             tab("Home", NavigationTab.HOME, onHome),
             LinearLayout.LayoutParams(0, dp(context, Spacing.controlHeight), 1f).apply {
-                marginEnd = dp(context, 7)
+                marginEnd = dp(context, 5)
+            }
+        )
+        bar.addView(
+            tab("Library", NavigationTab.LIBRARY, onLibrary),
+            LinearLayout.LayoutParams(0, dp(context, Spacing.controlHeight), 1f).apply {
+                marginEnd = dp(context, 5)
             }
         )
         bar.addView(
