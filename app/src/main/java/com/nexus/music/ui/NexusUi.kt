@@ -26,24 +26,25 @@ import android.graphics.Typeface
  */
 object NexusUi {
     object Colors {
-        val background: Int = Color.rgb(12, 14, 18)
-        val surface: Int = Color.rgb(24, 28, 35)
-        val raised: Int = Color.rgb(31, 36, 44)
-        val accent: Int = Color.rgb(167, 240, 106)
-        val foreground: Int = Color.rgb(244, 247, 250)
-        val muted: Int = Color.rgb(160, 172, 187)
-        val accentForeground: Int = Color.rgb(14, 20, 12)
+        // Compatibility facade: existing screens migrate to semantic tokens incrementally.
+        val background: Int get() = NexusDesignSystem.Palette.background
+        val surface: Int get() = NexusDesignSystem.Palette.surface
+        val raised: Int get() = NexusDesignSystem.Palette.raised
+        val accent: Int get() = NexusDesignSystem.Palette.accent
+        val foreground: Int get() = NexusDesignSystem.Palette.foreground
+        val muted: Int get() = NexusDesignSystem.Palette.muted
+        val accentForeground: Int get() = NexusDesignSystem.Palette.accentForeground
     }
 
     object Spacing {
         const val screenHorizontal = 20
         const val screenVertical = 24
         const val controlHeight = 48
-        const val navigationHeight = 62
+        const val navigationHeight = 68
         const val miniPlayerArtwork = 48
     }
 
-    enum class NavigationTab { HOME, ROOM }
+    enum class NavigationTab { HOME, LIBRARY, ROOM, YOU }
 
     data class MiniPlayerViews(
         val container: LinearLayout,
@@ -74,7 +75,7 @@ object NexusUi {
         text = value
         textSize = sizeSp
         setTextColor(color)
-        if (bold) typeface = Typeface.DEFAULT_BOLD
+        typeface = if (bold) NexusDesignSystem.Type.interfaceText(context).let { Typeface.create(it, Typeface.BOLD) } else NexusDesignSystem.Type.interfaceText(context)
         this.maxLines = maxLines
         ellipsize = TextUtils.TruncateAt.END
     }
@@ -93,7 +94,7 @@ object NexusUi {
         minimumHeight = dp(context, Spacing.controlHeight)
         setPadding(dp(context, 12), 0, dp(context, 12), 0)
         setTextColor(if (primary) Colors.accentForeground else Colors.foreground)
-        typeface = Typeface.DEFAULT_BOLD
+        typeface = Typeface.create(NexusDesignSystem.Type.interfaceText(context), Typeface.BOLD)
         background = rounded(context, if (primary) Colors.accent else Colors.raised, 10)
     }
 
@@ -101,7 +102,9 @@ object NexusUi {
         context: Context,
         selected: NavigationTab,
         onHome: () -> Unit,
-        onRoom: () -> Unit
+        onLibrary: () -> Unit,
+        onRoom: () -> Unit,
+        onYou: () -> Unit
     ): LinearLayout {
         val bar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -113,28 +116,32 @@ object NexusUi {
         fun tab(title: String, tab: NavigationTab, onClick: () -> Unit) =
             Button(context).apply {
                 text = title
-                textSize = 14f
+                textSize = 12f
                 isAllCaps = false
                 minWidth = 0
                 minimumWidth = 0
                     minimumHeight = dp(context, Spacing.controlHeight)
-                typeface = Typeface.DEFAULT_BOLD
+                typeface = Typeface.create(NexusDesignSystem.Type.experimental(context), Typeface.BOLD)
                 val isSelected = selected == tab
                 setTextColor(if (isSelected) Colors.accentForeground else Colors.foreground)
                 background = rounded(context, if (isSelected) Colors.accent else Colors.raised, 12)
                 setOnClickListener { onClick() }
             }
 
-        bar.addView(
-            tab("Home", NavigationTab.HOME, onHome),
-            LinearLayout.LayoutParams(0, dp(context, Spacing.controlHeight), 1f).apply {
-                marginEnd = dp(context, 7)
-            }
+        val tabs = listOf(
+            Triple("Home", NavigationTab.HOME, onHome),
+            Triple("Library", NavigationTab.LIBRARY, onLibrary),
+            Triple("Room", NavigationTab.ROOM, onRoom),
+            Triple("You", NavigationTab.YOU, onYou)
         )
-        bar.addView(
-            tab("Room", NavigationTab.ROOM, onRoom),
-            LinearLayout.LayoutParams(0, dp(context, Spacing.controlHeight), 1f)
-        )
+        tabs.forEachIndexed { index, (title, destination, callback) ->
+            bar.addView(
+                tab(title, destination, callback),
+                LinearLayout.LayoutParams(0, dp(context, Spacing.controlHeight), 1f).apply {
+                    if (index != tabs.lastIndex) marginEnd = dp(context, 4)
+                }
+            )
+        }
         return bar
     }
 
