@@ -256,7 +256,7 @@ class MainActivity : Activity() {
             val callback = android.window.OnBackInvokedCallback {
                 if (::nowPlayingView.isInitialized && nowPlayingView.visibility == View.VISIBLE) {
                     nowPlayingView.visibility = View.GONE
-                } else if (::mainScroll.isInitialized && mainScroll.childCount > 0 && mainScroll.getChildAt(0) !is HomeDiscoveryView) {
+                } else if (::mainScroll.isInitialized && mainScroll.childCount > 0 && mainScroll.getChildAt(0) !== homeContent) {
                     showHome()
                 } else {
                     finishAffinity()
