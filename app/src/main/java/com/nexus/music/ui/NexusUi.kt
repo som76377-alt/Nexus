@@ -116,12 +116,12 @@ object NexusUi {
         fun tab(title: String, tab: NavigationTab, onClick: () -> Unit) =
             Button(context).apply {
                 text = title
-                textSize = 14f
+                textSize = 12f
                 isAllCaps = false
                 minWidth = 0
                 minimumWidth = 0
                     minimumHeight = dp(context, Spacing.controlHeight)
-                typeface = Typeface.DEFAULT_BOLD
+                typeface = Typeface.create(NexusDesignSystem.Type.experimental(context), Typeface.BOLD)
                 val isSelected = selected == tab
                 setTextColor(if (isSelected) Colors.accentForeground else Colors.foreground)
                 background = rounded(context, if (isSelected) Colors.accent else Colors.raised, 12)
