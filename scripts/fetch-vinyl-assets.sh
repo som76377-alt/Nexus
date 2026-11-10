@@ -3,6 +3,16 @@ set -euo pipefail
 
 DISC_URL="${DISC_URL:-}"
 ARM_URL="${ARM_URL:-}"
+
+if [[ -z "$DISC_URL" ]]; then
+  DISC_URL='https://img.magnific.com/free-psd/vintage-vinyl-record-with-red-label-classic-music-icon_191095-78705.jpg?semt=ais_hybrid&w=740&q=80'
+  echo "DISC_URL is empty; using default URL."
+fi
+if [[ -z "$ARM_URL" ]]; then
+  ARM_URL='https://banner2.cleanpng.com/20180528/jgs/kisspng-car-plumbing-fixtures-technology-record-player-5b0bb4e5dd3d52.4504014915274938619062.jpg'
+  echo "ARM_URL is empty; using default URL."
+fi
+export DISC_URL ARM_URL
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="$ROOT/app/src/main/res/drawable-nodpi"
 mkdir -p "$OUT_DIR"
@@ -60,11 +70,6 @@ verify_and_install() {
 }
 
 fetch_disc() {
-  if [[ -z "$DISC_URL" ]]; then
-    echo "ERROR: DISC_URL is empty; provide the vinyl disc source image URL." >&2
-    return 1
-  fi
-
   local download="$TMP_DIR/vinyl_disc.jpg"
   local trimmed="$TMP_DIR/vinyl_disc_trimmed.png"
   local cropped="$TMP_DIR/vinyl_disc_cropped.png"
@@ -88,11 +93,6 @@ fetch_disc() {
 }
 
 fetch_tonearm() {
-  if [[ -z "$ARM_URL" ]]; then
-    echo "ERROR: ARM_URL is empty; provide the tonearm source image URL." >&2
-    return 1
-  fi
-
   local download="$TMP_DIR/tonearm.jpg"
   local converted="$TMP_DIR/tonearm.png"
 
