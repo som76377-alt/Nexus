@@ -229,7 +229,8 @@ class NowPlayingView(
             armPhase = VinylMotion.ArmPhase.SWINGING_TO_GROOVE
             animateArmAngle(target, ARM_SWING_MS) {
                 armPhase = VinylMotion.ArmPhase.LOWERING
-                val settle = ValueAnimator.ofFloat(0f, 1f).apply {
+                lateinit var settle: ValueAnimator
+                settle = ValueAnimator.ofFloat(0f, 1f).apply {
                     duration = ARM_SETTLE_MS
                     interpolator = DecelerateInterpolator(1.4f)
                     addUpdateListener { animator ->
@@ -308,7 +309,8 @@ class NowPlayingView(
         deckState = VinylMotion.deckStateFor(target > 0f, currentSpeed)
         if (target > 0f) startFrameTicker()
         val duration = if (accelerating) SPIN_UP_MS else SPIN_DOWN_MS
-        val animator = ValueAnimator.ofFloat(0f, 1f).apply {
+        lateinit var animator: ValueAnimator
+        animator = ValueAnimator.ofFloat(0f, 1f).apply {
             this.duration = duration
             interpolator = LinearInterpolator()
             addUpdateListener { animation ->
@@ -341,7 +343,8 @@ class NowPlayingView(
     }
 
     private fun animateArmValue(from: Float, to: Float, durationMs: Long, end: () -> Unit) {
-        val animator = ValueAnimator.ofFloat(from, to).apply {
+        lateinit var animator: ValueAnimator
+        animator = ValueAnimator.ofFloat(from, to).apply {
             duration = durationMs
             interpolator = DecelerateInterpolator(1.4f)
             addUpdateListener {
@@ -363,7 +366,8 @@ class NowPlayingView(
 
     private fun animateArmAngle(target: Float, durationMs: Long, end: () -> Unit) {
         val from = armAngle
-        val animator = ValueAnimator.ofFloat(from, target).apply {
+        lateinit var animator: ValueAnimator
+        animator = ValueAnimator.ofFloat(from, target).apply {
             duration = durationMs
             interpolator = DecelerateInterpolator(1.35f)
             addUpdateListener {
