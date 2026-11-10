@@ -38,6 +38,7 @@ import com.nexus.music.ui.NexusUi
 import com.nexus.music.ui.NowPlayingView
 import com.nexus.music.ui.NexusDesignSystem
 import com.nexus.music.ui.SearchPanel
+import com.nexus.music.ui.YouView
 import com.nexus.music.catalog.ResolvedAudio
 import com.nexus.music.catalog.YoutubeCatalogRepository
 import com.nexus.music.catalog.YoutubeSearchScope
