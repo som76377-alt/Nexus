@@ -3,15 +3,6 @@ set -euo pipefail
 
 DISC_URL="${DISC_URL:-}"
 ARM_URL="${ARM_URL:-}"
-if [[ -z "$DISC_URL" ]]; then
-  echo "ERROR: DISC_URL is empty; provide the vinyl disc source image URL." >&2
-  exit 1
-fi
-if [[ -z "$ARM_URL" ]]; then
-  echo "ERROR: ARM_URL is empty; provide the tonearm source image URL." >&2
-  exit 1
-fi
-
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT_DIR="$ROOT/app/src/main/res/drawable-nodpi"
 mkdir -p "$OUT_DIR"
@@ -69,6 +60,11 @@ verify_and_install() {
 }
 
 fetch_disc() {
+  if [[ -z "$DISC_URL" ]]; then
+    echo "ERROR: DISC_URL is empty; provide the vinyl disc source image URL." >&2
+    return 1
+  fi
+
   local download="$TMP_DIR/vinyl_disc.jpg"
   local trimmed="$TMP_DIR/vinyl_disc_trimmed.png"
   local cropped="$TMP_DIR/vinyl_disc_cropped.png"
@@ -92,6 +88,11 @@ fetch_disc() {
 }
 
 fetch_tonearm() {
+  if [[ -z "$ARM_URL" ]]; then
+    echo "ERROR: ARM_URL is empty; provide the tonearm source image URL." >&2
+    return 1
+  fi
+
   local download="$TMP_DIR/tonearm.jpg"
   local converted="$TMP_DIR/tonearm.png"
 
@@ -116,10 +117,10 @@ fetch_tonearm() {
 
 if [[ "${1:-}" == "--fetch-disc" ]]; then
   fetch_disc
-  exit 0
+  exit $?
 elif [[ "${1:-}" == "--fetch-tonearm" ]]; then
   fetch_tonearm
-  exit 0
+  exit $?
 elif [[ $# -ne 0 ]]; then
   echo "ERROR: Unknown argument: $1" >&2
   exit 2
