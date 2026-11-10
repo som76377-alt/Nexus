@@ -72,6 +72,8 @@ class NowPlayingView(
 
     init {
         orientation = VERTICAL
+        clipChildren = false
+        clipToPadding = false
         gravity = Gravity.CENTER_HORIZONTAL
         setPadding(dp(24), dp(16), dp(24), dp(24))
         setBackgroundColor(paper)
@@ -109,10 +111,11 @@ class NowPlayingView(
             pivotX = dp(TONEARM_PIVOT_X_DP).toFloat()
             pivotY = dp(TONEARM_PIVOT_Y_DP).toFloat()
             translationX = dp(TONEARM_TRANSLATION_X_DP).toFloat()
+            translationY = dp(TONEARM_TRANSLATION_Y_DP).toFloat()
             rotation = REST_ANGLE
         }
         stage.addView(tonearm, FrameLayout.LayoutParams(dp(TONEARM_WIDTH_DP), dp(TONEARM_HEIGHT_DP), Gravity.CENTER))
-        addView(stage, LayoutParams(dp(320), 0, 1f).apply {
+        addView(stage, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f).apply {
             gravity = Gravity.CENTER_HORIZONTAL
         })
 
@@ -405,7 +408,7 @@ class NowPlayingView(
         tonearm.rotation = armAngle + if (armLift < 0.05f) {
             sin(SystemClock.uptimeMillis().toDouble() / STYLUS_VIBRATION_PERIOD_MS) .toFloat() * STYLUS_VIBRATION_DEGREES
         } else 0f
-        tonearm.translationY = -liftDistancePx * armLift
+        tonearm.translationY = dp(TONEARM_TRANSLATION_Y_DP) - liftDistancePx * armLift
         tonearm.elevation = dp(1) + dp(ARM_SHADOW_HEIGHT_DP) * armLift
     }
 
@@ -579,15 +582,15 @@ class NowPlayingView(
 
     private companion object {
         const val DISC_SIZE_DP = 286
-        const val TONEARM_WIDTH_DP = 221
-        const val TONEARM_HEIGHT_DP = 278
-        const val TONEARM_PIVOT_X_DP = 180
-        const val TONEARM_PIVOT_Y_DP = 40
-        const val TONEARM_TRANSLATION_X_DP = 63
-        const val REST_ANGLE = -42f
-        const val PLAY_START_ANGLE = 0f
-        // 14 degrees is an estimate to tune on-device.
-        const val PLAY_END_ANGLE = 14f
+        const val TONEARM_WIDTH_DP = 152
+        const val TONEARM_HEIGHT_DP = 191
+        const val TONEARM_PIVOT_X_DP = 115
+        const val TONEARM_PIVOT_Y_DP = 41
+        const val TONEARM_TRANSLATION_X_DP = 101
+        const val TONEARM_TRANSLATION_Y_DP = -69
+        const val REST_ANGLE = -44f
+        const val PLAY_START_ANGLE = -30f
+        const val PLAY_END_ANGLE = -13f
         const val LIFT_HEIGHT_DP = 4
         const val ARM_SHADOW_HEIGHT_DP = 6
         const val ARM_LIFT_MS = 150L
