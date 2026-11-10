@@ -31,6 +31,7 @@ import androidx.media3.common.Player
 import coil3.load
 import com.nexus.music.catalog.CatalogTrack
 import com.nexus.music.ui.NexusUi
+import com.nexus.music.ui.NexusDesignSystem
 import com.nexus.music.ui.SearchPanel
 import com.nexus.music.catalog.ResolvedAudio
 import com.nexus.music.catalog.YoutubeCatalogRepository
