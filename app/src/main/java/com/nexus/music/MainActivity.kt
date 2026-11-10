@@ -621,6 +621,72 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun loadHomeShelves() {
+        val shelves = listOf(
+            "Popular Indian music" to "popular Indian songs",
+            "Independent voices" to "Indian independent music",
+            "Ghazal archive" to "ghazal classics",
+            "Instrumental focus" to "Indian instrumental music"
+        )
+        homeShelvesContainer.removeAllViews()
+        activityScope.launch {
+            shelves.forEach { (title, query) ->
+                try {
+                    val tracks = repository.search(query, YoutubeSearchScope.MUSIC_SONGS)
+                        .distinctBy { it.url }
+                        .sortedByDescending { it.viewCount ?: -1L }
+                        .take(8)
+                    if (tracks.isNotEmpty() && !isFinishing && !isDestroyed) {
+                        homeShelvesContainer.addView(buildHomeShelf(title, tracks), verticalParams(20))
+                    }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Exception) {
+                    // A single unavailable discovery query must not hide other Home content.
+                }
+            }
+        }
+    }
+
+    private fun buildHomeShelf(title: String, tracks: List<CatalogTrack>): LinearLayout {
+        val section = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        section.addView(text(title, 22f, primaryText, bold = true))
+        section.addView(text("Sorted by available view count", 11f, secondaryText).apply {
+            setPadding(0, dp(3), 0, dp(10))
+        })
+        val horizontal = android.widget.HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            clipToPadding = false
+        }
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        tracks.forEach { track ->
+            val tile = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { startResolvingTrack(track) }
+                contentDescription = "Play ${track.title}"
+            }
+            val art = ImageView(this).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                background = rounded(surfaceRaised, 8)
+                contentDescription = "Artwork for ${track.title}"
+            }
+            track.thumbnailUrl?.let { art.load(it) }
+            tile.addView(art, LinearLayout.LayoutParams(dp(142), dp(142)))
+            tile.addView(text(track.title.ifBlank { "Untitled" }, 13f, primaryText, bold = true, maxLines = 2).apply {
+                setPadding(0, dp(7), 0, dp(2))
+            }, LinearLayout.LayoutParams(dp(142), -2))
+            tile.addView(text(track.artist ?: "Unknown artist", 11f, secondaryText, maxLines = 1))
+            row.addView(tile, LinearLayout.LayoutParams(dp(142), -2).apply {
+                marginEnd = dp(12)
+            })
+        }
+        horizontal.addView(row)
+        section.addView(horizontal)
+        return section
+    }
+
     private fun showSearchSortMenu(anchor: View) {
         PopupMenu(this, anchor).apply {
             menu.add(0, 0, 0, "YouTube relevance")
