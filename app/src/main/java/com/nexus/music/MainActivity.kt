@@ -22,6 +22,7 @@ import android.widget.Button
 import android.widget.ImageView
 import android.widget.ImageButton
 import android.widget.ProgressBar
+import android.widget.PopupMenu
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
@@ -54,12 +55,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class MainActivity : Activity() {
+    private enum class SearchSort { RELEVANCE, POPULAR, TITLE, DURATION }
     private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val repository by lazy { YoutubeCatalogRepository() }
     private val updateChecker by lazy { GitHubReleaseUpdater() }
     private val progressHandler = Handler(Looper.getMainLooper())
 
     private lateinit var searchPanel: SearchPanel
+    private lateinit var homeShelvesContainer: LinearLayout
     private lateinit var updateButton: Button
     private lateinit var updateStatusText: TextView
     private lateinit var updatePanel: LinearLayout
@@ -84,6 +87,8 @@ class MainActivity : Activity() {
     private var isSeeking = false
     private var isActivityStarted = false
     private var lastPlaybackSnapshot = PlaybackSnapshot(connected = false)
+    private var lastSearchResults: List<CatalogTrack> = emptyList()
+    private var currentSort = SearchSort.RELEVANCE
     private var backInvokedCallback: android.window.OnBackInvokedCallback? = null
 
     private val screenBackground = NexusDesignSystem.Palette.archiveIvory
@@ -127,6 +132,16 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(22), dp(28), dp(22), dp(32))
         }
+
+        content.addView(com.nexus.music.ui.HomeDiscoveryView(this) { query ->
+            searchPanel.queryInput.setText(query)
+            selectedScope = YoutubeSearchScope.MUSIC_SONGS
+            searchPanel.setSelectedScope(selectedScope)
+            performSearch()
+        }, verticalParams(18))
+
+        homeShelvesContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        content.addView(homeShelvesContainer, verticalParams(18))
 
         updatePanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -193,6 +208,10 @@ class MainActivity : Activity() {
             onSearchRequested = ::performSearch,
             onScopeSelected = ::selectScope
         )
+        val sortButton = NexusUi.actionButton(this, "Sort results", primary = false).apply {
+            setOnClickListener { showSearchSortMenu(this) }
+        }
+        content.addView(sortButton, verticalParams(8))
         content.addView(searchPanel, verticalParams(18))
 
         scroll.addView(content)
@@ -200,6 +219,7 @@ class MainActivity : Activity() {
         root.addView(buildPlayerPanel(), LinearLayout.LayoutParams(-1, -2))
         root.addView(buildBottomNavigation(), LinearLayout.LayoutParams(-1, dp(62)))
         setContentView(root)
+        loadHomeShelves()
         registerBackNavigation()
         applySystemBarInsets(root)
         connectPlaybackService()
@@ -579,14 +599,11 @@ class MainActivity : Activity() {
                 val results = repository.search(query, requestScope)
                 if (requestGeneration != searchGeneration) return@launch
 
-                searchPanel.resultsContainer.removeAllViews()
+                lastSearchResults = results
+                renderSearchResults()
                 if (results.isEmpty()) {
                     searchPanel.statusText.text = "No results"
                     searchPanel.statusText.visibility = View.VISIBLE
-                } else {
-                    results.forEachIndexed { index, track ->
-                        searchPanel.resultsContainer.addView(resultCard(track), verticalParams(if (index == 0) 0 else 10))
-                    }
                 }
             } catch (error: CancellationException) {
                 throw error
@@ -601,6 +618,100 @@ class MainActivity : Activity() {
                     searchJob = null
                 }
             }
+        }
+    }
+
+    private fun loadHomeShelves() {
+        val shelves = listOf(
+            "Popular Indian music" to "popular Indian songs",
+            "Independent voices" to "Indian independent music",
+            "Ghazal archive" to "ghazal classics",
+            "Instrumental focus" to "Indian instrumental music"
+        )
+        homeShelvesContainer.removeAllViews()
+        activityScope.launch {
+            shelves.forEach { (title, query) ->
+                try {
+                    val tracks = repository.search(query, YoutubeSearchScope.MUSIC_SONGS)
+                        .distinctBy { it.url }
+                        .sortedByDescending { it.viewCount ?: -1L }
+                        .take(8)
+                    if (tracks.isNotEmpty() && !isFinishing && !isDestroyed) {
+                        homeShelvesContainer.addView(buildHomeShelf(title, tracks), verticalParams(20))
+                    }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Exception) {
+                    // A single unavailable discovery query must not hide other Home content.
+                }
+            }
+        }
+    }
+
+    private fun buildHomeShelf(title: String, tracks: List<CatalogTrack>): LinearLayout {
+        val section = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        section.addView(text(title, 22f, primaryText, bold = true))
+        section.addView(text("Sorted by available view count", 11f, secondaryText).apply {
+            setPadding(0, dp(3), 0, dp(10))
+        })
+        val horizontal = android.widget.HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            clipToPadding = false
+        }
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        tracks.forEach { track ->
+            val tile = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { startResolvingTrack(track) }
+                contentDescription = "Play ${track.title}"
+            }
+            val art = ImageView(this).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                background = rounded(surfaceRaised, 8)
+                contentDescription = "Artwork for ${track.title}"
+            }
+            track.thumbnailUrl?.let { art.load(it) }
+            tile.addView(art, LinearLayout.LayoutParams(dp(142), dp(142)))
+            tile.addView(text(track.title.ifBlank { "Untitled" }, 13f, primaryText, bold = true, maxLines = 2).apply {
+                setPadding(0, dp(7), 0, dp(2))
+            }, LinearLayout.LayoutParams(dp(142), -2))
+            tile.addView(text(track.artist ?: "Unknown artist", 11f, secondaryText, maxLines = 1))
+            row.addView(tile, LinearLayout.LayoutParams(dp(142), -2).apply {
+                marginEnd = dp(12)
+            })
+        }
+        horizontal.addView(row)
+        section.addView(horizontal)
+        return section
+    }
+
+    private fun showSearchSortMenu(anchor: View) {
+        PopupMenu(this, anchor).apply {
+            menu.add(0, 0, 0, "YouTube relevance")
+            menu.add(0, 1, 1, "Most viewed")
+            menu.add(0, 2, 2, "Title A–Z")
+            menu.add(0, 3, 3, "Longest first")
+            setOnMenuItemClickListener { item ->
+                currentSort = SearchSort.values().getOrElse(item.itemId) { SearchSort.RELEVANCE }
+                renderSearchResults()
+                true
+            }
+            show()
+        }
+    }
+
+    private fun renderSearchResults() {
+        searchPanel.resultsContainer.removeAllViews()
+        val sorted = when (currentSort) {
+            SearchSort.RELEVANCE -> lastSearchResults
+            SearchSort.POPULAR -> lastSearchResults.sortedByDescending { it.viewCount ?: -1L }
+            SearchSort.TITLE -> lastSearchResults.sortedBy { it.title.lowercase() }
+            SearchSort.DURATION -> lastSearchResults.sortedByDescending { it.durationSeconds ?: -1L }
+        }
+        sorted.forEachIndexed { index, track ->
+            searchPanel.resultsContainer.addView(resultCard(track), verticalParams(if (index == 0) 0 else 10))
         }
     }
 
