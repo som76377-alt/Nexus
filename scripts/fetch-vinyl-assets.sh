@@ -103,14 +103,19 @@ fetch_tonearm() {
   local width height
   read -r width height <<< "$("${IDENTIFY[@]}" -format '%w %h' "$download")"
   "${CONVERT[@]}" "$download" \
-    -alpha set -fuzz 12% -fill none \
+    -alpha set -fuzz 4% -fill none \
     -draw 'color 0,0 floodfill' \
     -draw "color $((width - 1)),0 floodfill" \
     -draw "color 0,$((height - 1)) floodfill" \
     -draw "color $((width - 1)),$((height - 1)) floodfill" \
+    \( +clone -alpha extract -morphology Erode Disk:1 -blur 0x0.7 \) \
+    -compose CopyOpacity -composite \
     -trim +repage "PNG:$converted"
 
   verify_and_install "tonearm.png" "$converted"
+  local final_dimensions
+  final_dimensions="$("${IDENTIFY[@]}" -format '%wx%h' "$converted")"
+  echo "Final tonearm dimensions: $final_dimensions"
 }
 
 if [[ "${1:-}" == "--fetch-disc" ]]; then
