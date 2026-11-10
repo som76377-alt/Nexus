@@ -2,7 +2,6 @@ package com.nexus.music.ui
 
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
-import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
@@ -241,6 +240,7 @@ class NowPlayingView(
                     }
                     addListener(object : AnimatorListenerAdapter() {
                         override fun onAnimationEnd(animation: Animator) {
+                            if (armAnimator !== settle) return
                             armAngle = target
                             armLift = 0f
                             applyArmFrame()
@@ -296,17 +296,29 @@ class NowPlayingView(
 
     private fun animateSpeedTo(target: Float) {
         speedAnimator?.cancel()
-        val accelerating = target > currentSpeed
-        deckState = VinylMotion.deckStateFor(accelerating, currentSpeed)
-        if (target > 0f) startFrameTicker()
         val start = currentSpeed
+        if (kotlin.math.abs(target - start) < 0.001f) {
+            currentSpeed = target
+            deckState = if (target > 0f) VinylMotion.DeckState.PLAYING else VinylMotion.DeckState.STOPPED
+            if (target > 0f) startFrameTicker() else stopFrameTicker()
+            refreshLayers()
+            return
+        }
+        val accelerating = target > start
+        deckState = VinylMotion.deckStateFor(target > 0f, currentSpeed)
+        if (target > 0f) startFrameTicker()
         val duration = if (accelerating) SPIN_UP_MS else SPIN_DOWN_MS
         val animator = ValueAnimator.ofFloat(0f, 1f).apply {
             this.duration = duration
             interpolator = LinearInterpolator()
             addUpdateListener { animation ->
                 currentSpeed = VinylMotion.blend(start, target, VinylMotion.speedRamp(animation.animatedValue as Float, accelerating))
-                deckState = VinylMotion.deckStateFor(target > 0f && currentSpeed >= 0.999f, currentSpeed)
+                deckState = when {
+                    target > 0f && currentSpeed >= 0.999f -> VinylMotion.DeckState.PLAYING
+                    target > 0f -> VinylMotion.DeckState.SPINNING_UP
+                    currentSpeed > 0.001f -> VinylMotion.DeckState.SPINNING_DOWN
+                    else -> VinylMotion.DeckState.STOPPED
+                }
                 if (currentSpeed <= 0.001f && target == 0f) {
                     currentSpeed = 0f
                     deckState = VinylMotion.DeckState.STOPPED
@@ -316,6 +328,7 @@ class NowPlayingView(
             }
             addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
+                    if (speedAnimator !== animator) return
                     currentSpeed = target
                     deckState = if (target > 0f) VinylMotion.DeckState.PLAYING else VinylMotion.DeckState.STOPPED
                     if (target == 0f) stopFrameTicker()
@@ -337,6 +350,7 @@ class NowPlayingView(
             }
             addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
+                    if (armAnimator !== animator) return
                     armLift = to
                     applyArmFrame()
                     end()
@@ -358,6 +372,7 @@ class NowPlayingView(
             }
             addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
+                    if (armAnimator !== animator) return
                     armAngle = target
                     applyArmFrame()
                     end()
