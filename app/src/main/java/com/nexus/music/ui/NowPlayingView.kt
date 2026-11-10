@@ -43,6 +43,7 @@ class NowPlayingView(
     private val seek = SeekBar(context)
     private val play = ImageButton(context)
     private var durationMs = 0L
+    private var currentArtworkUrl: String? = null
     private var isSeeking = false
     private var discAnimator: ObjectAnimator? = null
 
@@ -83,6 +84,8 @@ class NowPlayingView(
         }
         stage.addView(artwork, FrameLayout.LayoutParams(dp(102), dp(102), Gravity.CENTER))
         stage.addView(tonearm, FrameLayout.LayoutParams(dp(286), dp(286), Gravity.CENTER))
+        tonearm.pivotX = dp(238).toFloat()
+        tonearm.pivotY = dp(48).toFloat()
         addView(stage, LayoutParams(dp(320), 0, 1f).apply {
             gravity = Gravity.CENTER_HORIZONTAL
         })
@@ -166,6 +169,8 @@ class NowPlayingView(
     }
 
     fun setArtwork(url: String?) {
+        if (currentArtworkUrl == url) return
+        currentArtworkUrl = url
         if (url.isNullOrBlank()) artwork.setImageDrawable(null) else artwork.load(url)
     }
 
@@ -235,8 +240,6 @@ class NowPlayingView(
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)
             val pivotX = width * .83f; val pivotY = height * .17f
-            canvas.save()
-            canvas.rotate(rotation, pivotX, pivotY)
             paint.style = Paint.Style.FILL
             canvas.drawCircle(pivotX, pivotY, 13f, paint)
             paint.style = Paint.Style.STROKE
@@ -244,7 +247,6 @@ class NowPlayingView(
             canvas.drawLine(width * .62f, height * .52f, width * .57f, height * .62f, paint)
             paint.style = Paint.Style.FILL
             canvas.drawCircle(width * .57f, height * .62f, 5f, paint)
-            canvas.restore()
         }
         fun animateTo(degrees: Float) {
             if (target == degrees) return
