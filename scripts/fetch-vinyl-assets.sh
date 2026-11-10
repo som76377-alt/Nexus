@@ -89,12 +89,14 @@ fetch_tonearm() {
   curl -fL --retry 3 --retry-delay 2 "$ARM_URL" -o "$download"
 
   echo "Removing corner-connected background from tonearm.png..."
+  local width height
+  read -r width height <<< "$("${IDENTIFY[@]}" -format '%w %h' "$download")"
   "${CONVERT[@]}" "$download" \
     -alpha set -fuzz 12% -fill none \
     -draw 'color 0,0 floodfill' \
-    -draw 'color %[fx:w-1],0 floodfill' \
-    -draw 'color 0,%[fx:h-1] floodfill' \
-    -draw 'color %[fx:w-1],%[fx:h-1] floodfill' \
+    -draw "color $((width - 1)),0 floodfill" \
+    -draw "color 0,$((height - 1)) floodfill" \
+    -draw "color $((width - 1)),$((height - 1)) floodfill" \
     -trim +repage "PNG:$converted"
 
   verify_and_install "tonearm.png" "$converted"
