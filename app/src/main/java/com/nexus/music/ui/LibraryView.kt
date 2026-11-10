@@ -7,7 +7,6 @@ import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import coil3.load
 import com.nexus.music.catalog.CatalogTrack
@@ -59,7 +58,6 @@ class LibraryView(
         })
         addView(header)
 
-        val scroll = ScrollView(context).apply { isFillViewport = true }
         val content = LinearLayout(context).apply {
             orientation = VERTICAL
             setPadding(dp(22), dp(10), dp(22), dp(30))
@@ -105,8 +103,7 @@ class LibraryView(
         } else {
             recent.forEach { track -> content.addView(trackRow(track, removable = false), LayoutParams(-1, -2).apply { bottomMargin = dp(9) }) }
         }
-        scroll.addView(content)
-        addView(scroll, LayoutParams(-1, 0, 1f))
+        addView(content, LayoutParams(-1, -2))
     }
 
     private fun trackRow(track: CatalogTrack, removable: Boolean): LinearLayout {
