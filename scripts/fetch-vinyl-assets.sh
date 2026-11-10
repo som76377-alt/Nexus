@@ -17,21 +17,22 @@ else
   exit 1
 fi
 
+if command -v identify >/dev/null 2>&1; then
+  IDENTIFY=(identify)
+elif [[ "${CONVERT[0]}" == "magick" ]]; then
+  IDENTIFY=(magick identify)
+else
+  echo "ERROR: ImageMagick identify is required to verify the generated PNG files." >&2
+  exit 1
+fi
+
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-fetch_and_convert() {
+verify_and_install() {
   local name="$1"
-  local url="$2"
+  local converted="$2"
   local output="$OUT_DIR/$name"
-  local download="$TMP_DIR/$name.jpg"
-  local converted="$TMP_DIR/$name.png"
-
-  echo "Downloading $name..."
-  curl -fL --retry 3 --retry-delay 2 "$url" -o "$download"
-
-  echo "Converting $name from JPEG to PNG..."
-  "${CONVERT[@]}" "$download" "PNG:$converted"
 
   local signature
   signature="$(od -An -tx1 -N4 "$converted" | tr -d ' \n')"
@@ -47,9 +48,57 @@ fetch_and_convert() {
     exit 1
   fi
 
+  local details channels dimensions
+  details="$("${IDENTIFY[@]}" -format '%[channels] %wx%h' "$converted")"
+  read -r channels dimensions <<< "$details"
+  if [[ "$channels" != *a* ]]; then
+    echo "ERROR: $name has no alpha channel (identify reported '$channels'; expected srgba)." >&2
+    exit 1
+  fi
+
   install -m 0644 "$converted" "$output"
-  echo "Verified $output ($size bytes)."
+  echo "Verified $output: $channels $dimensions ($size bytes)."
 }
 
-fetch_and_convert 'vinyl_disc.png' "$DISC_URL"
-fetch_and_convert 'tonearm.png' "$ARM_URL"
+fetch_disc() {
+  local download="$TMP_DIR/vinyl_disc.jpg"
+  local trimmed="$TMP_DIR/vinyl_disc_trimmed.png"
+  local cropped="$TMP_DIR/vinyl_disc_cropped.png"
+  local mask="$TMP_DIR/vinyl_disc_mask.png"
+  local converted="$TMP_DIR/vinyl_disc.png"
+
+  echo "Downloading vinyl_disc.png..."
+  curl -fL --retry 3 --retry-delay 2 "$DISC_URL" -o "$download"
+
+  echo "Trimming, square-cropping, resizing, and masking vinyl_disc.png..."
+  "${CONVERT[@]}" "$download" -trim +repage "$trimmed"
+  local square
+  square="$("${IDENTIFY[@]}" -format '%[fx:min(w,h)]' "$trimmed")"
+  "${CONVERT[@]}" "$trimmed" -gravity center -crop "${square}x${square}+0+0" +repage -resize 1024x1024 "$cropped"
+  "${CONVERT[@]}" -size 1024x1024 xc:none -fill white -draw 'circle 512,512 512,0' "$mask"
+  "${CONVERT[@]}" "$cropped" "$mask" -alpha set -compose DstIn -composite "PNG:$converted"
+
+  verify_and_install "vinyl_disc.png" "$converted"
+}
+
+fetch_tonearm() {
+  local download="$TMP_DIR/tonearm.jpg"
+  local converted="$TMP_DIR/tonearm.png"
+
+  echo "Downloading tonearm.png..."
+  curl -fL --retry 3 --retry-delay 2 "$ARM_URL" -o "$download"
+
+  echo "Removing corner-connected background from tonearm.png..."
+  "${CONVERT[@]}" "$download" \
+    -alpha set -fuzz 12% -fill none \
+    -draw 'color 0,0 floodfill' \
+    -draw 'color %[fx:w-1],0 floodfill' \
+    -draw 'color 0,%[fx:h-1] floodfill' \
+    -draw 'color %[fx:w-1],%[fx:h-1] floodfill' \
+    -trim +repage "PNG:$converted"
+
+  verify_and_install "tonearm.png" "$converted"
+}
+
+fetch_disc
+fetch_tonearm
