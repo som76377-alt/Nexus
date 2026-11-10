@@ -296,7 +296,9 @@ class NowPlayingView(
     }
 
     private fun animateSpeedTo(target: Float) {
-        speedAnimator?.cancel()
+        val previousAnimator = speedAnimator
+        speedAnimator = null
+        previousAnimator?.cancel()
         val start = currentSpeed
         if (kotlin.math.abs(target - start) < 0.001f) {
             currentSpeed = target
@@ -426,17 +428,20 @@ class NowPlayingView(
     }
 
     private fun cancelArmAnimation() {
-        armAnimator?.cancel()
+        val previousAnimator = armAnimator
         armAnimator = null
+        previousAnimator?.cancel()
     }
 
     private fun stopAllMotion() {
         discAnimator?.cancel()
         discAnimator = null
-        speedAnimator?.cancel()
+        val previousSpeedAnimator = speedAnimator
         speedAnimator = null
-        armAnimator?.cancel()
+        previousSpeedAnimator?.cancel()
+        val previousArmAnimator = armAnimator
         armAnimator = null
+        previousArmAnimator?.cancel()
         disc.setLayerType(View.LAYER_TYPE_NONE, null)
         tonearm.setLayerType(View.LAYER_TYPE_NONE, null)
         lastFrameTime = 0L
