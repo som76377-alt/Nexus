@@ -27,10 +27,12 @@ jobs:
           ref: ui/real-vinyl-player
           fetch-depth: 0
 
-      - name: Install ImageMagick
+      - name: Check ImageMagick availability
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes imagemagick
+          if ! (which convert || which magick); then
+            echo "ERROR: ImageMagick is not installed; neither convert nor magick is available on this runner." >&2
+            exit 1
+          fi
 
       - name: Download, convert, and verify assets
         env:
