@@ -74,7 +74,7 @@ Do not use all five families on one screen. Display and experimental type is res
 
 Indian scripts must use suitable script-specific families, including Noto Serif Devanagari, Noto Sans Devanagari and Noto Nastaliq Urdu where applicable. Never assume Latin font coverage.
 
-**Asset status:** Semantic font roles and safe platform fallbacks are established in code. Licensed font binaries are not yet bundled. Add only verified, redistributable font files with their licence notices; do not silently substitute unrelated fonts or claim the chosen families are active before assets exist.
+**Asset status:** Fraunces, Syne, Instrument Serif, DM Sans and Space Mono are bundled as Android font resources from the official Google Fonts repository under SIL Open Font License 1.1. The corresponding licence texts and source mapping are stored in `docs/licenses/fonts/`. Devanagari and Nastaliq families remain a separate script-coverage follow-up; the current Latin families must not be assumed to cover those scripts.
 
 ## Material and texture inventory
 
@@ -123,8 +123,8 @@ Use asymmetry and editorial composition where appropriate. These tokens are defa
 
 ## Asset directory contract
 
-Future assets belong in:
-- `app/src/main/res/font/` — licensed font binaries.
+Additional assets belong in:
+- `app/src/main/res/font/` — bundled licensed font binaries (Fraunces, Syne, Instrument Serif, DM Sans, Space Mono).
 - `app/src/main/res/drawable-nodpi/` — photographic textures, vinyl and tonearm masters/variants.
 - `app/src/main/res/drawable/` — scalable vector artwork and density-independent drawables.
 - `app/src/main/res/mipmap-*/` — launcher artwork only.
@@ -151,7 +151,7 @@ Existing functional pathways remain authoritative. Visual work must not fork pla
 
 - One central semantic palette and typography-role API exists.
 - Legacy presentation aliases resolve to the new identity rather than the previous dark neon palette.
-- Material and font asset requirements are documented honestly.
+- Licensed font binaries are bundled with their SIL OFL notices.
 - No unlicensed or speculative binary assets are added.
 - No protected playback, room, SPEC or SQL files are changed.
 - Android CI (lint, unit tests, debug APK and release guard) passes on the exact proposed commit.
