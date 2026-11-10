@@ -44,7 +44,7 @@ object NexusUi {
         const val miniPlayerArtwork = 48
     }
 
-    enum class NavigationTab { HOME, LIBRARY, ROOM }
+    enum class NavigationTab { HOME, LIBRARY, ROOM, YOU }
 
     data class MiniPlayerViews(
         val container: LinearLayout,
@@ -103,7 +103,8 @@ object NexusUi {
         selected: NavigationTab,
         onHome: () -> Unit,
         onLibrary: () -> Unit,
-        onRoom: () -> Unit
+        onRoom: () -> Unit,
+        onYou: () -> Unit
     ): LinearLayout {
         val bar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -127,22 +128,20 @@ object NexusUi {
                 setOnClickListener { onClick() }
             }
 
-        bar.addView(
-            tab("Home", NavigationTab.HOME, onHome),
-            LinearLayout.LayoutParams(0, dp(context, Spacing.controlHeight), 1f).apply {
-                marginEnd = dp(context, 5)
-            }
+        val tabs = listOf(
+            Triple("Home", NavigationTab.HOME, onHome),
+            Triple("Library", NavigationTab.LIBRARY, onLibrary),
+            Triple("Room", NavigationTab.ROOM, onRoom),
+            Triple("You", NavigationTab.YOU, onYou)
         )
-        bar.addView(
-            tab("Library", NavigationTab.LIBRARY, onLibrary),
-            LinearLayout.LayoutParams(0, dp(context, Spacing.controlHeight), 1f).apply {
-                marginEnd = dp(context, 5)
-            }
-        )
-        bar.addView(
-            tab("Room", NavigationTab.ROOM, onRoom),
-            LinearLayout.LayoutParams(0, dp(context, Spacing.controlHeight), 1f)
-        )
+        tabs.forEachIndexed { index, (title, destination, callback) ->
+            bar.addView(
+                tab(title, destination, callback),
+                LinearLayout.LayoutParams(0, dp(context, Spacing.controlHeight), 1f).apply {
+                    if (index != tabs.lastIndex) marginEnd = dp(context, 4)
+                }
+            )
+        }
         return bar
     }
 
