@@ -16,6 +16,7 @@ import android.os.Build
 import android.os.SystemClock
 import android.view.Gravity
 import android.view.View
+import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.animation.DecelerateInterpolator
 import android.view.animation.LinearInterpolator
 import android.widget.FrameLayout
@@ -238,7 +239,7 @@ class NowPlayingView(
                 lateinit var settle: ValueAnimator
                 settle = ValueAnimator.ofFloat(0f, 1f).apply {
                     this.duration = ARM_SETTLE_MS
-                    interpolator = DecelerateInterpolator(1.4f)
+                    interpolator = AccelerateDecelerateInterpolator()
                     addUpdateListener { animator ->
                         val fraction = animator.animatedValue as Float
                         armAngle = VinylMotion.blend(target - ARM_OVERSHOOT_DEGREES, target, fraction) +
@@ -283,10 +284,11 @@ class NowPlayingView(
         animateArmValue(armLift, 1f, ARM_LIFT_MS) {
             armPhase = VinylMotion.ArmPhase.SWINGING_TO_REST
             animateArmAngle(REST_ANGLE, ARM_SWING_MS) {
-                armPhase = VinylMotion.ArmPhase.RESTING
-                armLift = 0f
-                applyArmFrame()
-                refreshLayers()
+                armPhase = VinylMotion.ArmPhase.LOWERING
+                animateArmValue(armLift, 0f, ARM_SETTLE_MS) {
+                    armPhase = VinylMotion.ArmPhase.RESTING
+                    refreshLayers()
+                }
             }
         }
     }
@@ -360,7 +362,7 @@ class NowPlayingView(
         lateinit var animator: ValueAnimator
         animator = ValueAnimator.ofFloat(from, to).apply {
             duration = durationMs
-            interpolator = DecelerateInterpolator(1.4f)
+            interpolator = AccelerateDecelerateInterpolator()
             addUpdateListener {
                 armLift = it.animatedValue as Float
                 applyArmFrame()
@@ -593,9 +595,9 @@ class NowPlayingView(
         const val PLAY_END_ANGLE = -13f
         const val LIFT_HEIGHT_DP = 4
         const val ARM_SHADOW_HEIGHT_DP = 6
-        const val ARM_LIFT_MS = 150L
+        const val ARM_LIFT_MS = 220L
         const val ARM_SWING_MS = 800L
-        const val ARM_SETTLE_MS = 250L
+        const val ARM_SETTLE_MS = 320L
         const val ARM_OVERSHOOT_DEGREES = 2.5f
         const val SPIN_UP_MS = 1_200L
         const val SPIN_DOWN_MS = 1_800L
