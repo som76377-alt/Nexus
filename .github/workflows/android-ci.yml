@@ -2,7 +2,7 @@ name: Android CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, ui/real-vinyl-player]
   pull_request:
   workflow_dispatch:
 

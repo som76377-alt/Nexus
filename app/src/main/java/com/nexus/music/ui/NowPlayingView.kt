@@ -586,7 +586,8 @@ class NowPlayingView(
         const val TONEARM_TRANSLATION_X_DP = 63
         const val REST_ANGLE = -42f
         const val PLAY_START_ANGLE = 0f
-        const val PLAY_END_ANGLE = 4.5f
+        // 14 degrees is an estimate to tune on-device.
+        const val PLAY_END_ANGLE = 14f
         const val LIFT_HEIGHT_DP = 4
         const val ARM_SHADOW_HEIGHT_DP = 6
         const val ARM_LIFT_MS = 150L
