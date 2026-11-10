@@ -19,6 +19,7 @@ import android.view.View
 import android.view.WindowInsets
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.ImageButton
 import android.widget.ProgressBar
@@ -32,6 +33,7 @@ import androidx.media3.common.Player
 import coil3.load
 import com.nexus.music.catalog.CatalogTrack
 import com.nexus.music.ui.NexusUi
+import com.nexus.music.ui.NowPlayingView
 import com.nexus.music.ui.NexusDesignSystem
 import com.nexus.music.ui.SearchPanel
 import com.nexus.music.catalog.ResolvedAudio
@@ -74,6 +76,7 @@ class MainActivity : Activity() {
     private lateinit var playerSubtitle: TextView
     private lateinit var playPauseButton: ImageButton
     private lateinit var playbackProgress: SeekBar
+    private lateinit var nowPlayingView: NowPlayingView
 
     private var playbackConnection: PlaybackConnection? = null
     private var updateCheckJob: Job? = null
@@ -120,7 +123,8 @@ class MainActivity : Activity() {
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
         window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
-        val root = LinearLayout(this).apply {
+        val root = FrameLayout(this).apply { setBackgroundColor(screenBackground) }
+        val base = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(screenBackground)
         }
@@ -215,13 +219,24 @@ class MainActivity : Activity() {
         content.addView(searchPanel, verticalParams(18))
 
         scroll.addView(content)
-        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        root.addView(buildPlayerPanel(), LinearLayout.LayoutParams(-1, -2))
-        root.addView(buildBottomNavigation(), LinearLayout.LayoutParams(-1, dp(62)))
+        base.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        base.addView(buildPlayerPanel(), LinearLayout.LayoutParams(-1, -2))
+        base.addView(buildBottomNavigation(), LinearLayout.LayoutParams(-1, dp(62)))
+        root.addView(base, FrameLayout.LayoutParams(-1, -1))
+        nowPlayingView = NowPlayingView(
+            context = this,
+            onClose = { nowPlayingView.visibility = View.GONE },
+            onToggle = { playbackConnection?.togglePlayback() },
+            onSeek = { playbackConnection?.seekTo(it) }
+        ).apply {
+            visibility = View.GONE
+            render(lastPlaybackSnapshot)
+        }
+        root.addView(nowPlayingView, FrameLayout.LayoutParams(-1, -1))
         setContentView(root)
         loadHomeShelves()
         registerBackNavigation()
-        applySystemBarInsets(root)
+        applySystemBarInsets(base)
         connectPlaybackService()
         NexusUpdateScheduler.disableBackgroundUpdates(this)
     }
@@ -504,6 +519,11 @@ class MainActivity : Activity() {
                 isSeeking = false
             }
         )
+        player.container.setOnClickListener {
+            nowPlayingView.setArtwork(lastPlaybackSnapshot.sourceId.takeIf { false })
+            nowPlayingView.render(lastPlaybackSnapshot)
+            nowPlayingView.visibility = View.VISIBLE
+        }
         playbackProgress = player.progress
         playerArtwork = player.artwork
         playerTitle = player.title
@@ -528,6 +548,9 @@ class MainActivity : Activity() {
 
     private fun updatePlaybackUi(snapshot: PlaybackSnapshot) {
         lastPlaybackSnapshot = snapshot
+        if (::nowPlayingView.isInitialized && nowPlayingView.visibility == View.VISIBLE) {
+            nowPlayingView.render(snapshot)
+        }
         scheduleProgressTicker(snapshot)
         if (!snapshot.connected) {
             playerSubtitle.text = "Connecting to playback service…"
@@ -775,6 +798,7 @@ class MainActivity : Activity() {
         playerTitle.text = audio.title
         playerSubtitle.text = "Sending audio to player…"
         playerArtwork.load(audio.thumbnailUrl?.takeIf(String::isNotBlank))
+        if (::nowPlayingView.isInitialized) nowPlayingView.setArtwork(audio.thumbnailUrl)
         playPauseButton.isEnabled = true
         if (playbackConnection?.play(audio) != true) {
             playerSubtitle.text = "Player unavailable"
