@@ -16,7 +16,8 @@ import java.util.concurrent.TimeUnit
  */
 internal class PipedFallbackExtractor(
     private val client: OkHttpClient = defaultClient(),
-    private val clock: () -> Long = { System.currentTimeMillis() }
+    private val clock: () -> Long = { System.currentTimeMillis() },
+    private val instanceUrls: List<String> = TRUSTED_INSTANCES
 ) {
     private val instanceLock = Any()
     private var cachedInstances: List<String> = emptyList()
@@ -134,46 +135,10 @@ internal class PipedFallbackExtractor(
             return@synchronized cachedInstances
         }
 
-        // The old piped-instances.kavin.rocks directory is unreliable and can stall
-        // the first search. Use the maintained TeamPiped instance directory list instead.
-        cachedInstances = TRUSTED_INSTANCES.take(MAX_INSTANCES)
+        // Use the maintained TeamPiped instance directory; no dead discovery host.
+        cachedInstances = instanceUrls.map { it.trimEnd('/') }.distinct().take(MAX_INSTANCES)
         instancesLoadedAt = now
         cachedInstances
-    }
-
-    private fun discoverInstances(): List<String> {
-        val request = Request.Builder()
-            .url(INSTANCE_DIRECTORY)
-            .header("Accept", "application/json")
-            .header("User-Agent", "Nexus Android")
-            .build()
-        return try {
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@use emptyList()
-                val body = response.body?.string().orEmpty()
-                val array = runCatching { JSONArray(body) }.getOrNull()
-                    ?: JSONObject(body).optJSONArray("instances")
-                    ?: return@use emptyList()
-                buildList {
-                    for (index in 0 until array.length()) {
-                        val item = array.optJSONObject(index) ?: continue
-                        if (item.has("up") && !item.optBoolean("up")) continue
-                        val candidate = item.optString("api_url")
-                            .ifBlank { item.optString("apiUrl") }
-                            .ifBlank { item.optString("api") }
-                        normalizeInstance(candidate)?.let(::add)
-                    }
-                }
-            }
-        } catch (_: Exception) {
-            emptyList()
-        }
-    }
-
-    private fun normalizeInstance(value: String): String? {
-        val uri = runCatching { URI(value) }.getOrNull() ?: return null
-        if (!uri.scheme.equals("https", true) || uri.host.isNullOrBlank()) return null
-        return "https://${uri.host}"
     }
 
     private fun isCoolingDown(base: String): Boolean =
@@ -197,7 +162,6 @@ internal class PipedFallbackExtractor(
     private fun youtubeUrl(videoId: String) = "https://www.youtube.com/watch?v=$videoId"
 
     companion object {
-        private const val INSTANCE_DIRECTORY = "https://piped-instances.kavin.rocks/"
         private val TRUSTED_INSTANCES = listOf(
             "https://pipedapi.in.projectsegfau.lt",
             "https://pipedapi.syncpundit.io",
