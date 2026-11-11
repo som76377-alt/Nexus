@@ -148,7 +148,7 @@ class MainActivity : Activity() {
         }
         homeContent = content
 
-        content.addView(com.nexus.music.ui.HomeDiscoveryView(this) { query ->
+        content.addView(com.nexus.music.ui.HomeDiscoveryView(this, onExplore = { query ->
             searchPanel.queryInput.setText(query)
             selectedScope = YoutubeSearchScope.MUSIC_SONGS
             searchPanel.setSelectedScope(selectedScope)
