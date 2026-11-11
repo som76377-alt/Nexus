@@ -209,7 +209,7 @@ abstract class JsonApiStreamProviderAdapter(
                 try {
                     val body = response.use {
                         if (!it.isSuccessful) {
-                            throw IOException("${provider.key} API returned HTTP ${it.code}.")
+                            throw ProviderHttpException(it.code, provider.key)
                         }
                         it.body?.string()
                             ?: throw IOException("${provider.key} API returned an empty response.")
