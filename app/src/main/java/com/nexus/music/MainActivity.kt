@@ -125,7 +125,6 @@ class MainActivity : Activity() {
         }
     }
 
-    @OptIn(androidx.media3.common.util.UnstableApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.statusBarColor = screenBackground
