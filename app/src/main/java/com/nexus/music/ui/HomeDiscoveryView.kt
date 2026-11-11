@@ -15,7 +15,8 @@ import android.widget.TextView
  */
 class HomeDiscoveryView(
     context: Context,
-    private val onExplore: (String) -> Unit
+    private val onExplore: (String) -> Unit,
+    private val onProviderLab: () -> Unit
 ) : LinearLayout(context) {
     private val ink = NexusDesignSystem.Palette.carbonInk
     private val muted = NexusDesignSystem.Palette.muted
@@ -26,6 +27,8 @@ class HomeDiscoveryView(
 
         addView(TextView(context).apply {
             text = "N E X U S     /     THE ART OF LISTENING"
+            setOnLongClickListener { onProviderLab(); true }
+            contentDescription = "Nexus. Long-press to open Provider Lab."
             textSize = 10f
             letterSpacing = 0.13f
             setTextColor(NexusDesignSystem.Palette.deepVinylGreen)
