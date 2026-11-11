@@ -6,7 +6,9 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.net.URI
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Independent extractor fallback backed by the vetted public Invidious API instances.
@@ -15,9 +17,20 @@ import java.util.concurrent.TimeUnit
 internal class InvidiousFallbackExtractor(
     private val client: OkHttpClient = defaultClient(),
     private val clock: () -> Long = { System.currentTimeMillis() },
-    private val instanceUrls: List<String> = DEFAULT_INSTANCES
+    private val instanceUrls: List<String>? = null
 ) {
     private val unhealthyUntil = mutableMapOf<String, Long>()
+    private val instanceLock = Any()
+    private val nextInstance = AtomicInteger()
+    private var cachedInstances: List<String> = emptyList()
+    private var instancesLoadedAt = 0L
+    private val discoveryClient by lazy {
+        client.newBuilder()
+            .connectTimeout(2, TimeUnit.SECONDS)
+            .readTimeout(2, TimeUnit.SECONDS)
+            .callTimeout(4, TimeUnit.SECONDS)
+            .build()
+    }
 
     fun search(query: String, scope: YoutubeSearchScope): List<CatalogTrack> {
         val filter = if (scope == YoutubeSearchScope.EVERYTHING) "all" else "video"
@@ -100,8 +113,14 @@ internal class InvidiousFallbackExtractor(
     }
 
     private fun <T> withInstance(block: (String) -> T): T {
+        val candidates = instances()
+        if (candidates.isEmpty()) {
+            throw IOException("No API-enabled HTTPS Invidious instances are available.")
+        }
         val failures = mutableListOf<Exception>()
-        for (base in instanceUrls) {
+        val start = Math.floorMod(nextInstance.getAndIncrement(), candidates.size)
+        for (offset in candidates.indices) {
+            val base = candidates[(start + offset) % candidates.size]
             if (isCoolingDown(base)) continue
             try {
                 return block(base)
@@ -113,9 +132,51 @@ internal class InvidiousFallbackExtractor(
         val detail = failures.take(4).joinToString("; ") {
             it.message ?: it.javaClass.simpleName
         }
-        val failure = IOException("All vetted Invidious fallback instances failed: $detail")
+        val failure = IOException("All API-enabled Invidious fallback instances failed: $detail")
         failures.forEach(failure::addSuppressed)
         throw failure
+    }
+
+    private fun instances(): List<String> = synchronized(instanceLock) {
+        if (instanceUrls != null) {
+            return@synchronized instanceUrls.mapNotNull(::normalizeHttpsInstance).distinct()
+        }
+
+        val now = clock()
+        if (cachedInstances.isNotEmpty() && now - instancesLoadedAt < INSTANCE_CACHE_MS) {
+            return@synchronized cachedInstances
+        }
+
+        val discovered = discoverInstances()
+        cachedInstances = (discovered + DEFAULT_INSTANCES)
+            .mapNotNull(::normalizeHttpsInstance)
+            .distinct()
+            .take(MAX_INSTANCES)
+        instancesLoadedAt = now
+        cachedInstances
+    }
+
+    private fun discoverInstances(): List<String> {
+        val request = Request.Builder()
+            .url(INSTANCE_DIRECTORY_URL)
+            .header("Accept", "application/json")
+            .header("User-Agent", "Nexus Android")
+            .build()
+        return try {
+            discoveryClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return emptyList()
+                parseMaintainedInstances(response.body?.string().orEmpty())
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun normalizeHttpsInstance(value: String): String? {
+        val candidate = value.trim().trimEnd('/')
+        val uri = runCatching { URI(candidate) }.getOrNull() ?: return null
+        if (!uri.scheme.equals("https", ignoreCase = true) || uri.host.isNullOrBlank()) return null
+        return candidate
     }
 
     private fun getArray(url: String, base: String): JSONArray {
@@ -171,15 +232,49 @@ internal class InvidiousFallbackExtractor(
     private fun youtubeUrl(videoId: String) = "https://www.youtube.com/watch?v=$videoId"
 
     companion object {
-        // Only instances currently listed by the Invidious maintainers are trusted.
-        private val DEFAULT_INSTANCES = listOf(
-            "https://inv.nadeko.net",
-            "https://invidious.nerdvpn.de",
-            "https://yt.chocolatemoo53.com",
-            "https://invidious.tiekoetter.com"
-        )
+        private const val INSTANCE_DIRECTORY_URL =
+            "https://api.invidious.io/instances.json?pretty=1&sort_by=type,users"
+        // Last-known official instance with API access enabled; refreshed directory takes priority.
+        private val DEFAULT_INSTANCES = listOf("https://yt.chocolatemoo53.com")
+        private const val INSTANCE_CACHE_MS = 30 * 60 * 1000L
         private const val INSTANCE_COOLDOWN_MS = 2 * 60 * 1000L
+        private const val MAX_INSTANCES = 8
         private val VIDEO_ID = Regex("[A-Za-z0-9_-]{11}")
+
+        internal fun parseMaintainedInstances(body: String): List<String> {
+            val entries = runCatching { JSONArray(body) }.getOrNull() ?: return emptyList()
+            return (0 until entries.length())
+                .mapNotNull { index ->
+                    val entry = entries.optJSONArray(index) ?: return@mapNotNull null
+                    val config = entry.optJSONObject(1) ?: return@mapNotNull null
+                    if (!config.optBoolean("api") ||
+                        !config.optString("type").equals("https", ignoreCase = true)
+                    ) {
+                        return@mapNotNull null
+                    }
+                    val monitor = config.optJSONObject("monitor")
+                    if (monitor?.optBoolean("down", false) == true) {
+                        return@mapNotNull null
+                    }
+                    val uri = config.optString("uri")
+                    val normalized = normalizeMaintainedHttpsUri(uri) ?: return@mapNotNull null
+                    val uptime = monitor?.optDouble("uptime", 0.0) ?: 0.0
+                    normalized to uptime
+                }
+                .sortedByDescending { it.second }
+                .map { it.first }
+                .distinct()
+                .take(MAX_INSTANCES)
+        }
+
+        private fun normalizeMaintainedHttpsUri(value: String): String? {
+            val candidate = value.trim().trimEnd('/')
+            val uri = runCatching { URI(candidate) }.getOrNull() ?: return null
+            if (!uri.scheme.equals("https", ignoreCase = true) || uri.host.isNullOrBlank()) {
+                return null
+            }
+            return candidate
+        }
 
         private fun defaultClient() = OkHttpClient.Builder()
             .connectTimeout(4, TimeUnit.SECONDS)
