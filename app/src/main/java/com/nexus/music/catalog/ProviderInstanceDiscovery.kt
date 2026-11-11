@@ -73,6 +73,7 @@ internal class ProviderInstanceDiscovery(
         private const val INVIDIOUS_DIRECTORY_URL =
             "https://api.invidious.io/instances.json?sort_by=health"
         private const val MAX_ENDPOINTS = 20
+        private const val MAX_DIRECTORY_BYTES = 1_048_576L
 
         internal suspend fun fetchDirectory(client: OkHttpClient, url: String): String =
             suspendCancellableCoroutine { continuation ->
@@ -95,8 +96,13 @@ internal class ProviderInstanceDiscovery(
                                 if (!it.isSuccessful) {
                                     throw IOException("Provider directory returned HTTP ${it.code}.")
                                 }
-                                it.body?.string()
+                                val responseBody = it.body
                                     ?: throw IOException("Provider directory returned an empty response.")
+                                val source = responseBody.source()
+                                if (source.request(MAX_DIRECTORY_BYTES + 1L)) {
+                                    throw IOException("Provider directory response exceeded the size limit.")
+                                }
+                                source.readUtf8()
                             }
                             if (continuation.isActive) continuation.resume(body)
                         } catch (error: Exception) {
