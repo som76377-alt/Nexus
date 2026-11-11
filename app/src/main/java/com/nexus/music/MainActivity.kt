@@ -888,8 +888,19 @@ class MainActivity : Activity() {
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                playerSubtitle.text = "Couldn't prepare audio"
-                Toast.makeText(this@MainActivity, error.message ?: "Please choose another result.", Toast.LENGTH_LONG).show()
+                val message = when (error) {
+                    is SignInConfirmNotBotException ->
+                        "YouTube is asking this connection to verify it isn't automated. Try another network or retry later."
+                    is ReCaptchaException ->
+                        "YouTube temporarily limited requests. Wait a bit, then retry."
+                    else -> error.message ?: "Please choose another result."
+                }
+                playerSubtitle.text = when (error) {
+                    is SignInConfirmNotBotException -> "YouTube verification required"
+                    is ReCaptchaException -> "YouTube temporarily limited requests"
+                    else -> "Couldn't prepare audio"
+                }
+                Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
             } finally {
                 isResolving = false
             }
