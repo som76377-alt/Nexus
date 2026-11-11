@@ -135,6 +135,17 @@ class JsonApiStreamProviderAdapterTest {
     }
 
     @Test
+    fun parsesRetryAfterAsSecondsOrHttpDate() {
+        assertEquals(5_000L, JsonApiStreamProviderAdapter.parseRetryAfterMillis("5", 1_000L))
+        assertEquals(
+            10_000L,
+            JsonApiStreamProviderAdapter.parseRetryAfterMillis("Thu, 01 Jan 1970 00:00:10 GMT", 0L)
+        )
+        assertEquals(0L, JsonApiStreamProviderAdapter.parseRetryAfterMillis("1", 2_000L))
+        assertEquals(null, JsonApiStreamProviderAdapter.parseRetryAfterMillis("not-a-date", 0L))
+    }
+
+    @Test
     fun rejectsNonYoutubeSourceBeforeNetworkRequest() {
         val adapter = PipedStreamProviderAdapter(listOf(server.url("/").toString()))
         assertThrows(IllegalArgumentException::class.java) {
