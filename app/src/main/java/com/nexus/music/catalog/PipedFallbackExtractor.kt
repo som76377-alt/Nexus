@@ -8,21 +8,29 @@ import org.json.JSONObject
 import java.io.IOException
 import java.net.URI
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Server-side extraction fallback. Piped instances run their own extractor and expose
- * normalized search/stream responses, so this remains independent of the on-device NewPipe
- * request path (including its IP-specific YouTube challenges).
+ * Server-side extraction fallback. Piped runs its own extractor and exposes normalized
+ * search/stream responses, independent of the on-device NewPipe request path.
  */
 internal class PipedFallbackExtractor(
     private val client: OkHttpClient = defaultClient(),
     private val clock: () -> Long = { System.currentTimeMillis() },
-    private val instanceUrls: List<String> = TRUSTED_INSTANCES
+    private val instanceUrls: List<String>? = null
 ) {
     private val instanceLock = Any()
     private var cachedInstances: List<String> = emptyList()
     private var instancesLoadedAt = 0L
     private val unhealthyUntil = mutableMapOf<String, Long>()
+    private val nextInstance = AtomicInteger()
+    private val discoveryClient by lazy {
+        client.newBuilder()
+            .connectTimeout(2, TimeUnit.SECONDS)
+            .readTimeout(2, TimeUnit.SECONDS)
+            .callTimeout(4, TimeUnit.SECONDS)
+            .build()
+    }
 
     fun search(query: String, scope: YoutubeSearchScope): List<CatalogTrack> {
         val filter = when (scope) {
@@ -95,9 +103,19 @@ internal class PipedFallbackExtractor(
     }
 
     private fun <T> withInstance(block: (String) -> T): T {
+        val candidates = instances()
+        if (candidates.isEmpty()) {
+            throw IOException("No Piped fallback instances are configured.")
+        }
+
         val failures = mutableListOf<Exception>()
-        for (base in instances()) {
+        val start = Math.floorMod(nextInstance.getAndIncrement(), candidates.size)
+        var attempted = 0
+        for (offset in candidates.indices) {
+            if (attempted >= MAX_INSTANCES_PER_REQUEST) break
+            val base = candidates[(start + offset) % candidates.size]
             if (isCoolingDown(base)) continue
+            attempted++
             try {
                 return block(base)
             } catch (error: Exception) {
@@ -105,10 +123,14 @@ internal class PipedFallbackExtractor(
                 failures += error
             }
         }
+
+        if (failures.isEmpty()) {
+            throw IOException("All available Piped fallback instances are cooling down.")
+        }
         val detail = failures.take(4).joinToString("; ") {
             it.message ?: it.javaClass.simpleName
         }
-        val failure = IOException("All available Piped fallback instances failed: $detail")
+        val failure = IOException("Piped fallback failed on $attempted instance(s): $detail")
         failures.forEach(failure::addSuppressed)
         throw failure
     }
@@ -133,15 +155,45 @@ internal class PipedFallbackExtractor(
     }
 
     private fun instances(): List<String> = synchronized(instanceLock) {
+        if (instanceUrls != null) {
+            return@synchronized instanceUrls.mapNotNull(::normalizeInstanceUrl).distinct()
+        }
+
         val now = clock()
         if (cachedInstances.isNotEmpty() && now - instancesLoadedAt < INSTANCE_CACHE_MS) {
             return@synchronized cachedInstances
         }
 
-        // Use the maintained TeamPiped instance directory; no dead discovery host.
-        cachedInstances = instanceUrls.map { it.trimEnd('/') }.distinct().take(MAX_INSTANCES)
+        val discovered = discoverInstances()
+        cachedInstances = (discovered + TRUSTED_INSTANCES)
+            .mapNotNull(::normalizeInstanceUrl)
+            .distinct()
+            .take(MAX_DISCOVERED_INSTANCES)
         instancesLoadedAt = now
         cachedInstances
+    }
+
+    private fun discoverInstances(): List<String> {
+        val request = Request.Builder()
+            .url(INSTANCE_DIRECTORY_URL)
+            .header("Accept", "text/plain")
+            .header("User-Agent", "Nexus Android")
+            .build()
+        return try {
+            discoveryClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return emptyList()
+                parseInstanceDirectory(response.body?.string().orEmpty())
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun normalizeInstanceUrl(value: String): String? {
+        val candidate = value.trim().trimEnd('/')
+        val uri = runCatching { URI(candidate) }.getOrNull() ?: return null
+        if (uri.scheme !in setOf("https", "http") || uri.host.isNullOrBlank()) return null
+        return candidate
     }
 
     private fun isCoolingDown(base: String): Boolean =
@@ -165,6 +217,8 @@ internal class PipedFallbackExtractor(
     private fun youtubeUrl(videoId: String) = "https://www.youtube.com/watch?v=$videoId"
 
     companion object {
+        private const val INSTANCE_DIRECTORY_URL =
+            "https://raw.githubusercontent.com/wiki/TeamPiped/Piped-Frontend/Instances.md"
         private val TRUSTED_INSTANCES = listOf(
             "https://pipedapi.in.projectsegfau.lt",
             "https://pipedapi.syncpundit.io",
@@ -179,16 +233,38 @@ internal class PipedFallbackExtractor(
             "https://pipedapi.smnz.de",
             "https://pipedapi.qdi.fi"
         )
-        private const val INSTANCE_CACHE_MS = 6 * 60 * 60 * 1000L
-        private const val INSTANCE_COOLDOWN_MS = 5 * 60 * 1000L
-        private const val MAX_INSTANCES = 8
+        private const val INSTANCE_CACHE_MS = 30 * 60 * 1000L
+        private const val INSTANCE_COOLDOWN_MS = 3 * 60 * 1000L
+        private const val MAX_DISCOVERED_INSTANCES = 32
+        private const val MAX_INSTANCES_PER_REQUEST = 4
+        private val DIRECTORY_URL = Regex("""https://[^\\s|\x60<>()]+""")
         private val VIDEO_ID = Regex("[A-Za-z0-9_-]{11}")
-        private val AUDIO_FORMATS = setOf("M4A", "MP3", "MP2", "OPUS", "OGG", "WEBMA", "WEBMA_OPUS", "FLAC", "ALAC", "WAV")
-        
+        private val AUDIO_FORMATS = setOf(
+            "M4A", "MP3", "MP2", "OPUS", "OGG", "WEBMA", "WEBMA_OPUS", "FLAC", "ALAC", "WAV"
+        )
+
+        internal fun parseInstanceDirectory(body: String): List<String> =
+            body.lineSequence()
+                .mapNotNull { line ->
+                    val apiCell = line.split('|').getOrNull(1) ?: return@mapNotNull null
+                    val candidate = DIRECTORY_URL.find(apiCell)?.value
+                        ?.trimEnd(')', ',', ';', '`')
+                        ?: return@mapNotNull null
+                    val uri = runCatching { URI(candidate) }.getOrNull() ?: return@mapNotNull null
+                    if (!uri.scheme.equals("https", ignoreCase = true) || uri.host.isNullOrBlank()) {
+                        null
+                    } else {
+                        candidate.trimEnd('/')
+                    }
+                }
+                .distinct()
+                .take(MAX_DISCOVERED_INSTANCES)
+                .toList()
+
         private fun defaultClient() = OkHttpClient.Builder()
-            .connectTimeout(4, TimeUnit.SECONDS)
-            .readTimeout(6, TimeUnit.SECONDS)
-            .callTimeout(9, TimeUnit.SECONDS)
+            .connectTimeout(2, TimeUnit.SECONDS)
+            .readTimeout(4, TimeUnit.SECONDS)
+            .callTimeout(5, TimeUnit.SECONDS)
             .followRedirects(true)
             .build()
     }
