@@ -105,7 +105,10 @@ internal class PipedFallbackExtractor(
                 failures += error
             }
         }
-        val failure = IOException("All available Piped fallback instances failed.")
+        val detail = failures.take(4).joinToString("; ") {
+            it.message ?: it.javaClass.simpleName
+        }
+        val failure = IOException("All available Piped fallback instances failed: $detail")
         failures.forEach(failure::addSuppressed)
         throw failure
     }
