@@ -134,7 +134,9 @@ internal class PipedFallbackExtractor(
         }
 
         val discovered = discoverInstances()
-        cachedInstances = (discovered + OFFICIAL_INSTANCE).distinct().take(MAX_INSTANCES)
+        cachedInstances = (
+            discovered.take(MAX_INSTANCES - OFFICIAL_INSTANCES.size) + OFFICIAL_INSTANCES
+        ).distinct().take(MAX_INSTANCES)
         instancesLoadedAt = now
         cachedInstances
     }
@@ -196,7 +198,10 @@ internal class PipedFallbackExtractor(
 
     companion object {
         private const val INSTANCE_DIRECTORY = "https://piped-instances.kavin.rocks/"
-        private const val OFFICIAL_INSTANCE = "https://pipedapi.kavin.rocks"
+        private val OFFICIAL_INSTANCES = listOf(
+            "https://pipedapi.kavin.rocks",
+            "https://pipedapi-in.kavin.rocks"
+        )
         private const val INSTANCE_CACHE_MS = 6 * 60 * 60 * 1000L
         private const val INSTANCE_COOLDOWN_MS = 2 * 60 * 1000L
         private const val MAX_INSTANCES = 8
