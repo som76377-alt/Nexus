@@ -32,6 +32,9 @@ enum class StreamErrorClass {
     TRANSIENT, RATE_LIMITED, ACCESS_BLOCKED, INVALID_SOURCE, UNSUPPORTED, UNKNOWN
 }
 
+/** A provider cannot faithfully perform a requested operation or filter. */
+class ProviderCapabilityException(message: String) : IOException(message)
+
 /** HTTP response failure retaining status so provider health uses the correct cooldown class. */
 class ProviderHttpException(
     val statusCode: Int,
@@ -42,6 +45,7 @@ class ProviderHttpException(
 object StreamErrorClassifier {
     fun classify(error: Throwable): StreamErrorClass = when (error) {
         is ReCaptchaException -> StreamErrorClass.RATE_LIMITED
+        is ProviderCapabilityException -> StreamErrorClass.UNSUPPORTED
         is ProviderHttpException -> when (error.statusCode) {
             429 -> StreamErrorClass.RATE_LIMITED
             401, 403 -> StreamErrorClass.ACCESS_BLOCKED
