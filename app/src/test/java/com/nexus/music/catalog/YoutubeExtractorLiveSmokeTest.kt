@@ -8,7 +8,7 @@ import org.junit.Test
 import org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException
 
 /**
- * Opt-in network smoke test. It intentionally opens the primary circuit so a green result
+ * Opt-in network smoke test. It intentionally opens the NewPipe circuit so a green result
  * proves at least one server-side fallback completed search AND audio resolution.
  * Run with -Pnexus.liveExtractorTests=true.
  */
@@ -20,7 +20,8 @@ class YoutubeExtractorLiveSmokeTest {
             System.getProperty("nexus.liveExtractorTests") == "true"
         )
 
-        val policy = ExtractorFailoverPolicy().apply { primaryFailed() }
+        val policy = ExtractorFailoverPolicy(cooldownMillis = 10 * 60 * 1000L)
+            .apply { primaryFailed() }
         val repository = YoutubeCatalogRepository(
             downloader = OkHttpDownloader(),
             pipedFallback = PipedFallbackExtractor(),
@@ -37,8 +38,12 @@ class YoutubeExtractorLiveSmokeTest {
 
         val resolved = try {
             repository.resolveAudio(results.first().url)
-        } catch (blocked: SignInConfirmNotBotException) {
-            skipWhenEveryFallbackIsUnavailable(blocked)
+        } catch (error: Exception) {
+            throw AssertionError(
+                "Fallback audio resolution failed after search succeeded. " +
+                    "Provider diagnostics: ${repository.diagnosticsSummary()}",
+                error
+            )
         }
 
         assertTrue("Expected an HTTPS audio URL.", resolved.audioUrl.startsWith("https://"))
@@ -55,19 +60,9 @@ class YoutubeExtractorLiveSmokeTest {
     }
 
     private fun skipWhenEveryFallbackIsUnavailable(blocked: SignInConfirmNotBotException): Nothing {
-        fun printFailure(error: Throwable, depth: Int = 0) {
-            if (depth > 6) return
-            System.err.println(
-                "Extractor fallback diagnostic: ${"  ".repeat(depth)}" +
-                    "${error.javaClass.simpleName}: ${error.message}"
-            )
-            error.cause?.takeIf { it !== error }?.let { printFailure(it, depth + 1) }
-            error.suppressed.forEach { printFailure(it, depth + 1) }
-        }
-        printFailure(blocked)
         assumeTrue(
-            "NewPipe was challenged and neither Piped nor Invidious completed extraction; " +
-                "live fallback health is unavailable from this CI runner.",
+            "NewPipe was challenged and neither Piped nor Invidious completed search; " +
+                "live fallback search cannot be evaluated from this CI runner.",
             false
         )
         throw blocked
