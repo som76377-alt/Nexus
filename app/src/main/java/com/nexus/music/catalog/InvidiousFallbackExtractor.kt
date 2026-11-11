@@ -96,17 +96,19 @@ internal class InvidiousFallbackExtractor(
     }
 
     private fun <T> withInstance(block: (String) -> T): T {
-        var lastError: Exception? = null
+        val failures = mutableListOf<Exception>()
         for (base in instanceUrls) {
             if (isCoolingDown(base)) continue
             try {
                 return block(base)
             } catch (error: Exception) {
                 markUnhealthy(base)
-                lastError = error
+                failures += error
             }
         }
-        throw IOException("All vetted Invidious fallback instances failed.", lastError)
+        val failure = IOException("All vetted Invidious fallback instances failed.")
+        failures.forEach(failure::addSuppressed)
+        throw failure
     }
 
     private fun getArray(url: String, base: String): JSONArray {
