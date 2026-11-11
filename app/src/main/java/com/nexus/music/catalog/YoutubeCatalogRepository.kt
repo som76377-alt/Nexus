@@ -42,11 +42,15 @@ class YoutubeCatalogRepository internal constructor(
         require(normalizedQuery.isNotEmpty()) { "Search query must not be blank." }
 
         var primaryFailure: Exception? = null
+        var primaryReturnedEmpty = false
         if (failoverPolicy.shouldTryPrimary()) {
             try {
                 val results = searchWithNewPipe(normalizedQuery, scope)
-                failoverPolicy.primarySucceeded()
-                if (results.isNotEmpty()) return@withContext results
+                if (results.isNotEmpty()) {
+                    failoverPolicy.primarySucceeded()
+                    return@withContext results
+                }
+                primaryReturnedEmpty = true
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
                 primaryFailure = error
@@ -55,7 +59,12 @@ class YoutubeCatalogRepository internal constructor(
         }
 
         try {
-            searchWithFallbacks(normalizedQuery, scope)
+            val results = searchWithFallbacks(normalizedQuery, scope)
+            if (primaryReturnedEmpty) {
+                if (results.isNotEmpty()) failoverPolicy.primaryFailed()
+                else failoverPolicy.primarySucceeded()
+            }
+            results
         } catch (fallbackError: Exception) {
             if (fallbackError is CancellationException) throw fallbackError
             if (primaryFailure != null) {
