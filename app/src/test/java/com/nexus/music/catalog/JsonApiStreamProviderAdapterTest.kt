@@ -95,6 +95,23 @@ class JsonApiStreamProviderAdapterTest {
         }
     }
 
+
+    @Test
+    fun pipedAdapterAcceptsDiscoveredEndpointsAfterStartingEmpty() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"title":"Discovered","audioStreams":[{"url":"https://media.example/a.mp3","mimeType":"audio/mpeg","bitrate":96000}]}"""
+            )
+        )
+        val adapter = PipedStreamProviderAdapter(emptyList())
+        adapter.updateEndpoints(listOf(server.url("/").toString()))
+
+        val result = adapter.resolveAudio("https://www.youtube.com/watch?v=abcdefghijk")
+
+        assertEquals("Discovered", result.title)
+        assertEquals("/streams/abcdefghijk", server.takeRequest().path)
+    }
+
     @Test
     fun rejectsNonYoutubeSourceBeforeNetworkRequest() {
         val adapter = PipedStreamProviderAdapter(listOf(server.url("/").toString()))
