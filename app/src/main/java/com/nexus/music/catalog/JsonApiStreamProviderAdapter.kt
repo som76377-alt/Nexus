@@ -265,7 +265,7 @@ abstract class JsonApiStreamProviderAdapter(
             }
             val position = ParsePosition(0)
             val retryAt = runCatching {
-                SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", Locale.US).apply {
+                SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss 'GMT'", Locale.US).apply {
                     isLenient = false
                     timeZone = TimeZone.getTimeZone("GMT")
                 }.parse(header, position)?.time
