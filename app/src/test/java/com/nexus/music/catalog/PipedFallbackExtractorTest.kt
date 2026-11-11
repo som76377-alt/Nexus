@@ -69,7 +69,7 @@ class PipedFallbackExtractorTest {
     }
 
     @Test
-    fun audioResolutionSelectsHighestBitrateDirectAudioStream() {
+    fun audioResolutionRewritesGoogleVideoStreamsThroughPipedProxy() {
         val server = MockWebServer()
         server.enqueue(
             MockResponse().setBody(
@@ -77,16 +77,17 @@ class PipedFallbackExtractorTest {
                 {
                   "title": "Sample track",
                   "uploader": "Sample artist",
+                  "proxyUrl": "https://pipedproxy.example.com",
                   "duration": 184,
                   "thumbnailUrl": "https://img.example.com/track.jpg",
                   "audioStreams": [
                     {
-                      "url": "https://cdn.example.com/low.m4a",
+                      "url": "https://rr2---sn-a5mekn7z.googlevideo.com/videoplayback?expire=1&itag=139",
                       "mimeType": "audio/mp4",
                       "bitrate": 64000
                     },
                     {
-                      "url": "https://cdn.example.com/high.m4a",
+                      "url": "https://rr3---sn-a5mekn7z.googlevideo.com/videoplayback?expire=2&itag=140",
                       "mimeType": "audio/mp4",
                       "bitrate": 128000
                     }
@@ -103,7 +104,10 @@ class PipedFallbackExtractorTest {
             )
             val result = extractor.resolveAudio("https://www.youtube.com/watch?v=abcdefghijk")
 
-            assertEquals("https://cdn.example.com/high.m4a", result.audioUrl)
+            assertEquals(
+                "https://pipedproxy.example.com/videoplayback?expire=2&itag=140&host=rr3---sn-a5mekn7z.googlevideo.com",
+                result.audioUrl
+            )
             assertEquals(128000, result.averageBitrate)
             assertEquals("Sample track", result.title)
             assertTrue(server.takeRequest().path.orEmpty().startsWith("/streams/abcdefghijk"))
