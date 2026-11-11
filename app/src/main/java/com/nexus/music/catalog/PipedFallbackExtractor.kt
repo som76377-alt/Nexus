@@ -246,7 +246,8 @@ internal class PipedFallbackExtractor(
         internal fun parseInstanceDirectory(body: String): List<String> =
             body.lineSequence()
                 .mapNotNull { line ->
-                    val apiCell = line.split('|').getOrNull(1) ?: return@mapNotNull null
+                    val columns = line.trim().trim('|').split('|')
+                    val apiCell = columns.getOrNull(1) ?: return@mapNotNull null
                     val candidate = DIRECTORY_URL.find(apiCell)?.value
                         ?.trimEnd(')', ',', ';', '`')
                         ?: return@mapNotNull null
