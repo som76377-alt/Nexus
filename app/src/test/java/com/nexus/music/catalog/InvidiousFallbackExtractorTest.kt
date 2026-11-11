@@ -104,4 +104,47 @@ class InvidiousFallbackExtractorTest {
             server.shutdown()
         }
     }
+    @Test
+    fun maintainedDirectorySelectsOnlyHealthyHttpsApiEnabledInstances() {
+        val directory = """
+            [
+              ["api-disabled", {
+                "uri": "https://disabled.example.org",
+                "type": "https",
+                "api": false,
+                "monitor": {"down": false, "uptime": 99.99}
+              }],
+              ["http-api", {
+                "uri": "http://insecure.example.org",
+                "type": "http",
+                "api": true,
+                "monitor": {"down": false, "uptime": 99.99}
+              }],
+              ["down-api", {
+                "uri": "https://down.example.org",
+                "type": "https",
+                "api": true,
+                "monitor": {"down": true, "uptime": 99.99}
+              }],
+              ["healthy-api", {
+                "uri": "https://healthy.example.org",
+                "type": "https",
+                "api": true,
+                "monitor": {"down": false, "uptime": 98.5}
+              }],
+              ["best-api", {
+                "uri": "https://best.example.org/",
+                "type": "https",
+                "api": true,
+                "monitor": {"down": false, "uptime": 99.9}
+              }]
+            ]
+        """.trimIndent()
+
+        assertEquals(
+            listOf("https://best.example.org", "https://healthy.example.org"),
+            InvidiousFallbackExtractor.parseMaintainedInstances(directory)
+        )
+    }
+
 }
