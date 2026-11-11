@@ -230,11 +230,11 @@ class ProviderLabActivity : Activity() {
     private class ProviderHttpException(val code: Int, message: String) : java.io.IOException(message)
 
     companion object {
-        // Fixed IDs: two high-traffic uploads, one long-form upload and two live-stream samples.
+        // Fixed IDs cover a popular upload, an obscure upload, long-form video and two live streams.
         private val SAMPLES = listOf(
             Sample("dQw4w9WgXcQ", "popular"),
-            Sample("kJQP7kiw5Fk", "popular-2"),
-            Sample("3JZ_D3ELwOQ", "long-form"),
+            Sample("zPGf4liO-KQ", "obscure"),
+            Sample("aqz-KE-bpKQ", "long-form"),
             Sample("jfKfPfyJRdk", "live"),
             Sample("5qap5aO4i9A", "live-2")
         )
