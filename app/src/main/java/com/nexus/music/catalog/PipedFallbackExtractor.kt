@@ -87,6 +87,10 @@ internal class PipedFallbackExtractor(
                 ?: throw IOException("The fallback returned no directly playable audio stream.")
 
             val stream = selected.first
+            val proxyUrl = json.optString("proxyUrl")
+                .takeIf(CatalogUrlValidator::isValidHttpsUrl)
+            val audioUrl = proxyUrl?.let { rewriteGoogleVideoUrl(selected.second, it) }
+                ?: selected.second
             ResolvedAudio(
                 sourceUrl = youtubeUrl(videoId),
                 title = json.optString("title").takeIf(String::isNotBlank)
@@ -95,7 +99,7 @@ internal class PipedFallbackExtractor(
                 thumbnailUrl = json.optString("thumbnailUrl")
                     .takeIf(CatalogUrlValidator::isValidHttpsUrl),
                 durationSeconds = json.optLong("duration", -1L).takeIf { it >= 0L },
-                audioUrl = selected.second,
+                audioUrl = audioUrl,
                 averageBitrate = stream.optInt("bitrate", 0).takeIf { it > 0 },
                 mimeType = selected.third
             )
@@ -133,6 +137,25 @@ internal class PipedFallbackExtractor(
         val failure = IOException("Piped fallback failed on $attempted instance(s): $detail")
         failures.forEach(failure::addSuppressed)
         throw failure
+    }
+
+    /**
+     * Piped's frontend rewrites Googlevideo media URLs through the instance's proxyUrl.
+     * Direct Googlevideo URLs can return 403 to clients even after stream resolution succeeds.
+     */
+    private fun rewriteGoogleVideoUrl(mediaUrl: String, proxyUrl: String): String {
+        val media = runCatching { mediaUrl.toHttpUrl() }.getOrNull() ?: return mediaUrl
+        val proxy = runCatching { proxyUrl.toHttpUrl() }.getOrNull() ?: return mediaUrl
+        if (!media.host.endsWith(".googlevideo.com", ignoreCase = true)) return mediaUrl
+
+        return media.newBuilder()
+            .scheme(proxy.scheme)
+            .host(proxy.host)
+            .port(proxy.port)
+            .encodedPath(proxy.encodedPath.trimEnd('/') + media.encodedPath)
+            .setQueryParameter("host", media.host)
+            .build()
+            .toString()
     }
 
     private fun getJson(url: String, base: String): JSONObject {
