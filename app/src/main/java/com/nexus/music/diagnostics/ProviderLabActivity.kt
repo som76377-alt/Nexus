@@ -15,7 +15,6 @@ import android.widget.TextView
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
-import androidx.media3.common.Player
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.exoplayer.ExoPlayer
@@ -36,7 +35,6 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.net.Inet4Address
 import java.net.Inet6Address
-import java.net.InetAddress
 import java.util.concurrent.TimeUnit
 
 /** Hidden, opt-in diagnostic. It deliberately performs real network and audible playback tests. */
