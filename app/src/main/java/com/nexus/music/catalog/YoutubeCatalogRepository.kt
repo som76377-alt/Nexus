@@ -11,10 +11,14 @@ import java.io.IOException
 /**
  * Search and stream-resolution boundary for the app.
  *
- * NewPipe Extractor is synchronous, so all network work is moved to Dispatchers.IO.
+ * NewPipe remains the primary extractor. When it fails, Piped provides an independent
+ * server-side extraction route. A short circuit-breaker cooldown avoids repeatedly hitting a
+ * failing primary route, and the primary is automatically retried after the cooldown.
  */
 class YoutubeCatalogRepository(
-    downloader: OkHttpDownloader = OkHttpDownloader()
+    downloader: OkHttpDownloader = OkHttpDownloader(),
+    private val fallback: PipedFallbackExtractor = PipedFallbackExtractor(),
+    private val failoverPolicy: ExtractorFailoverPolicy = ExtractorFailoverPolicy()
 ) {
     init {
         ExtractorRuntime.initialize(downloader)
@@ -27,17 +31,90 @@ class YoutubeCatalogRepository(
         val normalizedQuery = query.trim()
         require(normalizedQuery.isNotEmpty()) { "Search query must not be blank." }
 
+        var primaryFailure: Exception? = null
+        if (failoverPolicy.shouldTryPrimary()) {
+            try {
+                val results = searchWithNewPipe(normalizedQuery, scope)
+                if (results.isNotEmpty()) {
+                    failoverPolicy.primarySucceeded()
+                    return@withContext results
+                }
+            } catch (error: Exception) {
+                primaryFailure = error
+                failoverPolicy.primaryFailed()
+            }
+        }
+
+        try {
+            val fallbackResults = fallback.search(normalizedQuery, scope)
+            if (fallbackResults.isNotEmpty() || primaryFailure == null) {
+                return@withContext fallbackResults
+            }
+            throw primaryFailure
+        } catch (fallbackError: Exception) {
+            if (primaryFailure != null) {
+                primaryFailure.addSuppressed(fallbackError)
+                throw primaryFailure
+            }
+            // The primary circuit was open. If fallback is also unavailable, make one last
+            // primary attempt so a recovered primary can restore service immediately.
+            try {
+                val results = searchWithNewPipe(normalizedQuery, scope)
+                failoverPolicy.primarySucceeded()
+                results
+            } catch (primaryError: Exception) {
+                failoverPolicy.primaryFailed()
+                primaryError.addSuppressed(fallbackError)
+                throw primaryError
+            }
+        }
+    }
+
+    suspend fun resolveAudio(videoUrl: String): ResolvedAudio = withContext(Dispatchers.IO) {
+        require(CatalogUrlValidator.isValidHttpsUrl(videoUrl)) {
+            "A valid HTTPS video URL is required."
+        }
+
+        var primaryFailure: Exception? = null
+        if (failoverPolicy.shouldTryPrimary()) {
+            try {
+                val resolved = resolveWithNewPipe(videoUrl)
+                failoverPolicy.primarySucceeded()
+                return@withContext resolved
+            } catch (error: Exception) {
+                primaryFailure = error
+                failoverPolicy.primaryFailed()
+            }
+        }
+
+        try {
+            fallback.resolveAudio(videoUrl)
+        } catch (fallbackError: Exception) {
+            if (primaryFailure != null) {
+                primaryFailure.addSuppressed(fallbackError)
+                throw primaryFailure
+            }
+            // If the fallback is down while the primary circuit is open, probe primary once.
+            try {
+                val resolved = resolveWithNewPipe(videoUrl)
+                failoverPolicy.primarySucceeded()
+                resolved
+            } catch (primaryError: Exception) {
+                failoverPolicy.primaryFailed()
+                primaryError.addSuppressed(fallbackError)
+                throw primaryError
+            }
+        }
+    }
+
+    private fun searchWithNewPipe(query: String, scope: YoutubeSearchScope): List<CatalogTrack> {
         val service = NewPipe.getService(YOUTUBE_SERVICE_NAME)
         val filters = scope.extractorFilter?.let(::listOf).orEmpty()
-        val queryHandler = service.searchQHFactory.fromQuery(
-            normalizedQuery,
-            filters,
-            ""
-        )
+        val queryHandler = service.searchQHFactory.fromQuery(query, filters, "")
         val extractor = service.getSearchExtractor(queryHandler)
         extractor.fetchPage()
 
-        SearchInfo.getInfo(extractor).relatedItems
+        return SearchInfo.getInfo(extractor).relatedItems
             .filterIsInstance<StreamInfoItem>()
             .mapNotNull { item ->
                 val url = item.url?.takeIf(CatalogUrlValidator::isValidHttpsUrl)
@@ -54,11 +131,7 @@ class YoutubeCatalogRepository(
             }
     }
 
-    suspend fun resolveAudio(videoUrl: String): ResolvedAudio = withContext(Dispatchers.IO) {
-        require(CatalogUrlValidator.isValidHttpsUrl(videoUrl)) {
-            "A valid HTTPS video URL is required."
-        }
-
+    private fun resolveWithNewPipe(videoUrl: String): ResolvedAudio {
         val service = NewPipe.getServiceByUrl(videoUrl)
         val info = StreamInfo.getInfo(service, videoUrl)
         val canonicalSourceUrl = info.url.takeIf(CatalogUrlValidator::isValidHttpsUrl)
@@ -66,7 +139,7 @@ class YoutubeCatalogRepository(
         val selected = AudioStreamSelector.bestPlayable(info.audioStreams)
             ?: throw IOException("No directly playable audio stream was returned for this item.")
 
-        ResolvedAudio(
+        return ResolvedAudio(
             sourceUrl = canonicalSourceUrl,
             title = info.name,
             artist = info.uploaderName?.takeIf(String::isNotBlank),
