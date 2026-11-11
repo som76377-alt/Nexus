@@ -42,6 +42,16 @@ class YoutubeExtractorLiveSmokeTest {
     }
 
     private fun skipForSharedRunnerChallenge(blocked: SignInConfirmNotBotException): Nothing {
+        fun printFailure(error: Throwable, depth: Int = 0) {
+            if (depth > 6) return
+            System.err.println(
+                "Extractor fallback diagnostic: ${"  ".repeat(depth)}" +
+                    "${error.javaClass.simpleName}: ${error.message}"
+            )
+            error.cause?.takeIf { it !== error }?.let { printFailure(it, depth + 1) }
+            error.suppressed.forEach { printFailure(it, depth + 1) }
+        }
+        printFailure(blocked)
         assumeTrue(
             "YouTube challenged this CI IP and neither fallback route could complete the " +
                 "request; live extraction cannot be evaluated on this runner.",
