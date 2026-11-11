@@ -74,7 +74,7 @@ class YoutubeExtractorLiveSmokeTest {
                 "Resolved audio URL returned HTTP ${response.code}.",
                 response.isSuccessful
             )
-            val bytes = response.body?.byteStream()?.readNBytes(1024).orEmpty()
+            val bytes = response.body?.byteStream()?.readNBytes(1024) ?: ByteArray(0)
             assertTrue(
                 "Resolved audio URL returned no media bytes (Content-Type: " +
                     "${response.header("Content-Type")}).",
