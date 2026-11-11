@@ -160,8 +160,8 @@ jobs:
           done
           exit 1
 
-      - name: Run live YouTube extractor smoke test (vinyl preview only)
-        if: github.ref_name == 'ui/real-vinyl-player'
+      - name: Run live YouTube extractor smoke test (vinyl preview and extractor changes)
+        if: github.ref_name == 'ui/real-vinyl-player' || github.head_ref == 'fix/extractor-failover'
         shell: bash
         run: |
           ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest -Pnexus.liveExtractorTests=true
