@@ -12,6 +12,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -42,7 +43,6 @@ import java.net.InetAddress
 import java.util.concurrent.TimeUnit
 
 /** Hidden, opt-in diagnostic. It deliberately performs real network and audible playback tests. */
-@UnstableApi
 class ProviderLabActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var report: TextView
@@ -156,6 +156,7 @@ class ProviderLabActivity : Activity() {
         }
     }
 
+    @OptIn(UnstableApi::class)
     private suspend fun playForTenSeconds(url: String, client: OkHttpClient) {
         val player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(DefaultMediaSourceFactory(OkHttpDataSource.Factory(client)))
