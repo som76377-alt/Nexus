@@ -17,6 +17,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.lifecycle.lifecycleScope
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.nexus.music.BuildConfig
@@ -118,7 +119,11 @@ class ProviderLabActivity : Activity() {
                 ).execute().use { response ->
                     val code = response.code
                     if (!response.isSuccessful) throw ProviderHttpException(code, "Audio probe rejected")
-                    val bytes = response.body?.byteStream()?.use { it.readNBytes(1024) } ?: byteArrayOf()
+                    val bytes = response.body?.byteStream()?.use { stream ->
+                        val buffer = ByteArray(1024)
+                        val count = stream.read(buffer)
+                        if (count > 0) buffer.copyOf(count) else byteArrayOf()
+                    } ?: byteArrayOf()
                     if (bytes.isEmpty()) throw ProviderHttpException(code, "Audio probe returned no bytes")
                     code
                 }
