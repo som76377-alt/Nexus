@@ -31,7 +31,7 @@ class YoutubeExtractorLiveSmokeTest {
         val results = try {
             repository.search("lofi hip hop", YoutubeSearchScope.MUSIC_SONGS)
         } catch (blocked: SignInConfirmNotBotException) {
-            skipWhenEveryFallbackIsUnavailable(blocked)
+            skipWhenEveryFallbackIsUnavailable(blocked, repository.diagnosticsSummary())
         }
         assertFalse("Expected at least one public music result from a fallback.", results.isEmpty())
         assertFallbackWasUsed("search", repository.diagnosticsSummary())
@@ -59,10 +59,18 @@ class YoutubeExtractorLiveSmokeTest {
         )
     }
 
-    private fun skipWhenEveryFallbackIsUnavailable(blocked: SignInConfirmNotBotException): Nothing {
+    private fun skipWhenEveryFallbackIsUnavailable(
+        blocked: SignInConfirmNotBotException,
+        diagnostics: String
+    ): Nothing {
+        System.err.println("Live fallback provider diagnostics:\\n$diagnostics")
+        blocked.suppressed.forEach { error ->
+            System.err.println("Fallback failure: ${error.javaClass.simpleName}: ${error.message}")
+        }
         assumeTrue(
             "NewPipe was challenged and neither Piped nor Invidious completed search; " +
-                "live fallback search cannot be evaluated from this CI runner.",
+                "live fallback search cannot be evaluated from this CI runner. " +
+                "Provider diagnostics: $diagnostics",
             false
         )
         throw blocked
