@@ -16,7 +16,7 @@ import java.util.concurrent.TimeUnit
  */
 internal class PipedFallbackExtractor(
     private val client: OkHttpClient = defaultClient(),
-    private val clock: () -> Long = System::currentTimeMillis
+    private val clock: () -> Long = { System.currentTimeMillis() }
 ) {
     private val instanceLock = Any()
     private var cachedInstances: List<String> = emptyList()
@@ -64,7 +64,7 @@ internal class PipedFallbackExtractor(
             val json = getJson("$base/streams/$videoId", base)
             val streams = json.optJSONArray("audioStreams") ?: JSONArray()
             val selected = (0 until streams.length())
-                .mapNotNull(streams::optJSONObject)
+                .mapNotNull { index -> streams.optJSONObject(index) }
                 .mapNotNull { stream ->
                     val url = stream.optString("url")
                     val mime = stream.optString("mimeType").takeIf(String::isNotBlank)
