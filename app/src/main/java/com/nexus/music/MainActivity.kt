@@ -148,12 +148,18 @@ class MainActivity : Activity() {
         }
         homeContent = content
 
-        content.addView(com.nexus.music.ui.HomeDiscoveryView(this) { query ->
-            searchPanel.queryInput.setText(query)
-            selectedScope = YoutubeSearchScope.MUSIC_SONGS
-            searchPanel.setSelectedScope(selectedScope)
-            performSearch()
-        }, verticalParams(18))
+        content.addView(com.nexus.music.ui.HomeDiscoveryView(
+            context = this,
+            onExplore = { query ->
+                searchPanel.queryInput.setText(query)
+                selectedScope = YoutubeSearchScope.MUSIC_SONGS
+                searchPanel.setSelectedScope(selectedScope)
+                performSearch()
+            },
+            onProviderLab = {
+                startActivity(Intent(this, com.nexus.music.diagnostics.ProviderLabActivity::class.java))
+            }
+        ), verticalParams(18))
 
         homeShelvesContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         content.addView(homeShelvesContainer, verticalParams(18))
