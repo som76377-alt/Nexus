@@ -1,13 +1,19 @@
 package com.nexus.music.catalog
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Test
+import java.util.concurrent.TimeUnit
 
 class JsonApiStreamProviderAdapterTest {
     private lateinit var server: MockWebServer
@@ -110,6 +116,21 @@ class JsonApiStreamProviderAdapterTest {
 
         assertEquals("Discovered", result.title)
         assertEquals("/streams/abcdefghijk", server.takeRequest().path)
+    }
+
+    @Test
+    fun cancellingSearchCancelsTheInFlightHttpCall() = runBlocking {
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
+        val adapter = PipedStreamProviderAdapter(listOf(server.url("/").toString()))
+        val request = async {
+            adapter.search("ambient", YoutubeSearchScope.EVERYTHING)
+        }
+
+        assertNotNull(server.takeRequest(2, TimeUnit.SECONDS))
+        withTimeout(1_000L) {
+            request.cancelAndJoin()
+        }
+        assertEquals(true, request.isCancelled)
     }
 
     @Test
