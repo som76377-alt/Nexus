@@ -8,40 +8,53 @@ import org.junit.Test
 import org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException
 
 /**
- * Opt-in network smoke test. It is skipped in ordinary CI to avoid making builds depend on
- * public extractor availability. Run with -Pnexus.liveExtractorTests=true when intentionally
- * testing the live NewPipe/Piped/Invidious provider chain.
- *
- * Shared CI IPs can receive a YouTube bot challenge. If all fallback routes are also unavailable,
- * that specific external restriction is reported as an assumption/skip rather than a parser pass.
+ * Opt-in network smoke test. It intentionally opens the primary circuit so a green result
+ * proves at least one server-side fallback completed search AND audio resolution.
+ * Run with -Pnexus.liveExtractorTests=true.
  */
 class YoutubeExtractorLiveSmokeTest {
     @Test
-    fun publicMusicSearchAndAudioResolutionWorkAgainstLiveSource() = runBlocking {
+    fun fallbackSearchAndAudioResolutionWorkAgainstLiveSource() = runBlocking {
         assumeTrue(
             "Set -Dnexus.liveExtractorTests=true to run the live extractor test.",
             System.getProperty("nexus.liveExtractorTests") == "true"
         )
 
-        val repository = YoutubeCatalogRepository()
+        val policy = ExtractorFailoverPolicy().apply { primaryFailed() }
+        val repository = YoutubeCatalogRepository(
+            downloader = OkHttpDownloader(),
+            pipedFallback = PipedFallbackExtractor(),
+            invidiousFallback = InvidiousFallbackExtractor(),
+            failoverPolicy = policy
+        )
         val results = try {
             repository.search("lofi hip hop", YoutubeSearchScope.MUSIC_SONGS)
         } catch (blocked: SignInConfirmNotBotException) {
-            skipForSharedRunnerChallenge(blocked)
+            skipWhenEveryFallbackIsUnavailable(blocked)
         }
-        assertFalse("Expected at least one public music result.", results.isEmpty())
+        assertFalse("Expected at least one public music result from a fallback.", results.isEmpty())
+        assertFallbackWasUsed("search", repository.diagnosticsSummary())
 
         val resolved = try {
             repository.resolveAudio(results.first().url)
         } catch (blocked: SignInConfirmNotBotException) {
-            skipForSharedRunnerChallenge(blocked)
+            skipWhenEveryFallbackIsUnavailable(blocked)
         }
 
         assertTrue("Expected an HTTPS audio URL.", resolved.audioUrl.startsWith("https://"))
         assertTrue("Expected a title.", resolved.title.isNotBlank())
+        assertFallbackWasUsed("audio resolution", repository.diagnosticsSummary())
     }
 
-    private fun skipForSharedRunnerChallenge(blocked: SignInConfirmNotBotException): Nothing {
+    private fun assertFallbackWasUsed(stage: String, diagnostics: String) {
+        assertTrue(
+            "The $stage completed without proving that Piped or Invidious was used. " +
+                "Provider diagnostics: $diagnostics",
+            diagnostics.contains("Piped: OK") || diagnostics.contains("Invidious: OK")
+        )
+    }
+
+    private fun skipWhenEveryFallbackIsUnavailable(blocked: SignInConfirmNotBotException): Nothing {
         fun printFailure(error: Throwable, depth: Int = 0) {
             if (depth > 6) return
             System.err.println(
@@ -53,8 +66,8 @@ class YoutubeExtractorLiveSmokeTest {
         }
         printFailure(blocked)
         assumeTrue(
-            "YouTube challenged this CI IP and neither fallback route could complete the " +
-                "request; live extraction cannot be evaluated on this runner.",
+            "NewPipe was challenged and neither Piped nor Invidious completed extraction; " +
+                "live fallback health is unavailable from this CI runner.",
             false
         )
         throw blocked
