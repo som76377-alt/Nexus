@@ -209,7 +209,11 @@ abstract class JsonApiStreamProviderAdapter(
                 try {
                     val body = response.use {
                         if (!it.isSuccessful) {
-                            throw ProviderHttpException(it.code, provider.key)
+                            throw ProviderHttpException(
+                                statusCode = it.code,
+                                provider = provider.key,
+                                retryAfterMs = parseRetryAfterMillis(it.header("Retry-After"))
+                            )
                         }
                         it.body?.string()
                             ?: throw IOException("${provider.key} API returned an empty response.")
@@ -245,6 +249,24 @@ abstract class JsonApiStreamProviderAdapter(
     companion object {
         private val LOOPBACK_HOSTS = setOf("localhost", "127.0.0.1", "::1")
         private const val USER_AGENT = "Nexus/0.1 (Android)"
+
+        internal fun parseRetryAfterMillis(
+            value: String?,
+            nowEpochMs: Long = System.currentTimeMillis()
+        ): Long? {
+            val header = value?.trim()?.takeIf(String::isNotEmpty) ?: return null
+            header.toLongOrNull()?.let { seconds ->
+                if (seconds < 0L) return null
+                return if (seconds > Long.MAX_VALUE / 1_000L) Long.MAX_VALUE else seconds * 1_000L
+            }
+            val retryAt = runCatching {
+                java.time.ZonedDateTime.parse(
+                    header,
+                    java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME
+                ).toInstant().toEpochMilli()
+            }.getOrNull() ?: return null
+            return (retryAt - nowEpochMs).coerceAtLeast(0L)
+        }
 
         internal fun defaultApiClient(): OkHttpClient =
             OkHttpClient.Builder()
