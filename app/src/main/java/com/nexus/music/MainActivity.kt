@@ -41,6 +41,7 @@ import com.nexus.music.ui.SearchPanel
 import com.nexus.music.ui.YouView
 import com.nexus.music.catalog.ResolvedAudio
 import com.nexus.music.catalog.NexusCatalog
+import com.nexus.music.catalog.ProviderCapabilityException
 import com.nexus.music.catalog.YoutubeSearchScope
 import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
 import org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException
@@ -721,6 +722,8 @@ class MainActivity : Activity() {
                             "YouTube is asking this connection to verify it isn't automated. Try another network or retry later."
                         is ReCaptchaException ->
                             "YouTube temporarily limited requests. Wait a bit, then retry."
+                        is ProviderCapabilityException ->
+                            "This search filter isn't supported by the available providers."
                         else -> "Search failed · Retry"
                     }
                     searchPanel.statusText.visibility = View.VISIBLE
