@@ -1,5 +1,6 @@
 package com.nexus.music.catalog
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.NewPipe
@@ -40,18 +41,18 @@ class YoutubeCatalogRepository(
                     return@withContext results
                 }
             } catch (error: Exception) {
+                if (error is CancellationException) throw error
                 primaryFailure = error
                 failoverPolicy.primaryFailed()
             }
         }
 
         try {
-            val fallbackResults = fallback.search(normalizedQuery, scope)
-            if (fallbackResults.isNotEmpty() || primaryFailure == null) {
-                return@withContext fallbackResults
-            }
-            throw primaryFailure
+            // An empty result is still a valid search response; the fallback gets a chance
+            // to recover results without incorrectly opening the primary circuit.
+            fallback.search(normalizedQuery, scope)
         } catch (fallbackError: Exception) {
+            if (fallbackError is CancellationException) throw fallbackError
             if (primaryFailure != null) {
                 primaryFailure.addSuppressed(fallbackError)
                 throw primaryFailure
@@ -63,6 +64,7 @@ class YoutubeCatalogRepository(
                 failoverPolicy.primarySucceeded()
                 results
             } catch (primaryError: Exception) {
+                if (primaryError is CancellationException) throw primaryError
                 failoverPolicy.primaryFailed()
                 primaryError.addSuppressed(fallbackError)
                 throw primaryError
@@ -82,6 +84,7 @@ class YoutubeCatalogRepository(
                 failoverPolicy.primarySucceeded()
                 return@withContext resolved
             } catch (error: Exception) {
+                if (error is CancellationException) throw error
                 primaryFailure = error
                 failoverPolicy.primaryFailed()
             }
@@ -90,6 +93,7 @@ class YoutubeCatalogRepository(
         try {
             fallback.resolveAudio(videoUrl)
         } catch (fallbackError: Exception) {
+            if (fallbackError is CancellationException) throw fallbackError
             if (primaryFailure != null) {
                 primaryFailure.addSuppressed(fallbackError)
                 throw primaryFailure
@@ -100,6 +104,7 @@ class YoutubeCatalogRepository(
                 failoverPolicy.primarySucceeded()
                 resolved
             } catch (primaryError: Exception) {
+                if (primaryError is CancellationException) throw primaryError
                 failoverPolicy.primaryFailed()
                 primaryError.addSuppressed(fallbackError)
                 throw primaryError
