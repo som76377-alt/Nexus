@@ -46,7 +46,7 @@ class ProviderResolverChain(
     )
 
     suspend fun resolveAudio(videoUrl: String): ResolvedAudio =
-        execute { it.resolveAudio(videoUrl) }
+        execute(operation = { it.resolveAudio(videoUrl) })
 
     private suspend fun <T> execute(
         operation: suspend (StreamProviderAdapter) -> T,
