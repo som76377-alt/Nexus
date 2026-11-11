@@ -40,7 +40,7 @@ import com.nexus.music.ui.NexusDesignSystem
 import com.nexus.music.ui.SearchPanel
 import com.nexus.music.ui.YouView
 import com.nexus.music.catalog.ResolvedAudio
-import com.nexus.music.catalog.YoutubeCatalogRepository
+import com.nexus.music.catalog.NexusCatalog
 import com.nexus.music.catalog.YoutubeSearchScope
 import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
 import org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException
@@ -64,7 +64,7 @@ import kotlinx.coroutines.withContext
 class MainActivity : Activity() {
     private enum class SearchSort { RELEVANCE, POPULAR, TITLE, DURATION }
     private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val repository by lazy { YoutubeCatalogRepository() }
+    private val repository by lazy { NexusCatalog.repository(this) }
     private val libraryStore by lazy { LocalLibraryStore(this) }
     private val updateChecker by lazy { GitHubReleaseUpdater() }
     private val progressHandler = Handler(Looper.getMainLooper())
