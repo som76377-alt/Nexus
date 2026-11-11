@@ -35,7 +35,8 @@ enum class StreamErrorClass {
 /** HTTP response failure retaining status so provider health uses the correct cooldown class. */
 class ProviderHttpException(
     val statusCode: Int,
-    provider: String
+    provider: String,
+    val retryAfterMs: Long? = null
 ) : IOException("$provider API returned HTTP $statusCode.")
 
 object StreamErrorClassifier {
