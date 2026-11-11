@@ -16,7 +16,6 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.datasource.okhttp.OkHttpDataSource
-import androidx.lifecycle.lifecycleScope
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.nexus.music.BuildConfig
@@ -25,6 +24,9 @@ import com.nexus.music.catalog.ExtractorRuntime
 import com.nexus.music.catalog.YoutubeCatalogRepository
 import com.nexus.music.catalog.YoutubeSearchScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
@@ -35,6 +37,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.net.Inet4Address
 import java.net.Inet6Address
+import java.net.InetAddress
 import java.util.concurrent.TimeUnit
 
 /** Hidden, opt-in diagnostic. It deliberately performs real network and audible playback tests. */
@@ -43,6 +46,7 @@ class ProviderLabActivity : Activity() {
     private lateinit var report: TextView
     private lateinit var runButton: Button
     private var running = false
+    private val labScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -77,7 +81,7 @@ class ProviderLabActivity : Activity() {
         running = true
         runButton.isEnabled = false
         report.text = ""
-        lifecycleScope.launch {
+        labScope.launch {
             val rows = mutableListOf<ProviderLabReportFormatter.Cell>()
             val network = networkSummary()
             status.text = "Running 15 checks. Keep Nexus open; successful checks play for 10 seconds."
@@ -180,18 +184,20 @@ class ProviderLabActivity : Activity() {
     }
 
     private fun clientFor(mode: FamilyMode): OkHttpClient {
-        val dns = if (mode == FamilyMode.DEFAULT) Dns.SYSTEM else Dns { host ->
-            val addresses = Dns.SYSTEM.lookup(host).filter {
-                when (mode) {
-                    FamilyMode.IPV4 -> it is Inet4Address
-                    FamilyMode.IPV6 -> it is Inet6Address
-                    FamilyMode.DEFAULT -> true
+        val dns = if (mode == FamilyMode.DEFAULT) Dns.SYSTEM else object : Dns {
+            override fun lookup(host: String): List<InetAddress> {
+                val addresses = Dns.SYSTEM.lookup(host).filter {
+                    when (mode) {
+                        FamilyMode.IPV4 -> it is Inet4Address
+                        FamilyMode.IPV6 -> it is Inet6Address
+                        FamilyMode.DEFAULT -> true
+                    }
                 }
+                if (addresses.isEmpty()) throw java.net.UnknownHostException(
+                    "No ${mode.label} address available for $host"
+                )
+                return addresses
             }
-            if (addresses.isEmpty()) throw java.net.UnknownHostException(
-                "No ${mode.label} address available for $host"
-            )
-            addresses
         }
         return OkHttpClient.Builder()
             .dns(dns)
@@ -201,6 +207,11 @@ class ProviderLabActivity : Activity() {
             .followRedirects(true)
             .followSslRedirects(false)
             .build()
+    }
+
+    override fun onDestroy() {
+        labScope.cancel()
+        super.onDestroy()
     }
 
     private fun networkSummary(): String {
