@@ -32,9 +32,21 @@ enum class StreamErrorClass {
     TRANSIENT, RATE_LIMITED, ACCESS_BLOCKED, INVALID_SOURCE, UNSUPPORTED, UNKNOWN
 }
 
+/** HTTP response failure retaining status so provider health uses the correct cooldown class. */
+class ProviderHttpException(
+    val statusCode: Int,
+    provider: String
+) : IOException("$provider API returned HTTP $statusCode.")
+
 object StreamErrorClassifier {
     fun classify(error: Throwable): StreamErrorClass = when (error) {
         is ReCaptchaException -> StreamErrorClass.RATE_LIMITED
+        is ProviderHttpException -> when (error.statusCode) {
+            429 -> StreamErrorClass.RATE_LIMITED
+            401, 403 -> StreamErrorClass.ACCESS_BLOCKED
+            400, 404, 405, 410, 422, 501 -> StreamErrorClass.UNSUPPORTED
+            else -> StreamErrorClass.TRANSIENT
+        }
         is SignInConfirmNotBotException -> StreamErrorClass.ACCESS_BLOCKED
         is IllegalArgumentException -> StreamErrorClass.INVALID_SOURCE
         is IOException -> StreamErrorClass.TRANSIENT
