@@ -104,4 +104,9 @@ class ProviderInstanceDiscoveryTest {
         assertEquals(null, ProviderInstanceDiscovery.normalizeEndpoint("https://host.example/?token=x"))
         assertFalse(ProviderInstanceDiscovery.normalizeEndpoint("not a url") != null)
     }
+    @Test
+    fun endpointNormalizerRejectsPortsOutsideHttpUrlRange() {
+        assertEquals(null, ProviderInstanceDiscovery.normalizeEndpoint("https://host.example:99999"))
+        assertEquals(null, ProviderInstanceDiscovery.normalizeEndpoint("https://host.example:abc"))
+    }
 }
