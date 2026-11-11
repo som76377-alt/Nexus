@@ -139,7 +139,7 @@ internal class InvidiousFallbackExtractor(
 
     private fun instances(): List<String> = synchronized(instanceLock) {
         if (instanceUrls != null) {
-            return@synchronized instanceUrls.mapNotNull(::normalizeHttpsInstance).distinct()
+            return@synchronized instanceUrls.mapNotNull { normalizeInstanceUrl(it, allowHttp = true) }.distinct()
         }
 
         val now = clock()
@@ -172,10 +172,14 @@ internal class InvidiousFallbackExtractor(
         }
     }
 
-    private fun normalizeHttpsInstance(value: String): String? {
+    private fun normalizeHttpsInstance(value: String): String? =
+        normalizeInstanceUrl(value, allowHttp = false)
+
+    private fun normalizeInstanceUrl(value: String, allowHttp: Boolean): String? {
         val candidate = value.trim().trimEnd('/')
         val uri = runCatching { URI(candidate) }.getOrNull() ?: return null
-        if (!uri.scheme.equals("https", ignoreCase = true) || uri.host.isNullOrBlank()) return null
+        val allowedSchemes = if (allowHttp) setOf("https", "http") else setOf("https")
+        if (uri.scheme !in allowedSchemes || uri.host.isNullOrBlank()) return null
         return candidate
     }
 
