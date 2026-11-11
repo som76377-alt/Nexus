@@ -9,6 +9,26 @@ import org.junit.Test
 
 class PipedFallbackExtractorTest {
     @Test
+    fun parsesMaintainedDirectoryAndKeepsOnlyHttpsApiUrls() {
+        val directory = """
+            | Name | API URL | Location | CDN |
+            | --- | --- | --- | --- |
+            | India | https://pipedapi.in.example.org | IN | https://cdn.example.org |
+            | Europe | [API](https://pipedapi.eu.example.org/) | EU | https://cdn.example.org |
+            | Insecure | http://pipedapi.bad.example.org | XX | https://cdn.example.org |
+            | Invalid | not-a-url | XX | https://cdn.example.org |
+        """.trimIndent()
+
+        assertEquals(
+            listOf(
+                "https://pipedapi.in.example.org",
+                "https://pipedapi.eu.example.org"
+            ),
+            PipedFallbackExtractor.parseInstanceDirectory(directory)
+        )
+    }
+
+    @Test
     fun searchMapsPipedResultsToCatalogTracks() {
         val server = MockWebServer()
         server.enqueue(
