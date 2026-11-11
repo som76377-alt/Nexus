@@ -22,6 +22,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.nexus.music.BuildConfig
 import com.nexus.music.catalog.OkHttpDownloader
+import com.nexus.music.catalog.ExtractorRuntime
 import com.nexus.music.catalog.YoutubeCatalogRepository
 import com.nexus.music.catalog.YoutubeSearchScope
 import kotlinx.coroutines.CancellationException
@@ -145,7 +146,9 @@ class ProviderLabActivity : Activity() {
             )
         } finally {
             // Restore the ordinary downloader after the diagnostic route override.
-            withContext(NonCancellable + Dispatchers.IO) { YoutubeCatalogRepository() }
+            withContext(NonCancellable + Dispatchers.IO) {
+                ExtractorRuntime.withDownloader(OkHttpDownloader()) { Unit }
+            }
         }
     }
 
