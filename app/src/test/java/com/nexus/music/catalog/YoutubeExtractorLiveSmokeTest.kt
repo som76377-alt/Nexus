@@ -9,37 +9,44 @@ import org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException
 
 /**
  * Opt-in network smoke test. It is skipped in ordinary CI to avoid making builds depend on
- * YouTube availability. Run with -Pnexus.liveExtractorTests=true when intentionally testing
- * the live extractor against public content.
+ * public extractor availability. Run with -Pnexus.liveExtractorTests=true when intentionally
+ * testing the live NewPipe/Piped/Invidious provider chain.
  *
- * YouTube may challenge anonymous requests from shared CI/datacenter IPs. That is an external
- * access restriction, not evidence that the app's extractor is broken, so only that known
- * condition is reported as an assumption/skip. Other extraction failures remain test failures.
+ * Shared CI IPs can receive a YouTube bot challenge. If all fallback routes are also unavailable,
+ * that specific external restriction is reported as an assumption/skip rather than a parser pass.
  */
 class YoutubeExtractorLiveSmokeTest {
     @Test
     fun publicMusicSearchAndAudioResolutionWorkAgainstLiveSource() = runBlocking {
         assumeTrue(
-            "Set -Dnexus.liveExtractorTests=true to run the live YouTube test.",
+            "Set -Dnexus.liveExtractorTests=true to run the live extractor test.",
             System.getProperty("nexus.liveExtractorTests") == "true"
         )
 
         val repository = YoutubeCatalogRepository()
-        val results = repository.search("lofi hip hop", YoutubeSearchScope.MUSIC_SONGS)
+        val results = try {
+            repository.search("lofi hip hop", YoutubeSearchScope.MUSIC_SONGS)
+        } catch (blocked: SignInConfirmNotBotException) {
+            skipForSharedRunnerChallenge(blocked)
+        }
         assertFalse("Expected at least one public music result.", results.isEmpty())
 
         val resolved = try {
             repository.resolveAudio(results.first().url)
         } catch (blocked: SignInConfirmNotBotException) {
-            assumeTrue(
-                "YouTube challenged anonymous access from this CI IP; live stream resolution " +
-                    "cannot be evaluated on this runner.",
-                false
-            )
-            throw blocked
+            skipForSharedRunnerChallenge(blocked)
         }
 
-        assertTrue("Expected an HTTP audio URL.", resolved.audioUrl.startsWith("https://"))
+        assertTrue("Expected an HTTPS audio URL.", resolved.audioUrl.startsWith("https://"))
         assertTrue("Expected a title.", resolved.title.isNotBlank())
+    }
+
+    private fun skipForSharedRunnerChallenge(blocked: SignInConfirmNotBotException): Nothing {
+        assumeTrue(
+            "YouTube challenged this CI IP and neither fallback route could complete the " +
+                "request; live extraction cannot be evaluated on this runner.",
+            false
+        )
+        throw blocked
     }
 }
