@@ -37,6 +37,14 @@ class StreamProviderTest {
             StreamErrorClassifier.classify(IllegalArgumentException("bad URL")))
         assertEquals(StreamErrorClass.TRANSIENT,
             StreamErrorClassifier.classify(IOException("network unavailable")))
+        assertEquals(StreamErrorClass.RATE_LIMITED,
+            StreamErrorClassifier.classify(ProviderHttpException(429, "piped")))
+        assertEquals(StreamErrorClass.ACCESS_BLOCKED,
+            StreamErrorClassifier.classify(ProviderHttpException(403, "invidious")))
+        assertEquals(StreamErrorClass.UNSUPPORTED,
+            StreamErrorClassifier.classify(ProviderHttpException(404, "piped")))
+        assertEquals(StreamErrorClass.TRANSIENT,
+            StreamErrorClassifier.classify(ProviderHttpException(503, "piped")))
         assertEquals(StreamErrorClass.UNKNOWN,
             StreamErrorClassifier.classify(IllegalStateException("unexpected")))
     }
