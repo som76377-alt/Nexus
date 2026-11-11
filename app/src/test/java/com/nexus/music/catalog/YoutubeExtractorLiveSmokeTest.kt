@@ -1,15 +1,19 @@
 package com.nexus.music.catalog
 
 import kotlinx.coroutines.runBlocking
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException
+import java.util.concurrent.TimeUnit
 
 /**
  * Opt-in network smoke test. It intentionally opens the NewPipe circuit so a green result
- * proves at least one server-side fallback completed search AND audio resolution.
+ * proves a server-side fallback completed search AND audio resolution, and the returned media
+ * URL served bytes to the same user-agent used by Nexus's Media3 player.
  * Run with -Pnexus.liveExtractorTests=true.
  */
 class YoutubeExtractorLiveSmokeTest {
@@ -49,6 +53,34 @@ class YoutubeExtractorLiveSmokeTest {
         assertTrue("Expected an HTTPS audio URL.", resolved.audioUrl.startsWith("https://"))
         assertTrue("Expected a title.", resolved.title.isNotBlank())
         assertFallbackWasUsed("audio resolution", repository.diagnosticsSummary())
+        assertResolvedAudioUrlServesBytes(resolved.audioUrl)
+    }
+
+    private fun assertResolvedAudioUrlServesBytes(url: String) {
+        val client = OkHttpClient.Builder()
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(8, TimeUnit.SECONDS)
+            .callTimeout(12, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .build()
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", PLAYER_USER_AGENT)
+            .header("Range", "bytes=0-1023")
+            .get()
+            .build()
+        client.newCall(request).execute().use { response ->
+            assertTrue(
+                "Resolved audio URL returned HTTP ${response.code}.",
+                response.isSuccessful
+            )
+            val bytes = response.body?.byteStream()?.readNBytes(1024).orEmpty()
+            assertTrue(
+                "Resolved audio URL returned no media bytes (Content-Type: " +
+                    "${response.header("Content-Type")}).",
+                bytes.isNotEmpty()
+            )
+        }
     }
 
     private fun assertFallbackWasUsed(stage: String, diagnostics: String) {
@@ -74,5 +106,11 @@ class YoutubeExtractorLiveSmokeTest {
             false
         )
         throw blocked
+    }
+
+    companion object {
+        private const val PLAYER_USER_AGENT =
+            "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36 Nexus/0.1"
     }
 }
