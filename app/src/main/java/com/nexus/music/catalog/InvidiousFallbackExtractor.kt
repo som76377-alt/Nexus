@@ -14,7 +14,8 @@ import java.util.concurrent.TimeUnit
  */
 internal class InvidiousFallbackExtractor(
     private val client: OkHttpClient = defaultClient(),
-    private val clock: () -> Long = { System.currentTimeMillis() }
+    private val clock: () -> Long = { System.currentTimeMillis() },
+    private val instanceUrls: List<String> = DEFAULT_INSTANCES
 ) {
     private val unhealthyUntil = mutableMapOf<String, Long>()
 
@@ -96,7 +97,7 @@ internal class InvidiousFallbackExtractor(
 
     private fun <T> withInstance(block: (String) -> T): T {
         var lastError: Exception? = null
-        for (base in INSTANCES) {
+        for (base in instanceUrls) {
             if (isCoolingDown(base)) continue
             try {
                 return block(base)
@@ -162,7 +163,7 @@ internal class InvidiousFallbackExtractor(
 
     companion object {
         // Only instances currently listed by the Invidious maintainers are trusted.
-        private val INSTANCES = listOf(
+        private val DEFAULT_INSTANCES = listOf(
             "https://inv.nadeko.net",
             "https://invidious.nerdvpn.de",
             "https://yt.chocolatemoo53.com",
