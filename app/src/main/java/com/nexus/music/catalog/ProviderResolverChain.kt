@@ -40,12 +40,18 @@ class ProviderResolverChain(
     suspend fun search(
         query: String,
         scope: YoutubeSearchScope = YoutubeSearchScope.EVERYTHING
-    ): List<CatalogTrack> = execute { it.search(query, scope) }
+    ): List<CatalogTrack> = execute(
+        operation = { it.search(query, scope) },
+        isEmptySearchResult = { it.isEmpty() }
+    )
 
     suspend fun resolveAudio(videoUrl: String): ResolvedAudio =
         execute { it.resolveAudio(videoUrl) }
 
-    private suspend fun <T> execute(operation: suspend (StreamProviderAdapter) -> T): T {
+    private suspend fun <T> execute(
+        operation: suspend (StreamProviderAdapter) -> T,
+        isEmptySearchResult: (T) -> Boolean = { false }
+    ): T {
         val configured = providerOrder.mapNotNull { provider ->
             adaptersByProvider[provider]?.let { provider to it }
         }
@@ -80,12 +86,20 @@ class ProviderResolverChain(
             }
 
             var lastError: Exception? = null
+            var emptyResult: T? = null
+            var sawEmptyResult = false
             try {
                 repeat(ordered.size) {
                     val outcome = outcomes.receive()
                     if (outcome.isSuccess) {
+                        val result = outcome.getOrThrow()
+                        if (isEmptySearchResult(result)) {
+                            emptyResult = result
+                            sawEmptyResult = true
+                            return@repeat
+                        }
                         jobs.forEach { it.cancel() }
-                        return@coroutineScope outcome.getOrThrow()
+                        return@coroutineScope result
                     }
 
                     val error = outcome.exceptionOrNull() as Exception
@@ -94,6 +108,10 @@ class ProviderResolverChain(
                         throw error
                     }
                     lastError = error
+                }
+                if (sawEmptyResult) {
+                    @Suppress("UNCHECKED_CAST")
+                    return@coroutineScope emptyResult as T
                 }
                 throw lastError ?: IOException("No configured stream provider could be attempted.")
             } finally {

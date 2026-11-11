@@ -34,6 +34,42 @@ class ProviderResolverChainTest {
     }
 
     @Test
+    fun searchFallsBackWhenFirstProviderReturnsNoResults() = runBlocking {
+        val calls = mutableListOf<StreamProvider>()
+        val chain = ProviderResolverChain(
+            adapters = listOf(
+                FakeAdapter(StreamProvider.NEWPIPE, calls, search = { emptyList() }) { resolvedAudio() },
+                FakeAdapter(StreamProvider.PIPED, calls, search = { listOf(catalogTrack()) }) { resolvedAudio() }
+            ),
+            healthStore = InMemoryHealthStore(),
+            providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
+            hedgeDelayMs = 0L
+        )
+
+        val results = chain.search("ambient")
+
+        assertEquals(listOf(catalogTrack()), results)
+        assertEquals(listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED), calls)
+    }
+
+    @Test
+    fun searchReturnsEmptyWhenEveryProviderHasNoMatches() = runBlocking {
+        val calls = mutableListOf<StreamProvider>()
+        val chain = ProviderResolverChain(
+            adapters = listOf(
+                FakeAdapter(StreamProvider.NEWPIPE, calls, search = { emptyList() }) { resolvedAudio() },
+                FakeAdapter(StreamProvider.PIPED, calls, search = { emptyList() }) { resolvedAudio() }
+            ),
+            healthStore = InMemoryHealthStore(),
+            providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
+            hedgeDelayMs = 0L
+        )
+
+        assertEquals(emptyList<CatalogTrack>(), chain.search("no matching song"))
+        assertEquals(listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED), calls)
+    }
+
+    @Test
     fun unsupportedCapabilityFallsBackWithoutPoisoningProviderHealth() = runBlocking {
         val health = InMemoryHealthStore()
         val calls = mutableListOf<StreamProvider>()
@@ -158,6 +194,15 @@ class ProviderResolverChainTest {
         assertEquals(0, health.get(StreamProvider.PIPED).consecutiveFailures)
     }
 
+    private fun catalogTrack() = CatalogTrack(
+        url = "https://youtube.com/watch?v=abcdefghijk",
+        title = "Track",
+        artist = "Artist",
+        thumbnailUrl = null,
+        durationSeconds = 60L,
+        viewCount = 10L
+    )
+
     private fun resolvedAudio() = ResolvedAudio(
         sourceUrl = "https://youtube.com/watch?v=abcdefghijk",
         title = "Track",
@@ -172,10 +217,13 @@ class ProviderResolverChainTest {
     private class FakeAdapter(
         override val provider: StreamProvider,
         private val calls: MutableList<StreamProvider>,
+        private val search: suspend () -> List<CatalogTrack> = { throw IOException("not used") },
         private val resolve: suspend () -> ResolvedAudio
     ) : StreamProviderAdapter {
-        override suspend fun search(query: String, scope: YoutubeSearchScope): List<CatalogTrack> =
-            throw IOException("not used")
+        override suspend fun search(query: String, scope: YoutubeSearchScope): List<CatalogTrack> {
+            calls += provider
+            return search()
+        }
 
         override suspend fun resolveAudio(videoUrl: String): ResolvedAudio {
             calls += provider
