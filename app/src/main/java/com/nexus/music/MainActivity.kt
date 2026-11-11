@@ -42,6 +42,8 @@ import com.nexus.music.ui.YouView
 import com.nexus.music.catalog.ResolvedAudio
 import com.nexus.music.catalog.YoutubeCatalogRepository
 import com.nexus.music.catalog.YoutubeSearchScope
+import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
+import org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException
 import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackSnapshot
 import com.nexus.music.update.GitHubReleaseUpdater
@@ -708,7 +710,13 @@ class MainActivity : Activity() {
                 throw error
             } catch (error: Exception) {
                 if (requestGeneration == searchGeneration) {
-                    searchPanel.statusText.text = "Search failed · Retry"
+                    searchPanel.statusText.text = when (error) {
+                        is SignInConfirmNotBotException ->
+                            "YouTube is asking this connection to verify it isn't automated. Try another network or retry later."
+                        is ReCaptchaException ->
+                            "YouTube temporarily limited requests. Wait a bit, then retry."
+                        else -> "Search failed · Retry"
+                    }
                     searchPanel.statusText.visibility = View.VISIBLE
                     searchPanel.statusText.setOnClickListener { performSearch() }
                 }
@@ -880,8 +888,19 @@ class MainActivity : Activity() {
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                playerSubtitle.text = "Couldn't prepare audio"
-                Toast.makeText(this@MainActivity, error.message ?: "Please choose another result.", Toast.LENGTH_LONG).show()
+                val message = when (error) {
+                    is SignInConfirmNotBotException ->
+                        "YouTube is asking this connection to verify it isn't automated. Try another network or retry later."
+                    is ReCaptchaException ->
+                        "YouTube temporarily limited requests. Wait a bit, then retry."
+                    else -> error.message ?: "Please choose another result."
+                }
+                playerSubtitle.text = when (error) {
+                    is SignInConfirmNotBotException -> "YouTube verification required"
+                    is ReCaptchaException -> "YouTube temporarily limited requests"
+                    else -> "Couldn't prepare audio"
+                }
+                Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
             } finally {
                 isResolving = false
             }
