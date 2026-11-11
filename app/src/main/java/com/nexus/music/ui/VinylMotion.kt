@@ -19,8 +19,8 @@ internal object VinylMotion {
     data class Point(val x: Float, val y: Float)
     data class ArmGeometry(val pivot: Point, val stylusVector: Point, val discRadius: Float) {
         val armLength get() = hypot(stylusVector.x, stylusVector.y)
-        val outerTargetRadius get() = discRadius * DISC_OUTER_GROOVE_RADIUS_FRACTION * 0.97f
-        val innerTargetRadius get() = discRadius * DISC_INNER_GROOVE_RADIUS_FRACTION + 4f
+        val outerTargetRadius get() = discRadius * 2f * DISC_OUTER_GROOVE_RADIUS_FRACTION * 0.97f
+        val innerTargetRadius get() = discRadius * 2f * DISC_INNER_GROOVE_RADIUS_FRACTION + 4f
     }
 
     fun measuredGeometry(discSizeDp: Float = 286f, armWidthDp: Float = 152f, armHeightDp: Float = 191f,
@@ -28,7 +28,7 @@ internal object VinylMotion {
         val pivotLocal = Point(TONEARM_PIVOT_X_FRACTION * armWidthDp, TONEARM_PIVOT_Y_FRACTION * armHeightDp)
         val tipLocal = Point(TONEARM_STYLUS_X_FRACTION * armWidthDp, TONEARM_STYLUS_Y_FRACTION * armHeightDp)
         return ArmGeometry(
-            Point(translationXDp + pivotLocal.x - discSizeDp / 2f, translationYDp + pivotLocal.y - discSizeDp / 2f),
+            Point(translationXDp + pivotLocal.x - armWidthDp / 2f, translationYDp + pivotLocal.y - armHeightDp / 2f),
             Point(tipLocal.x - pivotLocal.x, tipLocal.y - pivotLocal.y),
             discSizeDp / 2f
         )
