@@ -160,6 +160,38 @@ class ProviderResolverChainTest {
     }
 
     @Test
+    fun callerCancellationStopsProviderWorkWithoutRecordingFailure() = runBlocking {
+        val health = InMemoryHealthStore()
+        val calls = mutableListOf<StreamProvider>()
+        val started = CompletableDeferred<Unit>()
+        val cancelled = CompletableDeferred<Unit>()
+        val chain = ProviderResolverChain(
+            adapters = listOf(
+                FakeAdapter(StreamProvider.NEWPIPE, calls) {
+                    started.complete(Unit)
+                    try {
+                        delay(5_000L)
+                        resolvedAudio()
+                    } finally {
+                        cancelled.complete(Unit)
+                    }
+                }
+            ),
+            healthStore = health,
+            providerOrder = listOf(StreamProvider.NEWPIPE),
+            hedgeDelayMs = 0L
+        )
+
+        val request = async { chain.resolveAudio("https://youtube.com/watch?v=abcdefghijk") }
+        withTimeout(1_000L) { started.await() }
+        request.cancelAndJoin()
+        withTimeout(1_000L) { cancelled.await() }
+
+        assertEquals(listOf(StreamProvider.NEWPIPE), calls)
+        assertEquals(0, health.get(StreamProvider.NEWPIPE).consecutiveFailures)
+    }
+
+    @Test
     fun slowPreferredProviderIsHedgedAndLosingRequestIsCancelled() = runBlocking {
         val health = InMemoryHealthStore()
         val calls = mutableListOf<StreamProvider>()
