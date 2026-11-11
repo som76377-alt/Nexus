@@ -13,6 +13,10 @@ import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.text.ParsePosition
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -259,11 +263,13 @@ abstract class JsonApiStreamProviderAdapter(
                 if (seconds < 0L) return null
                 return if (seconds > Long.MAX_VALUE / 1_000L) Long.MAX_VALUE else seconds * 1_000L
             }
+            val position = ParsePosition(0)
             val retryAt = runCatching {
-                java.time.ZonedDateTime.parse(
-                    header,
-                    java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME
-                ).toInstant().toEpochMilli()
+                SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", Locale.US).apply {
+                    isLenient = false
+                    timeZone = TimeZone.getTimeZone("GMT")
+                }.parse(header, position)?.time
+                    ?.takeIf { position.errorIndex < 0 && position.index == header.length }
             }.getOrNull() ?: return null
             return (retryAt - nowEpochMs).coerceAtLeast(0L)
         }
