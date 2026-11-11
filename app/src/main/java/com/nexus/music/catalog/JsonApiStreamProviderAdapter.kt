@@ -219,8 +219,13 @@ abstract class JsonApiStreamProviderAdapter(
                                 retryAfterMs = parseRetryAfterMillis(it.header("Retry-After"))
                             )
                         }
-                        it.body?.string()
+                        val responseBody = it.body
                             ?: throw IOException("${provider.key} API returned an empty response.")
+                        val source = responseBody.source()
+                        if (source.request(MAX_API_RESPONSE_BYTES + 1L)) {
+                            throw IOException("${provider.key} API response exceeded the size limit.")
+                        }
+                        source.readUtf8()
                     }
                     if (continuation.isActive) continuation.resume(body)
                 } catch (error: Exception) {
@@ -253,6 +258,7 @@ abstract class JsonApiStreamProviderAdapter(
     companion object {
         private val LOOPBACK_HOSTS = setOf("localhost", "127.0.0.1", "::1")
         private const val USER_AGENT = "Nexus/0.1 (Android)"
+        private const val MAX_API_RESPONSE_BYTES = 8_388_608L
 
         internal fun parseRetryAfterMillis(
             value: String?,
