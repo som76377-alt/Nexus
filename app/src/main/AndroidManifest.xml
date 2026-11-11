@@ -25,6 +25,10 @@
         </activity>
 
         <activity
+            android:name=".diagnostics.ProviderLabActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".rooms.ListeningRoomActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
