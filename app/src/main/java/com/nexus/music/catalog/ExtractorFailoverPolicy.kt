@@ -6,7 +6,7 @@ package com.nexus.music.catalog
  */
 internal class ExtractorFailoverPolicy(
     private val cooldownMillis: Long = DEFAULT_COOLDOWN_MS,
-    private val clock: () -> Long = System::currentTimeMillis
+    private val clock: () -> Long = { System.currentTimeMillis() }
 ) {
     private var retryPrimaryAt = 0L
 
