@@ -26,6 +26,7 @@ import com.nexus.music.catalog.YoutubeCatalogRepository
 import com.nexus.music.catalog.YoutubeSearchScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -144,7 +145,7 @@ class ProviderLabActivity : Activity() {
             )
         } finally {
             // Restore the ordinary downloader after the diagnostic route override.
-            withContext(Dispatchers.IO) { YoutubeCatalogRepository() }
+            withContext(NonCancellable + Dispatchers.IO) { YoutubeCatalogRepository() }
         }
     }
 
