@@ -134,10 +134,9 @@ internal class PipedFallbackExtractor(
             return@synchronized cachedInstances
         }
 
-        val discovered = discoverInstances()
-        cachedInstances = (
-            discovered.take(MAX_INSTANCES - OFFICIAL_INSTANCES.size) + OFFICIAL_INSTANCES
-        ).distinct().take(MAX_INSTANCES)
+        // The old piped-instances.kavin.rocks directory is unreliable and can stall
+        // the first search. Use the maintained TeamPiped instance directory list instead.
+        cachedInstances = TRUSTED_INSTANCES.take(MAX_INSTANCES)
         instancesLoadedAt = now
         cachedInstances
     }
@@ -199,20 +198,30 @@ internal class PipedFallbackExtractor(
 
     companion object {
         private const val INSTANCE_DIRECTORY = "https://piped-instances.kavin.rocks/"
-        private val OFFICIAL_INSTANCES = listOf(
+        private val TRUSTED_INSTANCES = listOf(
+            "https://pipedapi.in.projectsegfau.lt",
+            "https://pipedapi.syncpundit.io",
+            "https://api-piped.mha.fi",
+            "https://pipedapi.tokhmi.xyz",
+            "https://pipedapi.moomoo.me",
             "https://pipedapi.kavin.rocks",
-            "https://pipedapi-in.kavin.rocks"
+            "https://pipedapi.rivo.lol",
+            "https://pipedapi.leptons.xyz",
+            "https://piped-api.lunar.icu",
+            "https://api.piped.privacydev.net",
+            "https://pipedapi.smnz.de",
+            "https://pipedapi.qdi.fi"
         )
         private const val INSTANCE_CACHE_MS = 6 * 60 * 60 * 1000L
-        private const val INSTANCE_COOLDOWN_MS = 2 * 60 * 1000L
+        private const val INSTANCE_COOLDOWN_MS = 5 * 60 * 1000L
         private const val MAX_INSTANCES = 8
         private val VIDEO_ID = Regex("[A-Za-z0-9_-]{11}")
         private val AUDIO_FORMATS = setOf("M4A", "MP3", "MP2", "OPUS", "OGG", "WEBMA", "WEBMA_OPUS", "FLAC", "ALAC", "WAV")
         
         private fun defaultClient() = OkHttpClient.Builder()
-            .connectTimeout(6, TimeUnit.SECONDS)
-            .readTimeout(15, TimeUnit.SECONDS)
-            .callTimeout(20, TimeUnit.SECONDS)
+            .connectTimeout(4, TimeUnit.SECONDS)
+            .readTimeout(6, TimeUnit.SECONDS)
+            .callTimeout(9, TimeUnit.SECONDS)
             .followRedirects(true)
             .build()
     }
