@@ -2,6 +2,7 @@ package com.nexus.music.catalog
 
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.MockResponse
@@ -122,7 +123,7 @@ class JsonApiStreamProviderAdapterTest {
     fun cancellingSearchCancelsTheInFlightHttpCall() = runBlocking {
         server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
         val adapter = PipedStreamProviderAdapter(listOf(server.url("/").toString()))
-        val request = async {
+        val request = async(Dispatchers.IO) {
             adapter.search("ambient", YoutubeSearchScope.EVERYTHING)
         }
 
