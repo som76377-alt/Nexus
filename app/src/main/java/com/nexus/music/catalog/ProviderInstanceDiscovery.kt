@@ -8,6 +8,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.OkHttpClient
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 import org.json.JSONArray
@@ -145,6 +146,7 @@ internal class ProviderInstanceDiscovery(
         internal fun normalizeEndpoint(value: String): String? {
             val normalized = value.trim().trimEnd('.', '/', ',', ';')
             val uri = runCatching { java.net.URI(normalized) }.getOrNull() ?: return null
+            if (normalized.toHttpUrlOrNull() == null) return null
             if (!uri.scheme.equals("https", ignoreCase = true)) return null
             if (uri.host.isNullOrBlank() || uri.rawUserInfo != null || uri.rawQuery != null || uri.rawFragment != null) {
                 return null
