@@ -15,6 +15,7 @@ import android.widget.TextView
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -41,6 +42,7 @@ import java.net.InetAddress
 import java.util.concurrent.TimeUnit
 
 /** Hidden, opt-in diagnostic. It deliberately performs real network and audible playback tests. */
+@UnstableApi
 class ProviderLabActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var report: TextView
