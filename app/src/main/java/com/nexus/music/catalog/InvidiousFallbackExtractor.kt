@@ -175,9 +175,9 @@ internal class InvidiousFallbackExtractor(
         private val VIDEO_ID = Regex("[A-Za-z0-9_-]{11}")
 
         private fun defaultClient() = OkHttpClient.Builder()
-            .connectTimeout(6, TimeUnit.SECONDS)
-            .readTimeout(15, TimeUnit.SECONDS)
-            .callTimeout(20, TimeUnit.SECONDS)
+            .connectTimeout(4, TimeUnit.SECONDS)
+            .readTimeout(7, TimeUnit.SECONDS)
+            .callTimeout(11, TimeUnit.SECONDS)
             .followRedirects(true)
             .build()
     }
