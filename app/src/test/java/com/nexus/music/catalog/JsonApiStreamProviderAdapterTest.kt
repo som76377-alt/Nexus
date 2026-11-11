@@ -68,6 +68,46 @@ class JsonApiStreamProviderAdapterTest {
     }
 
     @Test
+    fun pipedSearchPassesMusicSongsFilter() = runBlocking {
+        server.enqueue(MockResponse().setBody("[]"))
+
+        PipedStreamProviderAdapter(listOf(server.url("/").toString()))
+            .search("ambient music", YoutubeSearchScope.MUSIC_SONGS)
+
+        assertEquals("/search?q=ambient%20music&filter=music_songs", server.takeRequest().path)
+    }
+
+    @Test
+    fun pipedSearchPassesVideoFilter() = runBlocking {
+        server.enqueue(MockResponse().setBody("[]"))
+
+        PipedStreamProviderAdapter(listOf(server.url("/").toString()))
+            .search("ambient music", YoutubeSearchScope.VIDEOS)
+
+        assertEquals("/search?q=ambient%20music&filter=videos", server.takeRequest().path)
+    }
+
+    @Test
+    fun invidiousSearchPassesVideoTypeFilter() = runBlocking {
+        server.enqueue(MockResponse().setBody("[]"))
+
+        InvidiousStreamProviderAdapter(listOf(server.url("/").toString()))
+            .search("ambient music", YoutubeSearchScope.VIDEOS)
+
+        assertEquals("/api/v1/search?q=ambient%20music&type=video", server.takeRequest().path)
+    }
+
+    @Test
+    fun invidiousRejectsUnsupportedMusicSongsScopeWithoutNetworkRequest() {
+        val adapter = InvidiousStreamProviderAdapter(listOf(server.url("/").toString()))
+
+        assertThrows(ProviderCapabilityException::class.java) {
+            runBlocking { adapter.search("ambient music", YoutubeSearchScope.MUSIC_SONGS) }
+        }
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
     fun invidiousResolveIgnoresVideoFormatsAndSelectsAudio() = runBlocking {
         server.enqueue(
             MockResponse().setBody(
