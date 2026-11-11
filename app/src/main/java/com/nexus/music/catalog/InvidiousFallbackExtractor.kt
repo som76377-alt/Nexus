@@ -58,7 +58,11 @@ internal class InvidiousFallbackExtractor(
         val videoId = extractVideoId(videoUrl)
             ?: throw IOException("Invidious could not identify this YouTube video.")
         return withInstance { base ->
-            val json = getObject("$base/api/v1/videos/$videoId?region=IN", base)
+            val url = "$base/api/v1/videos/$videoId".toHttpUrl().newBuilder()
+                .addQueryParameter("region", "IN")
+                .addQueryParameter("local", "true")
+                .build()
+            val json = getObject(url.toString(), base)
             val formats = json.optJSONArray("adaptiveFormats") ?: JSONArray()
             val selected = (0 until formats.length())
                 .mapNotNull { formats.optJSONObject(it) }
