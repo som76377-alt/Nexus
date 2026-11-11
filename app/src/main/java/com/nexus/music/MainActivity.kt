@@ -702,10 +702,12 @@ class MainActivity : Activity() {
 
                 lastSearchResults = results
                 renderSearchResults()
-                if (results.isEmpty()) {
-                    searchPanel.statusText.text = "No results"
-                    searchPanel.statusText.visibility = View.VISIBLE
+                searchPanel.statusText.text = if (results.isEmpty()) {
+                    "No results. Provider diagnostics:\n" + repository.diagnosticsSummary()
+                } else {
+                    "Results loaded · Provider status:\n" + repository.diagnosticsSummary()
                 }
+                searchPanel.statusText.visibility = View.VISIBLE
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -716,7 +718,7 @@ class MainActivity : Activity() {
                         is ReCaptchaException ->
                             "YouTube temporarily limited requests. Wait a bit, then retry."
                         else -> "Search failed · Retry"
-                    }
+                    } + "\n" + repository.diagnosticsSummary()
                     searchPanel.statusText.visibility = View.VISIBLE
                     searchPanel.statusText.setOnClickListener { performSearch() }
                 }
@@ -900,7 +902,11 @@ class MainActivity : Activity() {
                     is ReCaptchaException -> "YouTube temporarily limited requests"
                     else -> "Couldn't prepare audio"
                 }
-                Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
+                Toast.makeText(
+                    this@MainActivity,
+                    message + "\n" + repository.diagnosticsSummary(),
+                    Toast.LENGTH_LONG
+                ).show()
             } finally {
                 isResolving = false
             }
