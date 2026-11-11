@@ -142,7 +142,9 @@ abstract class JsonApiStreamProviderAdapter(
 ) : StreamProviderAdapter {
     private val endpoints: List<HttpUrl> = endpoints.map { raw ->
         raw.trim().trimEnd('/').toHttpUrl().also {
-            require(it.isHttps) { "Provider endpoints must use HTTPS." }
+            require(it.isHttps || it.host in LOOPBACK_HOSTS) {
+                "Provider endpoints must use HTTPS unless they target loopback."
+            }
         }
     }.distinct()
 
@@ -202,6 +204,7 @@ abstract class JsonApiStreamProviderAdapter(
     }
 
     companion object {
+        private val LOOPBACK_HOSTS = setOf("localhost", "127.0.0.1", "::1")
         private const val USER_AGENT = "Nexus/0.1 (Android)"
 
         internal fun defaultApiClient(): OkHttpClient =
