@@ -31,8 +31,18 @@ class PipedStreamProviderAdapter(
     endpoints: List<String>,
     client: OkHttpClient = JsonApiStreamProviderAdapter.defaultApiClient()
 ) : JsonApiStreamProviderAdapter(StreamProvider.PIPED, endpoints, client) {
-    override fun searchUrl(base: HttpUrl, query: String): HttpUrl =
-        base.newBuilder().addPathSegments("search").addQueryParameter("q", query).build()
+    override fun searchUrl(base: HttpUrl, query: String, scope: YoutubeSearchScope): HttpUrl =
+        base.newBuilder()
+            .addPathSegments("search")
+            .addQueryParameter("q", query)
+            .addQueryParameter("filter", scope.toPipedFilter())
+            .build()
+
+    private fun YoutubeSearchScope.toPipedFilter(): String = when (this) {
+        YoutubeSearchScope.EVERYTHING -> "all"
+        YoutubeSearchScope.MUSIC_SONGS -> "music_songs"
+        YoutubeSearchScope.VIDEOS -> "videos"
+    }
 
     override fun parseSearch(body: String): List<CatalogTrack> {
         val items = JSONArray(body)
@@ -86,8 +96,18 @@ class InvidiousStreamProviderAdapter(
     endpoints: List<String>,
     client: OkHttpClient = JsonApiStreamProviderAdapter.defaultApiClient()
 ) : JsonApiStreamProviderAdapter(StreamProvider.INVIDIOUS, endpoints, client) {
-    override fun searchUrl(base: HttpUrl, query: String): HttpUrl =
-        base.newBuilder().addPathSegments("api/v1/search").addQueryParameter("q", query).build()
+    override fun searchUrl(base: HttpUrl, query: String, scope: YoutubeSearchScope): HttpUrl {
+        if (scope == YoutubeSearchScope.MUSIC_SONGS) {
+            throw ProviderCapabilityException("Invidious does not expose a music-songs search filter.")
+        }
+        return base.newBuilder()
+            .addPathSegments("api/v1/search")
+            .addQueryParameter("q", query)
+            .apply {
+                if (scope == YoutubeSearchScope.VIDEOS) addQueryParameter("type", "video")
+            }
+            .build()
+    }
 
     override fun parseSearch(body: String): List<CatalogTrack> {
         val items = JSONArray(body)
@@ -178,7 +198,7 @@ abstract class JsonApiStreamProviderAdapter(
         val normalized = query.trim()
         require(normalized.isNotEmpty()) { "Search query must not be blank." }
         executeAcrossInstances { base ->
-            parseSearch(get(searchUrl(base, normalized)))
+            parseSearch(get(searchUrl(base, normalized, scope)))
         }
     }
 
@@ -190,7 +210,7 @@ abstract class JsonApiStreamProviderAdapter(
         }
     }
 
-    protected abstract fun searchUrl(base: HttpUrl, query: String): HttpUrl
+    protected abstract fun searchUrl(base: HttpUrl, query: String, scope: YoutubeSearchScope): HttpUrl
     protected abstract fun parseSearch(body: String): List<CatalogTrack>
     protected abstract fun resolveUrl(base: HttpUrl, videoId: String): HttpUrl
     protected abstract fun parseResolved(body: String, videoId: String): ResolvedAudio
@@ -245,6 +265,8 @@ abstract class JsonApiStreamProviderAdapter(
             try {
                 return block(endpoint)
             } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (error: ProviderCapabilityException) {
                 throw error
             } catch (error: IOException) {
                 lastError = error
