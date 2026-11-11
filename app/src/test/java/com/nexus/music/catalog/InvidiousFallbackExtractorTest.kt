@@ -55,7 +55,7 @@ class InvidiousFallbackExtractorTest {
     }
 
     @Test
-    fun audioResolutionSelectsDirectHttpsAudioFormat() {
+    fun audioResolutionRequestsInstanceProxiedFormat() {
         val server = MockWebServer()
         server.enqueue(
             MockResponse().setBody(
@@ -75,7 +75,7 @@ class InvidiousFallbackExtractorTest {
                     },
                     {
                       "type": "audio/mp4",
-                      "url": "https://cdn.example.com/audio.m4a",
+                      "url": "https://invidious.example.com/latest_version?id=abcdefghijk&itag=140",
                       "bitrate": "128000"
                     }
                   ]
@@ -92,11 +92,14 @@ class InvidiousFallbackExtractorTest {
 
             val result = extractor.resolveAudio("https://www.youtube.com/watch?v=abcdefghijk")
 
-            assertEquals("https://cdn.example.com/audio.m4a", result.audioUrl)
+            assertEquals("https://invidious.example.com/latest_version?id=abcdefghijk&itag=140", result.audioUrl)
             assertEquals("audio/mp4", result.mimeType)
             assertEquals(128000, result.averageBitrate)
             assertEquals("Sample track", result.title)
-            assertTrue(server.takeRequest().path.orEmpty().startsWith("/api/v1/videos/abcdefghijk"))
+            val requestPath = server.takeRequest().path.orEmpty()
+            assertTrue(requestPath.startsWith("/api/v1/videos/abcdefghijk"))
+            assertTrue(requestPath.contains("region=IN"))
+            assertTrue(requestPath.contains("local=true"))
         } finally {
             server.shutdown()
         }
