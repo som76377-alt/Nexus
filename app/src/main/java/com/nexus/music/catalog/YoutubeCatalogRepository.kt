@@ -12,17 +12,24 @@ import java.io.IOException
 /**
  * Search and stream-resolution boundary for the app.
  *
- * NewPipe remains the primary extractor. When it fails, Piped provides an independent
- * server-side extraction route. A short circuit-breaker cooldown avoids repeatedly hitting a
- * failing primary route, and the primary is automatically retried after the cooldown.
+ * NewPipe remains primary. If it fails, Nexus tries Piped (server-side extraction) and then
+ * Invidious (a separate extraction implementation). The primary circuit-breaker automatically
+ * probes NewPipe again after a short cooldown and returns to it when healthy.
  */
 class YoutubeCatalogRepository internal constructor(
     downloader: OkHttpDownloader,
-    private val fallback: PipedFallbackExtractor,
+    private val pipedFallback: PipedFallbackExtractor,
+    private val invidiousFallback: InvidiousFallbackExtractor,
     private val failoverPolicy: ExtractorFailoverPolicy
 ) {
     constructor(downloader: OkHttpDownloader = OkHttpDownloader()) :
-        this(downloader, PipedFallbackExtractor(), ExtractorFailoverPolicy())
+        this(
+            downloader,
+            PipedFallbackExtractor(),
+            InvidiousFallbackExtractor(),
+            ExtractorFailoverPolicy()
+        )
+
     init {
         ExtractorRuntime.initialize(downloader)
     }
@@ -48,17 +55,14 @@ class YoutubeCatalogRepository internal constructor(
         }
 
         try {
-            // An empty result is still a valid search response; the fallback gets a chance
-            // to recover results without incorrectly opening the primary circuit.
-            fallback.search(normalizedQuery, scope)
+            searchWithFallbacks(normalizedQuery, scope)
         } catch (fallbackError: Exception) {
             if (fallbackError is CancellationException) throw fallbackError
             if (primaryFailure != null) {
                 primaryFailure.addSuppressed(fallbackError)
                 throw primaryFailure
             }
-            // The primary circuit was open. If fallback is also unavailable, make one last
-            // primary attempt so a recovered primary can restore service immediately.
+            // If all fallbacks are unavailable while the circuit is open, probe primary once.
             try {
                 val results = searchWithNewPipe(normalizedQuery, scope)
                 failoverPolicy.primarySucceeded()
@@ -91,14 +95,14 @@ class YoutubeCatalogRepository internal constructor(
         }
 
         try {
-            fallback.resolveAudio(videoUrl)
+            resolveWithFallbacks(videoUrl)
         } catch (fallbackError: Exception) {
             if (fallbackError is CancellationException) throw fallbackError
             if (primaryFailure != null) {
                 primaryFailure.addSuppressed(fallbackError)
                 throw primaryFailure
             }
-            // If the fallback is down while the primary circuit is open, probe primary once.
+            // If both fallback routes are down, probe primary once before failing the request.
             try {
                 val resolved = resolveWithNewPipe(videoUrl)
                 failoverPolicy.primarySucceeded()
@@ -110,6 +114,51 @@ class YoutubeCatalogRepository internal constructor(
                 throw primaryError
             }
         }
+    }
+
+    private fun searchWithFallbacks(
+        query: String,
+        scope: YoutubeSearchScope
+    ): List<CatalogTrack> {
+        var successfulEmptyResult = false
+        val failures = mutableListOf<Exception>()
+        listOf<(String, YoutubeSearchScope) -> List<CatalogTrack>>(
+            pipedFallback::search,
+            invidiousFallback::search
+        ).forEach { provider ->
+            try {
+                val results = provider(query, scope)
+                if (results.isNotEmpty()) return results
+                successfulEmptyResult = true
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                failures += error
+            }
+        }
+        if (successfulEmptyResult) return emptyList()
+        throw fallbackFailure("Search", failures)
+    }
+
+    private fun resolveWithFallbacks(videoUrl: String): ResolvedAudio {
+        val failures = mutableListOf<Exception>()
+        listOf<(String) -> ResolvedAudio>(
+            pipedFallback::resolveAudio,
+            invidiousFallback::resolveAudio
+        ).forEach { provider ->
+            try {
+                return provider(videoUrl)
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                failures += error
+            }
+        }
+        throw fallbackFailure("Audio resolution", failures)
+    }
+
+    private fun fallbackFailure(operation: String, failures: List<Exception>): IOException {
+        val failure = IOException("All fallback extractors failed during $operation.")
+        failures.forEach(failure::addSuppressed)
+        return failure
     }
 
     private fun searchWithNewPipe(query: String, scope: YoutubeSearchScope): List<CatalogTrack> {
