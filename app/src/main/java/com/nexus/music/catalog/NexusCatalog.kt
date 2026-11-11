@@ -21,10 +21,10 @@ object NexusCatalog {
     private fun createRepository(context: Context): YoutubeCatalogRepository {
         val adapters = buildList<StreamProviderAdapter> {
             add(NewPipeStreamProviderAdapter())
-            parseEndpoints(BuildConfig.PIPED_API_ENDPOINTS).takeIf(List<String>::isNotEmpty)?.let {
+            parseEndpoints(BuildConfig.PIPED_API_ENDPOINTS).takeIf { it.isNotEmpty() }?.let {
                 add(PipedStreamProviderAdapter(it))
             }
-            parseEndpoints(BuildConfig.INVIDIOUS_API_ENDPOINTS).takeIf(List<String>::isNotEmpty)?.let {
+            parseEndpoints(BuildConfig.INVIDIOUS_API_ENDPOINTS).takeIf { it.isNotEmpty() }?.let {
                 add(InvidiousStreamProviderAdapter(it))
             }
         }
