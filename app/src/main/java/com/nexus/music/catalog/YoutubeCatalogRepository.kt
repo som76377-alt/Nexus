@@ -16,11 +16,13 @@ import java.io.IOException
  * server-side extraction route. A short circuit-breaker cooldown avoids repeatedly hitting a
  * failing primary route, and the primary is automatically retried after the cooldown.
  */
-class YoutubeCatalogRepository(
-    downloader: OkHttpDownloader = OkHttpDownloader(),
-    private val fallback: PipedFallbackExtractor = PipedFallbackExtractor(),
-    private val failoverPolicy: ExtractorFailoverPolicy = ExtractorFailoverPolicy()
+class YoutubeCatalogRepository internal constructor(
+    downloader: OkHttpDownloader,
+    private val fallback: PipedFallbackExtractor,
+    private val failoverPolicy: ExtractorFailoverPolicy
 ) {
+    constructor(downloader: OkHttpDownloader = OkHttpDownloader()) :
+        this(downloader, PipedFallbackExtractor(), ExtractorFailoverPolicy())
     init {
         ExtractorRuntime.initialize(downloader)
     }
@@ -36,10 +38,8 @@ class YoutubeCatalogRepository(
         if (failoverPolicy.shouldTryPrimary()) {
             try {
                 val results = searchWithNewPipe(normalizedQuery, scope)
-                if (results.isNotEmpty()) {
-                    failoverPolicy.primarySucceeded()
-                    return@withContext results
-                }
+                failoverPolicy.primarySucceeded()
+                if (results.isNotEmpty()) return@withContext results
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
                 primaryFailure = error
