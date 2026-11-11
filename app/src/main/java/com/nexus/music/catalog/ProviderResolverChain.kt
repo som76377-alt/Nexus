@@ -68,7 +68,10 @@ class ProviderResolverChain(
                     } catch (error: CancellationException) {
                         throw error
                     } catch (error: Exception) {
-                        if (StreamErrorClassifier.classify(error) != StreamErrorClass.INVALID_SOURCE) {
+                        if (
+                            error !is ProviderCapabilityException &&
+                            StreamErrorClassifier.classify(error) != StreamErrorClass.INVALID_SOURCE
+                        ) {
                             recordFailure(provider, error)
                         }
                         outcomes.send(Result.failure(error))
