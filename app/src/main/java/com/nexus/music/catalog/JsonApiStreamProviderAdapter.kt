@@ -1,15 +1,21 @@
 package com.nexus.music.catalog
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 /**
  * JSON API adapters for compatible Piped and Invidious instances.
@@ -185,20 +191,38 @@ abstract class JsonApiStreamProviderAdapter(
     protected abstract fun resolveUrl(base: HttpUrl, videoId: String): HttpUrl
     protected abstract fun parseResolved(body: String, videoId: String): ResolvedAudio
 
-    private fun get(url: HttpUrl): String {
+    private suspend fun get(url: HttpUrl): String = suspendCancellableCoroutine { continuation ->
         val request = Request.Builder()
             .url(url)
             .header("Accept", "application/json")
             .header("User-Agent", USER_AGENT)
             .get()
             .build()
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw IOException("${provider.key} API returned HTTP ${response.code}.")
-            return response.body?.string() ?: throw IOException("${provider.key} API returned an empty response.")
-        }
+        val call = client.newCall(request)
+        continuation.invokeOnCancellation { call.cancel() }
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, error: IOException) {
+                if (continuation.isActive) continuation.resumeWithException(error)
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val body = response.use {
+                        if (!it.isSuccessful) {
+                            throw IOException("${provider.key} API returned HTTP ${it.code}.")
+                        }
+                        it.body?.string()
+                            ?: throw IOException("${provider.key} API returned an empty response.")
+                    }
+                    if (continuation.isActive) continuation.resume(body)
+                } catch (error: Exception) {
+                    if (continuation.isActive) continuation.resumeWithException(error)
+                }
+            }
+        })
     }
 
-    private fun <T> executeAcrossInstances(block: (HttpUrl) -> T): T {
+    private suspend fun <T> executeAcrossInstances(block: suspend (HttpUrl) -> T): T {
         var lastError: IOException? = null
         val configuredEndpoints = endpoints
         if (configuredEndpoints.isEmpty()) {
@@ -207,6 +231,8 @@ abstract class JsonApiStreamProviderAdapter(
         configuredEndpoints.forEach { endpoint ->
             try {
                 return block(endpoint)
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
             } catch (error: IOException) {
                 lastError = error
             } catch (error: org.json.JSONException) {
