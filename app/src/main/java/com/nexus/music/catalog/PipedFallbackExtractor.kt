@@ -94,18 +94,19 @@ internal class PipedFallbackExtractor(
     }
 
     private fun <T> withInstance(block: (String) -> T): T {
-        var lastError: Exception? = null
+        val failures = mutableListOf<Exception>()
         for (base in instances()) {
             if (isCoolingDown(base)) continue
             try {
                 return block(base)
             } catch (error: Exception) {
                 markUnhealthy(base)
-                lastError = error
+                failures += error
             }
         }
-        val message = "All available Piped fallback instances failed."
-        throw IOException(message, lastError)
+        val failure = IOException("All available Piped fallback instances failed.")
+        failures.forEach(failure::addSuppressed)
+        throw failure
     }
 
     private fun getJson(url: String, base: String): JSONObject {
