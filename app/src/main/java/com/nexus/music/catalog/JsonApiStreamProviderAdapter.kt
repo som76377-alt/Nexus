@@ -140,17 +140,26 @@ abstract class JsonApiStreamProviderAdapter(
     endpoints: List<String>,
     private val client: OkHttpClient
 ) : StreamProviderAdapter {
-    private val endpoints: List<HttpUrl> = endpoints.map { raw ->
-        raw.trim().trimEnd('/').toHttpUrl().also {
-            require(it.isHttps || it.host in LOOPBACK_HOSTS) {
-                "Provider endpoints must use HTTPS unless they target loopback."
-            }
-        }
-    }.distinct()
+    @Volatile
+    private var endpoints: List<HttpUrl> = parseEndpoints(endpoints)
 
-    init {
-        require(this.endpoints.isNotEmpty()) { "At least one configured provider endpoint is required." }
+    /**
+     * Replaces the current instance pool after trusted directory discovery.
+     * An empty update is ignored so a transient discovery failure cannot erase a working pool.
+     */
+    fun updateEndpoints(values: List<String>) {
+        val parsed = parseEndpoints(values)
+        if (parsed.isNotEmpty()) endpoints = parsed
     }
+
+    private fun parseEndpoints(values: List<String>): List<HttpUrl> =
+        values.map { raw ->
+            raw.trim().trimEnd('/').toHttpUrl().also {
+                require(it.isHttps || it.host in LOOPBACK_HOSTS) {
+                    "Provider endpoints must use HTTPS unless they target loopback."
+                }
+            }
+        }.distinct()
 
     final override suspend fun search(
         query: String,
@@ -191,7 +200,11 @@ abstract class JsonApiStreamProviderAdapter(
 
     private fun <T> executeAcrossInstances(block: (HttpUrl) -> T): T {
         var lastError: IOException? = null
-        endpoints.forEach { endpoint ->
+        val configuredEndpoints = endpoints
+        if (configuredEndpoints.isEmpty()) {
+            throw IOException("No healthy ${provider.key} instance is configured.")
+        }
+        configuredEndpoints.forEach { endpoint ->
             try {
                 return block(endpoint)
             } catch (error: IOException) {
