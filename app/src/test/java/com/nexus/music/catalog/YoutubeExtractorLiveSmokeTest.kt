@@ -53,10 +53,12 @@ class YoutubeExtractorLiveSmokeTest {
         assertTrue("Expected an HTTPS audio URL.", resolved.audioUrl.startsWith("https://"))
         assertTrue("Expected a title.", resolved.title.isNotBlank())
         assertFallbackWasUsed("audio resolution", repository.diagnosticsSummary())
-        assertResolvedAudioUrlServesBytes(resolved.audioUrl)
+        assertResolvedAudioUrlServesBytes(resolved.audioUrl, repository.diagnosticsSummary())
     }
 
-    private fun assertResolvedAudioUrlServesBytes(url: String) {
+    private fun assertResolvedAudioUrlServesBytes(url: String, diagnostics: String) {
+        val host = runCatching { java.net.URI(url).host }.getOrNull() ?: "unknown"
+        System.out.println("Resolved media host=$host; $diagnostics")
         val client = OkHttpClient.Builder()
             .connectTimeout(8, TimeUnit.SECONDS)
             .readTimeout(8, TimeUnit.SECONDS)
@@ -71,7 +73,8 @@ class YoutubeExtractorLiveSmokeTest {
             .build()
         client.newCall(request).execute().use { response ->
             assertTrue(
-                "Resolved audio URL returned HTTP ${response.code}.",
+                "Resolved audio URL from host $host returned HTTP ${response.code}. " +
+                    "Provider diagnostics: $diagnostics",
                 response.isSuccessful
             )
             val bytes = response.body?.byteStream()?.readNBytes(1024) ?: ByteArray(0)
