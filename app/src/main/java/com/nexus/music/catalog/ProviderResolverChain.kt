@@ -107,15 +107,16 @@ class ProviderResolverChain(
             provider = provider,
             errorClass = errorClass,
             atEpochMs = failedAt,
-            cooldownUntilEpochMs = failedAt + cooldownFor(errorClass, failures)
+            cooldownUntilEpochMs = failedAt + cooldownFor(errorClass, failures, error)
         )
     }
 
-    private fun cooldownFor(errorClass: StreamErrorClass, failures: Int): Long {
+    private fun cooldownFor(errorClass: StreamErrorClass, failures: Int, error: Exception): Long {
         val multiplier = 1L shl (failures - 1).coerceIn(0, 5)
         return when (errorClass) {
             StreamErrorClass.TRANSIENT -> TRANSIENT_COOLDOWN_MS * multiplier
-            StreamErrorClass.RATE_LIMITED -> RATE_LIMIT_COOLDOWN_MS
+            StreamErrorClass.RATE_LIMITED ->
+                (error as? ProviderHttpException)?.retryAfterMs ?: RATE_LIMIT_COOLDOWN_MS
             StreamErrorClass.ACCESS_BLOCKED -> ACCESS_BLOCK_COOLDOWN_MS
             StreamErrorClass.UNSUPPORTED -> UNSUPPORTED_COOLDOWN_MS
             StreamErrorClass.UNKNOWN -> UNKNOWN_COOLDOWN_MS * multiplier
