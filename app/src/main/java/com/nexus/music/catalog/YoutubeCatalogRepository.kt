@@ -28,7 +28,7 @@ class YoutubeCatalogRepository internal constructor(
     fun diagnosticsSummary(): String = listOf("NewPipe", "Piped", "Invidious")
         .joinToString("\n") { provider -> provider + ": " + (providerStatus[provider] ?: "Not tried yet") }
 
-    private inline fun <T> tracked(provider: String, block: () -> T): T {
+    private fun <T> tracked(provider: String, block: () -> T): T {
         return try {
             block().also { providerStatus[provider] = "OK" }
         } catch (error: Exception) {
@@ -194,7 +194,7 @@ class YoutubeCatalogRepository internal constructor(
         val extractor = service.getSearchExtractor(queryHandler)
         extractor.fetchPage()
 
-        return SearchInfo.getInfo(extractor).relatedItems
+        SearchInfo.getInfo(extractor).relatedItems
             .filterIsInstance<StreamInfoItem>()
             .mapNotNull { item ->
                 val url = item.url?.takeIf(CatalogUrlValidator::isValidHttpsUrl)
@@ -220,7 +220,7 @@ class YoutubeCatalogRepository internal constructor(
         val selected = AudioStreamSelector.bestPlayable(info.audioStreams)
             ?: throw IOException("No directly playable audio stream was returned for this item.")
 
-        return ResolvedAudio(
+        ResolvedAudio(
             sourceUrl = canonicalSourceUrl,
             title = info.name,
             artist = info.uploaderName?.takeIf(String::isNotBlank),
