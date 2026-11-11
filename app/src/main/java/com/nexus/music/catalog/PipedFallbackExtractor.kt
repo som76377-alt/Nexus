@@ -237,7 +237,7 @@ internal class PipedFallbackExtractor(
         private const val INSTANCE_COOLDOWN_MS = 3 * 60 * 1000L
         private const val MAX_DISCOVERED_INSTANCES = 32
         private const val MAX_INSTANCES_PER_REQUEST = 4
-        private val DIRECTORY_URL = Regex("""https://[^\\s|\x60<>()]+""")
+        private val DIRECTORY_URL = Regex("""https://[^\s|<>()]+""")
         private val VIDEO_ID = Regex("[A-Za-z0-9_-]{11}")
         private val AUDIO_FORMATS = setOf(
             "M4A", "MP3", "MP2", "OPUS", "OGG", "WEBMA", "WEBMA_OPUS", "FLAC", "ALAC", "WAV"
