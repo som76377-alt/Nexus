@@ -46,7 +46,7 @@ class ProviderResolverChainTest {
             ),
             healthStore = health,
             providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
-            hedgeDelayMs = 0L,
+            hedgeDelayMs = 100L,
             nowEpochMs = { 1_000L }
         )
 
@@ -66,7 +66,7 @@ class ProviderResolverChainTest {
             ),
             healthStore = health,
             providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
-            hedgeDelayMs = 0L
+            hedgeDelayMs = 100L
         )
 
         assertThrows(IllegalArgumentException::class.java) {
