@@ -91,6 +91,7 @@ class MainActivity : Activity() {
     private var updateCheckJob: Job? = null
     private var downloadJob: Job? = null
     private var pendingUpdate: NexusUpdate? = null
+    private var autoInstallAttemptedVersion: String? = null
     private var requiresCleanInstall = false
     private var selectedScope = YoutubeSearchScope.MUSIC_SONGS
     private var searchJob: Job? = null
@@ -416,6 +417,12 @@ class MainActivity : Activity() {
                         updateButton.text = "Download"
                         updateButton.isEnabled = true
                         updateButton.visibility = View.VISIBLE
+
+                        // Automatically download and hand off verified updates to Android.
+                        // Android still owns the final install confirmation for safety.
+                        if (autoInstallAttemptedVersion != result.update.versionName) {
+                            installUpdate(result.update)
+                        }
                     }
 
                     is UpdateCheckResult.InstalledBuildAhead -> {
@@ -538,6 +545,7 @@ class MainActivity : Activity() {
 
                 NexusUpdateInstaller.install(this@MainActivity, apk)
                 installerOpened = true
+                autoInstallAttemptedVersion = update.versionName
                 updateStatusText.text = "Android installer opened · approve the update to finish."
                 updateButton.text = "Install again"
                 Toast.makeText(
