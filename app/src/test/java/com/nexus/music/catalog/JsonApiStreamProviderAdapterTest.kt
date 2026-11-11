@@ -141,7 +141,10 @@ class JsonApiStreamProviderAdapterTest {
             10_000L,
             JsonApiStreamProviderAdapter.parseRetryAfterMillis("Thu, 01 Jan 1970 00:00:10 GMT", 0L)
         )
-        assertEquals(0L, JsonApiStreamProviderAdapter.parseRetryAfterMillis("1", 2_000L))
+        assertEquals(
+            0L,
+            JsonApiStreamProviderAdapter.parseRetryAfterMillis("Thu, 01 Jan 1970 00:00:01 GMT", 2_000L)
+        )
         assertEquals(null, JsonApiStreamProviderAdapter.parseRetryAfterMillis("not-a-date", 0L))
     }
 
