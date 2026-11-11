@@ -22,6 +22,22 @@ class YoutubeCatalogRepository internal constructor(
     private val invidiousFallback: InvidiousFallbackExtractor,
     private val failoverPolicy: ExtractorFailoverPolicy
 ) {
+    private val providerStatus = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /** Latest per-provider result, safe to read from the UI thread. */
+    fun diagnosticsSummary(): String = listOf("NewPipe", "Piped", "Invidious")
+        .joinToString("\n") { provider -> provider + ": " + (providerStatus[provider] ?: "Not tried yet") }
+
+    private inline fun <T> tracked(provider: String, block: () -> T): T {
+        return try {
+            block().also { providerStatus[provider] = "OK" }
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            providerStatus[provider] =
+                (error.javaClass.simpleName + ": " + (error.message ?: "request failed")).take(220)
+            throw error
+        }
+    }
     constructor(downloader: OkHttpDownloader = OkHttpDownloader()) :
         this(
             downloader,
@@ -132,8 +148,8 @@ class YoutubeCatalogRepository internal constructor(
         var successfulEmptyResult = false
         val failures = mutableListOf<Exception>()
         listOf<(String, YoutubeSearchScope) -> List<CatalogTrack>>(
-            pipedFallback::search,
-            invidiousFallback::search
+            { q, s -> tracked("Piped") { pipedFallback.search(q, s) } },
+            { q, s -> tracked("Invidious") { invidiousFallback.search(q, s) } }
         ).forEach { provider ->
             try {
                 val results = provider(query, scope)
@@ -151,8 +167,8 @@ class YoutubeCatalogRepository internal constructor(
     private fun resolveWithFallbacks(videoUrl: String): ResolvedAudio {
         val failures = mutableListOf<Exception>()
         listOf<(String) -> ResolvedAudio>(
-            pipedFallback::resolveAudio,
-            invidiousFallback::resolveAudio
+            { url -> tracked("Piped") { pipedFallback.resolveAudio(url) } },
+            { url -> tracked("Invidious") { invidiousFallback.resolveAudio(url) } }
         ).forEach { provider ->
             try {
                 return provider(videoUrl)
@@ -170,7 +186,8 @@ class YoutubeCatalogRepository internal constructor(
         return failure
     }
 
-    private fun searchWithNewPipe(query: String, scope: YoutubeSearchScope): List<CatalogTrack> {
+    private fun searchWithNewPipe(query: String, scope: YoutubeSearchScope): List<CatalogTrack> =
+        tracked("NewPipe") {
         val service = NewPipe.getService(YOUTUBE_SERVICE_NAME)
         val filters = scope.extractorFilter?.let(::listOf).orEmpty()
         val queryHandler = service.searchQHFactory.fromQuery(query, filters, "")
@@ -194,7 +211,8 @@ class YoutubeCatalogRepository internal constructor(
             }
     }
 
-    private fun resolveWithNewPipe(videoUrl: String): ResolvedAudio {
+    private fun resolveWithNewPipe(videoUrl: String): ResolvedAudio =
+        tracked("NewPipe") {
         val service = NewPipe.getServiceByUrl(videoUrl)
         val info = StreamInfo.getInfo(service, videoUrl)
         val canonicalSourceUrl = info.url.takeIf(CatalogUrlValidator::isValidHttpsUrl)
