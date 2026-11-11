@@ -3,12 +3,18 @@ package com.nexus.music.catalog
 import android.content.Context
 import android.content.SharedPreferences
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import org.json.JSONArray
 import java.io.IOException
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 /**
  * Refreshes provider endpoints from their maintainers' published instance directories.
@@ -40,8 +46,8 @@ internal class ProviderInstanceDiscovery(
 
             try {
                 val discovered = when (provider) {
-                    StreamProvider.PIPED -> parsePipedInstances(fetch(PIPED_DIRECTORY_URL))
-                    StreamProvider.INVIDIOUS -> parseInvidiousInstances(fetch(INVIDIOUS_DIRECTORY_URL))
+                    StreamProvider.PIPED -> parsePipedInstances(fetchDirectory(client, PIPED_DIRECTORY_URL))
+                    StreamProvider.INVIDIOUS -> parseInvidiousInstances(fetchDirectory(client, INVIDIOUS_DIRECTORY_URL))
                     StreamProvider.NEWPIPE -> emptyList()
                 }
                 if (discovered.isNotEmpty()) {
@@ -59,19 +65,6 @@ internal class ProviderInstanceDiscovery(
         }
     }
 
-    private fun fetch(url: String): String {
-        val request = Request.Builder()
-            .url(url)
-            .header("Accept", "application/json, text/markdown, text/plain")
-            .header("User-Agent", "Nexus/0.1 (Android; provider discovery)")
-            .get()
-            .build()
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw IOException("Provider directory returned HTTP ${response.code}.")
-            return response.body?.string() ?: throw IOException("Provider directory returned an empty response.")
-        }
-    }
-
     internal companion object {
         private const val PREFERENCES_NAME = "nexus_provider_instance_directory"
         private const val REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000L
@@ -80,6 +73,38 @@ internal class ProviderInstanceDiscovery(
         private const val INVIDIOUS_DIRECTORY_URL =
             "https://api.invidious.io/instances.json?sort_by=health"
         private const val MAX_ENDPOINTS = 20
+
+        internal suspend fun fetchDirectory(client: OkHttpClient, url: String): String =
+            suspendCancellableCoroutine { continuation ->
+                val request = Request.Builder()
+                    .url(url)
+                    .header("Accept", "application/json, text/markdown, text/plain")
+                    .header("User-Agent", "Nexus/0.1 (Android; provider discovery)")
+                    .get()
+                    .build()
+                val call = client.newCall(request)
+                continuation.invokeOnCancellation { call.cancel() }
+                call.enqueue(object : Callback {
+                    override fun onFailure(call: Call, error: IOException) {
+                        if (continuation.isActive) continuation.resumeWithException(error)
+                    }
+
+                    override fun onResponse(call: Call, response: Response) {
+                        try {
+                            val body = response.use {
+                                if (!it.isSuccessful) {
+                                    throw IOException("Provider directory returned HTTP ${it.code}.")
+                                }
+                                it.body?.string()
+                                    ?: throw IOException("Provider directory returned an empty response.")
+                            }
+                            if (continuation.isActive) continuation.resume(body)
+                        } catch (error: Exception) {
+                            if (continuation.isActive) continuation.resumeWithException(error)
+                        }
+                    }
+                })
+            }
 
         internal fun parsePipedInstances(markdown: String): List<String> {
             val endpoints = LinkedHashSet<String>()
