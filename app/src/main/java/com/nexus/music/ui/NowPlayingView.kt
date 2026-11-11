@@ -406,7 +406,9 @@ class NowPlayingView(
     }
 
     private fun applyArmFrame() {
-        tonearm.rotation = armAngle
+        tonearm.rotation = armAngle + if (armLift < 0.05f) {
+            sin(SystemClock.uptimeMillis().toDouble() / STYLUS_VIBRATION_PERIOD_MS).toFloat() * STYLUS_VIBRATION_DEGREES
+        } else 0f
         tonearm.translationY = dp(TONEARM_TRANSLATION_Y_DP) - liftDistancePx * armLift
         tonearm.elevation = dp(1) + dp(ARM_SHADOW_HEIGHT_DP) * armLift
     }
@@ -425,6 +427,9 @@ class NowPlayingView(
                 discAngle = (discAngle + delta * DEGREES_PER_MS * currentSpeed) % 360f
                 val wobble = sin(now.toDouble() / PLATTER_WOBBLE_PERIOD_MS).toFloat() * PLATTER_WOBBLE_DEGREES
                 disc.rotation = discAngle + wobble
+                if (armLift < 0.05f && armPhase == VinylMotion.ArmPhase.TRACKING) {
+                    tonearm.rotation = armAngle + sin(now.toDouble() / STYLUS_VIBRATION_PERIOD_MS).toFloat() * STYLUS_VIBRATION_DEGREES
+                }
             }
         }
         discAnimator = ticker
@@ -579,5 +584,7 @@ class NowPlayingView(
         const val TRACKING_EPSILON_DEGREES = 0.08f
         const val PLATTER_WOBBLE_PERIOD_MS = 6_000L
         const val PLATTER_WOBBLE_DEGREES = 0.22f
+        const val STYLUS_VIBRATION_PERIOD_MS = 145L
+        const val STYLUS_VIBRATION_DEGREES = 0.10f
     }
 }
