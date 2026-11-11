@@ -31,6 +31,21 @@ class ProviderInstanceDiscoveryTest {
     }
 
     @Test
+    fun directoryFetchRejectsOversizedResponse() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        try {
+            server.enqueue(MockResponse().setBody("x".repeat(1_048_577)))
+            val error = runCatching {
+                ProviderInstanceDiscovery.fetchDirectory(OkHttpClient(), server.url("/").toString())
+            }.exceptionOrNull()
+            assertEquals(true, error is java.io.IOException)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
     fun cancellingDirectoryFetchCancelsTheInFlightHttpCall() = runBlocking {
         val server = MockWebServer()
         server.start()
