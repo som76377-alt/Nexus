@@ -14,6 +14,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Test
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 class JsonApiStreamProviderAdapterTest {
@@ -80,6 +81,21 @@ class JsonApiStreamProviderAdapterTest {
         assertEquals("https://media.example/audio.webm", result.audioUrl)
         assertEquals("audio/webm; codecs=opus", result.mimeType)
         assertEquals("/api/v1/videos/abcdefghijk", server.takeRequest().path)
+    }
+
+    @Test
+    fun rejectsOversizedProviderApiResponse() = runBlocking {
+        server.enqueue(MockResponse().setBody("x".repeat(8_388_609)))
+
+        val error = assertThrows(IOException::class.java) {
+            runBlocking {
+                PipedStreamProviderAdapter(listOf(server.url("/").toString()))
+                    .resolveAudio("https://www.youtube.com/watch?v=abcdefghijk")
+            }
+        }
+
+        assertEquals("piped API response exceeded the size limit.", error.message)
+        assertEquals("/streams/abcdefghijk", server.takeRequest().path)
     }
 
     @Test
