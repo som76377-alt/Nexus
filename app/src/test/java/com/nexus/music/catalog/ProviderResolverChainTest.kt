@@ -34,6 +34,31 @@ class ProviderResolverChainTest {
     }
 
     @Test
+    fun unsupportedCapabilityFallsBackWithoutPoisoningProviderHealth() = runBlocking {
+        val health = InMemoryHealthStore()
+        val calls = mutableListOf<StreamProvider>()
+        val chain = ProviderResolverChain(
+            adapters = listOf(
+                FakeAdapter(StreamProvider.INVIDIOUS, calls) {
+                    throw ProviderCapabilityException("music-songs filter unsupported")
+                },
+                FakeAdapter(StreamProvider.PIPED, calls) { resolvedAudio() }
+            ),
+            healthStore = health,
+            providerOrder = listOf(StreamProvider.INVIDIOUS, StreamProvider.PIPED),
+            hedgeDelayMs = 0L,
+            nowEpochMs = { 1_000L }
+        )
+
+        val result = chain.resolveAudio("https://youtube.com/watch?v=abcdefghijk")
+
+        assertEquals("https://media.example/audio.m4a", result.audioUrl)
+        assertEquals(listOf(StreamProvider.INVIDIOUS, StreamProvider.PIPED), calls)
+        assertEquals(0, health.get(StreamProvider.INVIDIOUS).consecutiveFailures)
+        assertEquals(0L, health.get(StreamProvider.INVIDIOUS).cooldownUntilEpochMs)
+    }
+
+    @Test
     fun healthyProviderIsTriedBeforeProviderInCooldown() = runBlocking {
         val health = InMemoryHealthStore().apply {
             recordFailure(StreamProvider.NEWPIPE, StreamErrorClass.TRANSIENT, 900L, 5_000L)
