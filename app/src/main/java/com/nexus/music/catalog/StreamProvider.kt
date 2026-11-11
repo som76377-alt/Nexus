@@ -28,14 +28,8 @@ enum class StreamProvider(val key: String) {
     }
 }
 
-/** Classification controls fallback and health penalties; it never changes the original error. */
 enum class StreamErrorClass {
-    TRANSIENT,
-    RATE_LIMITED,
-    ACCESS_BLOCKED,
-    INVALID_SOURCE,
-    UNSUPPORTED,
-    UNKNOWN
+    TRANSIENT, RATE_LIMITED, ACCESS_BLOCKED, INVALID_SOURCE, UNSUPPORTED, UNKNOWN
 }
 
 object StreamErrorClassifier {

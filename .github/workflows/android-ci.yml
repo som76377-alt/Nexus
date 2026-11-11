@@ -1,0 +1,254 @@
+name: Android CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Keep only the newest validation run for a PR/branch; superseded commits do not
+# need to consume another full Android SDK + Gradle build.
+concurrency:
+  group: nexus-android-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-debug:
+    name: Test and build debug APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Enforce SPEC.md ownership with approved S3 exception
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if git cat-file -e "${BASE_SHA}:SPEC.md" 2>/dev/null; then
+            python3 - "${BASE_SHA}" <<'PY'
+          import pathlib
+          import subprocess
+          import sys
+
+          base = subprocess.check_output(
+              ["git", "show", f"{sys.argv[1]}:SPEC.md"]
+          )
+          actual = pathlib.Path("SPEC.md").read_bytes()
+          if actual == base:
+              print("SPEC.md unchanged")
+              raise SystemExit(0)
+
+          old = "- **S3 — Pause and seek:** A remote pause or seek must be applied within 500 ms. A burst of rapid seek taps must publish only the final seek intent once.".encode("utf-8")
+          new = "- **S3 — Pause and seek:** A remote pause must be applied within 500 ms. A burst of rapid seek taps must publish only the final seek intent once. After a seek, both phones play the same position within 300 ms; it may take up to 1.5 s.".encode("utf-8")
+          if base.count(old) != 1:
+              raise SystemExit("Unexpected base S3 text; SPEC.md change is not authorized.")
+          expected = base.replace(old, new, 1)
+          if actual != expected:
+              raise SystemExit("SPEC.md may contain only the explicitly approved S3 seek-accuracy revision.")
+          print("SPEC.md: only the approved S3 seek-accuracy revision is permitted.")
+          PY
+          else
+            echo "SPEC.md bootstrap: base branch has no SPEC.md; initial addition is permitted."
+          fi
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install compile SDK packages
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Cache Gradle dependencies and wrapper
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('**/*.gradle*', 'gradle/wrapper/gradle-wrapper.properties', 'gradle/libs.versions.toml') }}
+          restore-keys: |
+            gradle-
+
+      - name: Warm Gradle wrapper
+        shell: bash
+        run: |
+          set +e
+          for attempt in {1..6}; do
+            echo "Gradle wrapper warm-up attempt ${attempt}/6"
+            ./gradlew --version
+            result=$?
+            if [ "$result" -eq 0 ]; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 6 ]; then
+              echo "Gradle wrapper download failed; retrying in 45 seconds."
+              sleep 45
+            fi
+          done
+          echo "::error::Gradle wrapper warm-up failed after 6 attempts."
+          exit 1
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
+
+      - name: Verify release publishing is tag-push only
+        run: bash scripts/test-release-publish-gate.sh
+
+      - name: Run Android lint
+        shell: bash
+        run: |
+          set +e
+          for attempt in {1..4}; do
+            echo "Gradle :app:lintDebug attempt ${attempt}/4"
+            ./gradlew --no-daemon --stacktrace :app:lintDebug > "$RUNNER_TEMP/nexus-lint.log" 2>&1
+            result=$?
+            cat "$RUNNER_TEMP/nexus-lint.log"
+            if [ "$result" -eq 0 ]; then
+              exit 0
+            fi
+            if grep -Eiq 'status code 504|Gateway Time-out|Read timed out|Connection reset' "$RUNNER_TEMP/nexus-lint.log"; then
+              if [ "$attempt" -lt 4 ]; then
+                echo "Transient download/network failure; retrying in 60 seconds."
+                sleep 60
+                continue
+              fi
+              echo "::error::Gradle :app:lintDebug failed after 4 infrastructure retries."
+              exit "$result"
+            fi
+            echo "::error::Gradle :app:lintDebug failed with a non-retryable error."
+            exit "$result"
+          done
+          exit 1
+
+      - name: Run unit tests
+        shell: bash
+        run: |
+          set +e
+          for attempt in {1..4}; do
+            echo "Gradle :app:testDebugUnitTest attempt ${attempt}/4"
+            ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest > "$RUNNER_TEMP/nexus-unit-tests.log" 2>&1
+            result=$?
+            cat "$RUNNER_TEMP/nexus-unit-tests.log"
+            if [ "$result" -eq 0 ]; then
+              exit 0
+            fi
+            if grep -Eiq 'status code 504|Gateway Time-out|Read timed out|Connection reset' "$RUNNER_TEMP/nexus-unit-tests.log"; then
+              if [ "$attempt" -lt 4 ]; then
+                echo "Transient download/network failure; retrying in 60 seconds."
+                sleep 60
+                continue
+              fi
+              echo "::error::Gradle :app:testDebugUnitTest failed after 4 infrastructure retries."
+              exit "$result"
+            fi
+            echo "::error::Gradle :app:testDebugUnitTest failed with a non-retryable error."
+            exit "$result"
+          done
+          exit 1
+
+      - name: Run live YouTube extractor smoke test (vinyl preview only)
+        if: github.ref_name == 'ui/real-vinyl-player'
+        shell: bash
+        run: |
+          ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest -Pnexus.liveExtractorTests=true
+
+      - name: Print unit-test failure details
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          reports = sorted(Path("app/build/test-results/testDebugUnitTest").glob("TEST-*.xml"))
+          if not reports:
+              print("No unit-test XML reports were produced.")
+          for report in reports:
+              root = ET.parse(report).getroot()
+              for case in root.iter("testcase"):
+                  problems = [node for node in case if node.tag in ("failure", "error")]
+                  for problem in problems:
+                      print(f"FAILED: {case.get('classname')}.{case.get('name')}")
+                      print(problem.get("message", ""))
+                      print((problem.text or "").strip())
+          PY
+
+      - name: Upload unit-test reports
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: nexus-unit-test-reports
+          path: |
+            app/build/test-results/testDebugUnitTest/**/*.xml
+            app/build/reports/tests/testDebugUnitTest/**
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Assemble debug APK
+        shell: bash
+        run: |
+          set +e
+          for attempt in {1..4}; do
+            echo "Gradle :app:assembleDebug attempt ${attempt}/4"
+            ./gradlew --no-daemon --stacktrace :app:assembleDebug > "$RUNNER_TEMP/nexus-assemble.log" 2>&1
+            result=$?
+            cat "$RUNNER_TEMP/nexus-assemble.log"
+            if [ "$result" -eq 0 ]; then
+              exit 0
+            fi
+            if grep -Eiq 'status code 504|Gateway Time-out|Read timed out|Connection reset' "$RUNNER_TEMP/nexus-assemble.log"; then
+              if [ "$attempt" -lt 4 ]; then
+                echo "Transient download/network failure; retrying in 60 seconds."
+                sleep 60
+                continue
+              fi
+              echo "::error::Gradle :app:assembleDebug failed after 4 infrastructure retries."
+              exit "$result"
+            fi
+            echo "::error::Gradle :app:assembleDebug failed with a non-retryable error."
+            exit "$result"
+          done
+          exit 1
+
+      - name: Verify unsigned release builds fail closed
+        shell: bash
+        run: |
+          set +e
+          ./gradlew --no-daemon :app:assembleRelease > "$RUNNER_TEMP/nexus-release-guard.log" 2>&1
+          build_status=$?
+          set -e
+
+          if [ "$build_status" -eq 0 ]; then
+            echo "::error::An unsigned release APK was unexpectedly assembled."
+            exit 1
+          fi
+
+          if ! grep -Fq "Release APKs must be signed with the permanent Nexus keystore" "$RUNNER_TEMP/nexus-release-guard.log"; then
+            cat "$RUNNER_TEMP/nexus-release-guard.log"
+            echo "::error::Release build failed for an unexpected reason; the fail-closed guard was not verified."
+            exit 1
+          fi
+
+          echo "Unsigned release build correctly refused before producing an APK."
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: nexus-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14

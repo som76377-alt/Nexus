@@ -3,7 +3,6 @@ package com.nexus.music.catalog
 import android.content.Context
 import android.content.SharedPreferences
 
-/** Persisted provider history used to avoid repeatedly selecting a recently failing endpoint. */
 data class ProviderHealth(
     val consecutiveFailures: Int = 0,
     val lastSuccessEpochMs: Long = 0L,
@@ -14,16 +13,11 @@ data class ProviderHealth(
 interface ProviderHealthStore {
     fun get(provider: StreamProvider): ProviderHealth
     fun recordSuccess(provider: StreamProvider, atEpochMs: Long)
-    fun recordFailure(
-        provider: StreamProvider,
-        errorClass: StreamErrorClass,
-        atEpochMs: Long,
-        cooldownUntilEpochMs: Long
-    )
+    fun recordFailure(provider: StreamProvider, errorClass: StreamErrorClass, atEpochMs: Long, cooldownUntilEpochMs: Long)
     fun clear(provider: StreamProvider)
 }
 
-/** SharedPreferences-backed process-persistent health store. Calls are serialized per instance. */
+/** SharedPreferences-backed health history survives process death and app restarts. */
 class SharedPreferencesProviderHealthStore(context: Context) : ProviderHealthStore {
     private val preferences: SharedPreferences =
         context.applicationContext.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
@@ -36,9 +30,7 @@ class SharedPreferencesProviderHealthStore(context: Context) : ProviderHealthSto
             consecutiveFailures = preferences.getInt("$key.failures", 0).coerceAtLeast(0),
             lastSuccessEpochMs = preferences.getLong("$key.success", 0L).coerceAtLeast(0L),
             cooldownUntilEpochMs = preferences.getLong("$key.cooldown", 0L).coerceAtLeast(0L),
-            lastErrorClass = errorName?.let { name ->
-                runCatching { StreamErrorClass.valueOf(name) }.getOrNull()
-            }
+            lastErrorClass = errorName?.let { runCatching { StreamErrorClass.valueOf(it) }.getOrNull() }
         )
     }
 
@@ -71,12 +63,8 @@ class SharedPreferencesProviderHealthStore(context: Context) : ProviderHealthSto
     @Synchronized
     override fun clear(provider: StreamProvider) {
         val key = provider.key
-        preferences.edit()
-            .remove("$key.failures")
-            .remove("$key.success")
-            .remove("$key.cooldown")
-            .remove("$key.error")
-            .apply()
+        preferences.edit().remove("$key.failures").remove("$key.success")
+            .remove("$key.cooldown").remove("$key.error").apply()
     }
 
     private companion object {
