@@ -1,20 +1,24 @@
 package com.nexus.music.catalog
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import java.io.IOException
 
 /**
- * Bounded, health-aware sequential failover shared by search and stream resolution.
- *
- * Providers outside cooldown are tried first, preserving configured order within each health
- * group. A failure is recorded once per attempted provider; cancellation and invalid source
- * errors are never hidden by trying another provider.
+ * Bounded, health-aware hedged failover shared by catalogue search and stream resolution.
+ * The preferred provider starts immediately; additional providers start at a fixed stagger.
+ * The first successful result wins and remaining requests are cancelled.
  */
 class ProviderResolverChain(
     adapters: List<StreamProviderAdapter>,
     private val healthStore: ProviderHealthStore,
     providerOrder: List<StreamProvider> = StreamProvider.DEFAULT_ORDER,
     private val maxAttempts: Int = providerOrder.size,
+    private val hedgeDelayMs: Long = DEFAULT_HEDGE_DELAY_MS,
     private val nowEpochMs: () -> Long = System::currentTimeMillis
 ) {
     private val adaptersByProvider = adapters.associateBy { it.provider }
@@ -30,6 +34,7 @@ class ProviderResolverChain(
         require(maxAttempts in 1..this.providerOrder.size) {
             "Maximum provider attempts must be within the configured provider count."
         }
+        require(hedgeDelayMs >= 0L) { "Hedge delay cannot be negative." }
     }
 
     suspend fun search(
@@ -48,35 +53,62 @@ class ProviderResolverChain(
 
         val now = nowEpochMs()
         val ordered = configured.sortedBy { (provider, _) ->
-            val health = healthStore.get(provider)
-            if (health.cooldownUntilEpochMs > now) 1 else 0
+            if (healthStore.get(provider).cooldownUntilEpochMs > now) 1 else 0
         }.take(maxAttempts)
 
-        var lastError: Exception? = null
-        for ((provider, adapter) in ordered) {
-            try {
-                val result = operation(adapter)
-                healthStore.recordSuccess(provider, nowEpochMs())
-                return result
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                if (StreamErrorClassifier.classify(error) == StreamErrorClass.INVALID_SOURCE) {
-                    throw error
+        return coroutineScope {
+            val outcomes = Channel<Result<T>>(capacity = ordered.size)
+            val jobs = ordered.mapIndexed { index, (provider, adapter) ->
+                async {
+                    if (index > 0) delay(hedgeDelayMs * index)
+                    try {
+                        val result = operation(adapter)
+                        healthStore.recordSuccess(provider, nowEpochMs())
+                        outcomes.send(Result.success(result))
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        if (StreamErrorClassifier.classify(error) != StreamErrorClass.INVALID_SOURCE) {
+                            recordFailure(provider, error)
+                        }
+                        outcomes.send(Result.failure(error))
+                    }
                 }
-                val errorClass = StreamErrorClassifier.classify(error)
-                val failedAt = nowEpochMs()
-                val failures = healthStore.get(provider).consecutiveFailures + 1
-                healthStore.recordFailure(
-                    provider = provider,
-                    errorClass = errorClass,
-                    atEpochMs = failedAt,
-                    cooldownUntilEpochMs = failedAt + cooldownFor(errorClass, failures)
-                )
-                lastError = error
+            }
+
+            var lastError: Exception? = null
+            try {
+                repeat(ordered.size) {
+                    val outcome = outcomes.receive()
+                    if (outcome.isSuccess) {
+                        jobs.forEach { it.cancel() }
+                        return@coroutineScope outcome.getOrThrow()
+                    }
+
+                    val error = outcome.exceptionOrNull() as Exception
+                    if (StreamErrorClassifier.classify(error) == StreamErrorClass.INVALID_SOURCE) {
+                        jobs.forEach { it.cancel() }
+                        throw error
+                    }
+                    lastError = error
+                }
+                throw lastError ?: IOException("No configured stream provider could be attempted.")
+            } finally {
+                outcomes.close()
             }
         }
-        throw lastError ?: IOException("No configured stream provider could be attempted.")
+    }
+
+    private fun recordFailure(provider: StreamProvider, error: Exception) {
+        val errorClass = StreamErrorClassifier.classify(error)
+        val failedAt = nowEpochMs()
+        val failures = healthStore.get(provider).consecutiveFailures + 1
+        healthStore.recordFailure(
+            provider = provider,
+            errorClass = errorClass,
+            atEpochMs = failedAt,
+            cooldownUntilEpochMs = failedAt + cooldownFor(errorClass, failures)
+        )
     }
 
     private fun cooldownFor(errorClass: StreamErrorClass, failures: Int): Long {
@@ -92,6 +124,7 @@ class ProviderResolverChain(
     }
 
     private companion object {
+        const val DEFAULT_HEDGE_DELAY_MS = 350L
         const val TRANSIENT_COOLDOWN_MS = 30_000L
         const val RATE_LIMIT_COOLDOWN_MS = 5 * 60_000L
         const val ACCESS_BLOCK_COOLDOWN_MS = 15 * 60_000L

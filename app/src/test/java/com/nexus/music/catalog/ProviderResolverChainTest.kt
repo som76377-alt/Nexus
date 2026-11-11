@@ -1,5 +1,7 @@
 package com.nexus.music.catalog
 
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -18,6 +20,7 @@ class ProviderResolverChainTest {
             ),
             healthStore = health,
             providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
+            hedgeDelayMs = 0L,
             nowEpochMs = { 1_000L }
         )
 
@@ -43,6 +46,7 @@ class ProviderResolverChainTest {
             ),
             healthStore = health,
             providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
+            hedgeDelayMs = 0L,
             nowEpochMs = { 1_000L }
         )
 
@@ -61,7 +65,8 @@ class ProviderResolverChainTest {
                 FakeAdapter(StreamProvider.PIPED, calls) { resolvedAudio() }
             ),
             healthStore = health,
-            providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED)
+            providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
+            hedgeDelayMs = 0L
         )
 
         assertThrows(IllegalArgumentException::class.java) {
@@ -83,13 +88,49 @@ class ProviderResolverChainTest {
             ),
             healthStore = health,
             providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED, StreamProvider.INVIDIOUS),
-            maxAttempts = 2
+            maxAttempts = 2,
+            hedgeDelayMs = 0L
         )
 
         assertThrows(IOException::class.java) {
             runBlocking { chain.resolveAudio("https://youtube.com/watch?v=abcdefghijk") }
         }
         assertEquals(2, calls.size)
+    }
+
+    @Test
+    fun slowPreferredProviderIsHedgedAndLosingRequestIsCancelled() = runBlocking {
+        val health = InMemoryHealthStore()
+        val calls = mutableListOf<StreamProvider>()
+        val firstStarted = CompletableDeferred<Unit>()
+        val firstCancelled = CompletableDeferred<Unit>()
+        val chain = ProviderResolverChain(
+            adapters = listOf(
+                FakeAdapter(StreamProvider.NEWPIPE, calls) {
+                    firstStarted.complete(Unit)
+                    try {
+                        delay(5_000L)
+                        resolvedAudio()
+                    } finally {
+                        firstCancelled.complete(Unit)
+                    }
+                },
+                FakeAdapter(StreamProvider.PIPED, calls) {
+                    firstStarted.await()
+                    resolvedAudio()
+                }
+            ),
+            healthStore = health,
+            providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
+            hedgeDelayMs = 20L
+        )
+
+        val result = chain.resolveAudio("https://youtube.com/watch?v=abcdefghijk")
+
+        assertEquals("https://media.example/audio.m4a", result.audioUrl)
+        assertEquals(true, firstCancelled.isCompleted)
+        assertEquals(0, health.get(StreamProvider.NEWPIPE).consecutiveFailures)
+        assertEquals(0, health.get(StreamProvider.PIPED).consecutiveFailures)
     }
 
     private fun resolvedAudio() = ResolvedAudio(

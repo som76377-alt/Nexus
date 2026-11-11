@@ -9,7 +9,8 @@
 ## R2 implementation
 | Task | Status | Commit | CI run | Learning |
 |---|---|---|---|---|
-| Health-aware bounded provider resolver | IN PROGRESS | pending CI | pending | Added deterministic sequential failover across configured adapters, cooldown-aware ordering, bounded attempts, cancellation/invalid-source preservation, and health success/failure updates. Provider adapters are not yet wired into the app's shared catalogue; hedged resolution remains a later slice. |
+| Health-aware bounded provider resolver | CI GREEN | 3c3b59f13ce55b756431bedbfdcace191df02410 | [Android CI #724](https://github.com/som76377-alt/Nexus/actions/runs/43040364528) | Bounded sequential fallback, cooldown ordering, health updates and cancellation/invalid-source handling. Live extractor smoke test skipped; app wiring still pending. |
+| Staggered hedged provider requests | IN PROGRESS | pending CI | pending | Starts the preferred provider immediately and staggers additional configured providers; first success wins and cancels remaining requests. Adds a cancellation/hedge test. Adapter wiring and process-wide catalogue remain outstanding. |
 
 | T4 system interruptions and local-first playback | DONE | c73889587620d89744d55dfe4b6c16dc5945d748 | [Android CI](https://github.com/som76377-alt/Nexus/actions/runs/42376020571); [Web room tests](https://github.com/som76377-alt/Nexus/actions/runs/42376020388) | S5/S8: Media3 audio-focus and becoming-noisy reasons now create local-only interruption intents; transient focus release and explicit Play rejoin the current room timeline without publishing. Drift correction and local fallback are suspended during interruption; pending barriers and remote applies are held until release. Added three S5 regression tests. Android lint, unit tests, debug APK assembly, unsigned-release guard, and web build passed. Two-device behavior remains UNVERIFIED. Net diff: +389 / -5. |
 
