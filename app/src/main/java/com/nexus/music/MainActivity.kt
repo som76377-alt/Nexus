@@ -702,11 +702,12 @@ class MainActivity : Activity() {
 
                 lastSearchResults = results
                 renderSearchResults()
-                if (results.isEmpty()) {
-                    searchPanel.statusText.text =
-                        "No results. Provider diagnostics:\n" + repository.diagnosticsSummary()
-                    searchPanel.statusText.visibility = View.VISIBLE
+                searchPanel.statusText.text = if (results.isEmpty()) {
+                    "No results. Provider diagnostics:\n" + repository.diagnosticsSummary()
+                } else {
+                    "Results loaded · Provider status:\n" + repository.diagnosticsSummary()
                 }
+                searchPanel.statusText.visibility = View.VISIBLE
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
