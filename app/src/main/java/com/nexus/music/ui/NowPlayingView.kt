@@ -104,7 +104,6 @@ class NowPlayingView(
             contentDescription = "Vinyl record"
         }
         stage.addView(disc, FrameLayout.LayoutParams(dp(DISC_SIZE_DP), dp(DISC_SIZE_DP), Gravity.CENTER))
-        stage.addView(RecordSheenView(context), FrameLayout.LayoutParams(dp(DISC_SIZE_DP), dp(DISC_SIZE_DP), Gravity.CENTER))
         tonearm.apply {
             setImageResource(tonearmResource)
             scaleType = ImageView.ScaleType.FIT_CENTER
@@ -407,9 +406,7 @@ class NowPlayingView(
     }
 
     private fun applyArmFrame() {
-        tonearm.rotation = armAngle + if (armLift < 0.05f) {
-            sin(SystemClock.uptimeMillis().toDouble() / STYLUS_VIBRATION_PERIOD_MS) .toFloat() * STYLUS_VIBRATION_DEGREES
-        } else 0f
+        tonearm.rotation = armAngle
         tonearm.translationY = dp(TONEARM_TRANSLATION_Y_DP) - liftDistancePx * armLift
         tonearm.elevation = dp(1) + dp(ARM_SHADOW_HEIGHT_DP) * armLift
     }
@@ -428,9 +425,6 @@ class NowPlayingView(
                 discAngle = (discAngle + delta * DEGREES_PER_MS * currentSpeed) % 360f
                 val wobble = sin(now.toDouble() / PLATTER_WOBBLE_PERIOD_MS).toFloat() * PLATTER_WOBBLE_DEGREES
                 disc.rotation = discAngle + wobble
-                if (armLift < 0.05f && armPhase == VinylMotion.ArmPhase.TRACKING) {
-                    tonearm.rotation = armAngle + sin(now.toDouble() / STYLUS_VIBRATION_PERIOD_MS).toFloat() * STYLUS_VIBRATION_DEGREES
-                }
             }
         }
         discAnimator = ticker
@@ -542,28 +536,6 @@ class NowPlayingView(
         }
     }
 
-    private inner class RecordSheenView(context: Context) : View(context) {
-        private val sheenPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = 0x22FFFFFF
-            style = Paint.Style.STROKE
-            strokeWidth = dp(2).toFloat()
-            strokeCap = Paint.Cap.ROUND
-        }
-        private val fineSheenPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = 0x12FFFFFF
-            style = Paint.Style.STROKE
-            strokeWidth = dp(1).toFloat()
-        }
-        private val bounds = RectF()
-        override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-            bounds.set(w * 0.08f, h * 0.08f, w * 0.92f, h * 0.92f)
-        }
-        override fun onDraw(canvas: Canvas) {
-            canvas.drawArc(bounds, 205f, 82f, false, sheenPaint)
-            canvas.drawArc(bounds, 28f, 54f, false, fineSheenPaint)
-        }
-    }
-
     private class TransportGlyph(context: Context, private val playing: Boolean) : android.graphics.drawable.Drawable() {
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
         override fun draw(canvas: Canvas) {
@@ -607,7 +579,5 @@ class NowPlayingView(
         const val TRACKING_EPSILON_DEGREES = 0.08f
         const val PLATTER_WOBBLE_PERIOD_MS = 6_000L
         const val PLATTER_WOBBLE_DEGREES = 0.22f
-        const val STYLUS_VIBRATION_PERIOD_MS = 145L
-        const val STYLUS_VIBRATION_DEGREES = 0.10f
     }
 }
