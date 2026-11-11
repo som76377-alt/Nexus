@@ -1,22 +1,23 @@
 package com.nexus.music.ui
 
-import com.nexus.music.R
-
-import android.animation.ObjectAnimator
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
-import android.graphics.RectF
-import android.graphics.LinearGradient
 import android.graphics.RadialGradient
+import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
+import android.os.Build
+import android.os.SystemClock
 import android.view.Gravity
 import android.view.View
+import android.view.animation.AccelerateDecelerateInterpolator
+import android.view.animation.DecelerateInterpolator
 import android.view.animation.LinearInterpolator
 import android.widget.FrameLayout
 import android.widget.ImageButton
@@ -24,7 +25,11 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
+import android.graphics.drawable.GradientDrawable
+import com.nexus.music.R
 import com.nexus.music.playback.PlaybackSnapshot
+import kotlin.math.PI
+import kotlin.math.sin
 
 /** Full-screen Now Playing presentation. All transport commands are delegated to PlaybackConnection. */
 class NowPlayingView(
@@ -33,13 +38,16 @@ class NowPlayingView(
     private val onToggle: () -> Unit,
     private val onSeek: (Long) -> Unit
 ) : LinearLayout(context) {
+    private val vinylDiscResource = R.drawable.vinyl_disc
+    private val tonearmResource = R.drawable.tonearm
+
     private val ink = Color.rgb(38, 33, 30)
     private val paper = Color.rgb(241, 232, 214)
     private val muted = Color.rgb(112, 99, 84)
     private val green = Color.rgb(32, 82, 71)
     private val copper = Color.rgb(194, 93, 64)
     private val disc = ImageView(context)
-    private val tonearm = TonearmView(context)
+    private val tonearm = ImageView(context)
     private val title = TextView(context)
     private val artist = TextView(context)
     private val elapsed = TextView(context)
@@ -47,17 +55,28 @@ class NowPlayingView(
     private val seek = SeekBar(context)
     private val play = ImageButton(context)
     private var durationMs = 0L
-    private var tonearmPlaying: Boolean? = null
     private var isSeeking = false
-    private var discAnimator: ObjectAnimator? = null
-    private var tonearmAnimator: ValueAnimator? = null
+    private var lastPositionMs = 0L
+    private var lastSnapshotPlaying: Boolean? = null
+    private var lastSnapshot: PlaybackSnapshot? = null
+    private var discAnimator: ValueAnimator? = null
+    private var speedAnimator: ValueAnimator? = null
+    private var armAnimator: ValueAnimator? = null
+    private var currentSpeed = 0f
+    private var armAngle = REST_ANGLE
+    private var armLift = 0f
+    private var discAngle = 0f
+    private var lastFrameTime = 0L
+    private var deckState = VinylMotion.DeckState.STOPPED
+    private var armPhase = VinylMotion.ArmPhase.RESTING
+    private val liftDistancePx = dp(LIFT_HEIGHT_DP)
 
     init {
         orientation = VERTICAL
-        gravity = Gravity.CENTER_HORIZONTAL
-        setPadding(dp(24), dp(16), dp(24), dp(24))
         clipChildren = false
         clipToPadding = false
+        gravity = Gravity.CENTER_HORIZONTAL
+        setPadding(dp(24), dp(16), dp(24), dp(24))
         setBackgroundColor(paper)
 
         val top = LinearLayout(context).apply {
@@ -78,24 +97,25 @@ class NowPlayingView(
             clipChildren = false
             clipToPadding = false
         }
+        stage.addView(RecordShadowView(context), FrameLayout.LayoutParams(dp(DISC_SIZE_DP), dp(DISC_SIZE_DP), Gravity.CENTER))
         disc.apply {
-            setImageDrawable(VinylRecordDrawable())
-            scaleType = ImageView.ScaleType.FIT_XY
+            setImageResource(vinylDiscResource)
+            scaleType = ImageView.ScaleType.FIT_CENTER
             contentDescription = "Vinyl record"
-            visibility = View.VISIBLE
         }
-        stage.addView(disc, FrameLayout.LayoutParams(dp(286), dp(286), Gravity.CENTER))
-        stage.addView(VinylLightView(context), FrameLayout.LayoutParams(dp(286), dp(286), Gravity.CENTER))
+        stage.addView(disc, FrameLayout.LayoutParams(dp(DISC_SIZE_DP), dp(DISC_SIZE_DP), Gravity.CENTER))
         tonearm.apply {
+            setImageResource(tonearmResource)
+            scaleType = ImageView.ScaleType.FIT_CENTER
             contentDescription = "Tonearm"
-            visibility = View.VISIBLE
-            // Keep the pivot just beyond the platter rim and the arm artwork inside
-            // the stage so its real outward rest movement is never clipped.
-            translationX = dp(78).toFloat()
+            pivotX = dp(TONEARM_PIVOT_X_DP).toFloat()
+            pivotY = dp(TONEARM_PIVOT_Y_DP).toFloat()
+            translationX = dp(TONEARM_TRANSLATION_X_DP).toFloat()
+            translationY = dp(TONEARM_TRANSLATION_Y_DP).toFloat()
+            rotation = REST_ANGLE
         }
-        stage.addView(tonearm, FrameLayout.LayoutParams(dp(232), dp(286), Gravity.CENTER))
-        // A fixed stage prevents the artwork area from collapsing during layout.
-        addView(stage, LayoutParams(dp(320), dp(320)).apply {
+        stage.addView(tonearm, FrameLayout.LayoutParams(dp(TONEARM_WIDTH_DP), dp(TONEARM_HEIGHT_DP), Gravity.CENTER))
+        addView(stage, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f).apply {
             gravity = Gravity.CENTER_HORIZONTAL
         })
 
@@ -138,7 +158,6 @@ class NowPlayingView(
             gravity = Gravity.CENTER
         }
         val back = button("−15", 14f, ink).apply { contentDescription = "Seek backward 15 seconds" }
-        // Skip commands are deliberately not added here: this screen only exposes supported player controls.
         controls.addView(back, LayoutParams(dp(64), dp(64)))
         play.apply {
             background = GradientDrawable().apply {
@@ -160,9 +179,8 @@ class NowPlayingView(
         }
     }
 
-    private var lastPositionMs = 0L
-
     fun render(snapshot: PlaybackSnapshot) {
+        lastSnapshot = snapshot
         title.text = snapshot.title.ifBlank { "Nothing playing" }
         artist.text = snapshot.artist.ifBlank { "Choose a record from the collection" }
         durationMs = snapshot.durationMs
@@ -173,48 +191,323 @@ class NowPlayingView(
         seek.isEnabled = durationMs > 0L
         play.setImageDrawable(TransportGlyph(context, snapshot.playWhenReady))
         play.contentDescription = if (snapshot.playWhenReady) "Pause" else "Play"
+
         val playing = snapshot.title.isNotBlank() && snapshot.playWhenReady
-        animateTonearmTo(playing)
-        if (playing) startDisc() else stopDisc()
+        when {
+            lastSnapshotPlaying == null -> {
+                lastSnapshotPlaying = playing
+                if (playing) beginPlay(snapshot.positionMs, snapshot.durationMs)
+            }
+            playing && lastSnapshotPlaying != true -> {
+                lastSnapshotPlaying = true
+                beginPlay(snapshot.positionMs, snapshot.durationMs)
+            }
+            !playing && lastSnapshotPlaying == true -> {
+                lastSnapshotPlaying = false
+                beginPause()
+            }
+            playing -> trackArm(snapshot.positionMs, snapshot.durationMs)
+        }
     }
 
     /** Album artwork is intentionally not shown on the record in this player design. */
     @Suppress("UNUSED_PARAMETER")
     fun setArtwork(url: String?) = Unit
 
-    private fun animateTonearmTo(playing: Boolean) {
-        if (tonearmPlaying == playing) return
-        tonearmPlaying = playing
-        tonearmAnimator?.cancel()
-        val targetAngle = if (playing) 0f else -24f
-        tonearmAnimator = ValueAnimator.ofFloat(tonearm.angleDegrees, targetAngle).apply {
-            duration = 520L
-            interpolator = android.view.animation.DecelerateInterpolator(1.4f)
-            addUpdateListener { tonearm.angleDegrees = it.animatedValue as Float }
-            start()
+    private fun beginPlay(positionMs: Long, duration: Long) {
+        if (!animationsEnabled()) {
+            stopAllMotion()
+            currentSpeed = 1f
+            deckState = VinylMotion.DeckState.PLAYING
+            armAngle = VinylMotion.trackingAngle(positionMs, duration, PLAY_START_ANGLE, PLAY_END_ANGLE)
+            armLift = 0f
+            armPhase = VinylMotion.ArmPhase.TRACKING
+            disc.rotation = discAngle
+            applyArmFrame()
+            refreshLayers()
+            return
+        }
+        animateSpeedTo(1f)
+        cancelArmAnimation()
+        armPhase = VinylMotion.ArmPhase.LIFTING
+        animateArmValue(armLift, 1f, ARM_LIFT_MS) {
+            val target = VinylMotion.trackingAngle(positionMs, duration, PLAY_START_ANGLE, PLAY_END_ANGLE)
+            armPhase = VinylMotion.ArmPhase.SWINGING_TO_GROOVE
+            animateArmAngle(target, ARM_SWING_MS) {
+                armPhase = VinylMotion.ArmPhase.LOWERING
+                lateinit var settle: ValueAnimator
+                settle = ValueAnimator.ofFloat(0f, 1f).apply {
+                    this.duration = ARM_SETTLE_MS
+                    interpolator = AccelerateDecelerateInterpolator()
+                    addUpdateListener { animator ->
+                        val fraction = animator.animatedValue as Float
+                        armAngle = VinylMotion.blend(target - ARM_OVERSHOOT_DEGREES, target, fraction) +
+                            sin(PI * fraction).toFloat() * ARM_OVERSHOOT_DEGREES
+                        armLift = 1f - fraction
+                        applyArmFrame()
+                    }
+                    addListener(object : AnimatorListenerAdapter() {
+                        override fun onAnimationEnd(animation: Animator) {
+                            if (armAnimator !== settle) return
+                            armAngle = target
+                            armLift = 0f
+                            applyArmFrame()
+                            armPhase = VinylMotion.ArmPhase.TRACKING
+                            refreshLayers()
+                        }
+                    })
+                }
+                armAnimator = settle
+                settle.start()
+            }
         }
     }
 
-    private fun startDisc() {
-        if (discAnimator?.isRunning == true) return
-        discAnimator?.cancel()
-        discAnimator = ObjectAnimator.ofFloat(disc, View.ROTATION, disc.rotation, disc.rotation + 360f).apply {
-            duration = 3600L
+    private fun beginPause() {
+        if (!animationsEnabled()) {
+            stopAllMotion()
+            currentSpeed = 0f
+            deckState = VinylMotion.DeckState.STOPPED
+            armAngle = REST_ANGLE
+            armLift = 0f
+            armPhase = VinylMotion.ArmPhase.RESTING
+            disc.rotation = discAngle
+            applyArmFrame()
+            stopFrameTicker()
+            refreshLayers()
+            return
+        }
+        animateSpeedTo(0f)
+        cancelArmAnimation()
+        armPhase = VinylMotion.ArmPhase.LIFTING
+        animateArmValue(armLift, 1f, ARM_LIFT_MS) {
+            armPhase = VinylMotion.ArmPhase.SWINGING_TO_REST
+            animateArmAngle(REST_ANGLE, ARM_SWING_MS) {
+                armPhase = VinylMotion.ArmPhase.LOWERING
+                animateArmValue(armLift, 0f, ARM_SETTLE_MS) {
+                    armPhase = VinylMotion.ArmPhase.RESTING
+                    refreshLayers()
+                }
+            }
+        }
+    }
+
+    private fun trackArm(positionMs: Long, duration: Long) {
+        if (armLift > 0.01f || armPhase == VinylMotion.ArmPhase.SWINGING_TO_GROOVE ||
+            armPhase == VinylMotion.ArmPhase.LOWERING || armPhase == VinylMotion.ArmPhase.LIFTING
+        ) return
+        val target = VinylMotion.trackingAngle(positionMs, duration, PLAY_START_ANGLE, PLAY_END_ANGLE)
+        if (kotlin.math.abs(target - armAngle) < TRACKING_EPSILON_DEGREES) return
+        if (!animationsEnabled()) {
+            cancelArmAnimation()
+            armAngle = target
+            applyArmFrame()
+            return
+        }
+        armPhase = VinylMotion.ArmPhase.TRACKING
+        animateArmAngle(target, SEEK_GLIDE_MS) { armPhase = VinylMotion.ArmPhase.TRACKING }
+    }
+
+    private fun animateSpeedTo(target: Float) {
+        val previousAnimator = speedAnimator
+        speedAnimator = null
+        previousAnimator?.cancel()
+        val start = currentSpeed
+        if (kotlin.math.abs(target - start) < 0.001f) {
+            currentSpeed = target
+            deckState = if (target > 0f) VinylMotion.DeckState.PLAYING else VinylMotion.DeckState.STOPPED
+            if (target > 0f) startFrameTicker() else stopFrameTicker()
+            refreshLayers()
+            return
+        }
+        val accelerating = target > start
+        deckState = VinylMotion.deckStateFor(target > 0f, currentSpeed)
+        if (target > 0f) startFrameTicker()
+        val duration = if (accelerating) SPIN_UP_MS else SPIN_DOWN_MS
+        lateinit var animator: ValueAnimator
+        animator = ValueAnimator.ofFloat(0f, 1f).apply {
+            this.duration = duration
+            interpolator = LinearInterpolator()
+            addUpdateListener { animation ->
+                currentSpeed = VinylMotion.blend(start, target, VinylMotion.speedRamp(animation.animatedValue as Float, accelerating))
+                deckState = when {
+                    target > 0f && currentSpeed >= 0.999f -> VinylMotion.DeckState.PLAYING
+                    target > 0f -> VinylMotion.DeckState.SPINNING_UP
+                    currentSpeed > 0.001f -> VinylMotion.DeckState.SPINNING_DOWN
+                    else -> VinylMotion.DeckState.STOPPED
+                }
+                if (currentSpeed <= 0.001f && target == 0f) {
+                    currentSpeed = 0f
+                    deckState = VinylMotion.DeckState.STOPPED
+                    stopFrameTicker()
+                }
+                refreshLayers()
+            }
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    if (speedAnimator !== animator) return
+                    currentSpeed = target
+                    deckState = if (target > 0f) VinylMotion.DeckState.PLAYING else VinylMotion.DeckState.STOPPED
+                    if (target == 0f) stopFrameTicker()
+                    refreshLayers()
+                }
+            })
+        }
+        speedAnimator = animator
+        animator.start()
+    }
+
+    private fun animateArmValue(from: Float, to: Float, durationMs: Long, end: () -> Unit) {
+        lateinit var animator: ValueAnimator
+        animator = ValueAnimator.ofFloat(from, to).apply {
+            duration = durationMs
+            interpolator = AccelerateDecelerateInterpolator()
+            addUpdateListener {
+                armLift = it.animatedValue as Float
+                applyArmFrame()
+            }
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    if (armAnimator !== animator) return
+                    armLift = to
+                    applyArmFrame()
+                    end()
+                }
+            })
+        }
+        armAnimator = animator
+        animator.start()
+    }
+
+    private fun animateArmAngle(target: Float, durationMs: Long, end: () -> Unit) {
+        val previousAnimator = armAnimator
+        armAnimator = null
+        previousAnimator?.cancel()
+        val from = armAngle
+        lateinit var animator: ValueAnimator
+        animator = ValueAnimator.ofFloat(from, target).apply {
+            duration = durationMs
+            interpolator = DecelerateInterpolator(1.35f)
+            addUpdateListener {
+                armAngle = it.animatedValue as Float
+                applyArmFrame()
+            }
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    if (armAnimator !== animator) return
+                    armAngle = target
+                    applyArmFrame()
+                    end()
+                }
+            })
+        }
+        armAnimator = animator
+        animator.start()
+    }
+
+    private fun applyArmFrame() {
+        tonearm.rotation = armAngle + if (armLift < 0.05f) {
+            sin(SystemClock.uptimeMillis().toDouble() / STYLUS_VIBRATION_PERIOD_MS).toFloat() * STYLUS_VIBRATION_DEGREES
+        } else 0f
+        tonearm.translationY = dp(TONEARM_TRANSLATION_Y_DP) - liftDistancePx * armLift
+        tonearm.elevation = dp(1) + dp(ARM_SHADOW_HEIGHT_DP) * armLift
+    }
+
+    private fun startFrameTicker() {
+        if (discAnimator?.isStarted == true) return
+        lastFrameTime = SystemClock.uptimeMillis()
+        val ticker = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = FRAME_TICK_MS
             repeatCount = ValueAnimator.INFINITE
             interpolator = LinearInterpolator()
-            start()
+            addUpdateListener {
+                val now = SystemClock.uptimeMillis()
+                val delta = (now - lastFrameTime).coerceAtLeast(0L)
+                lastFrameTime = now
+                discAngle = (discAngle + delta * DEGREES_PER_MS * currentSpeed) % 360f
+                val wobble = sin(now.toDouble() / PLATTER_WOBBLE_PERIOD_MS).toFloat() * PLATTER_WOBBLE_DEGREES
+                disc.rotation = discAngle + wobble
+                if (armLift < 0.05f && armPhase == VinylMotion.ArmPhase.TRACKING) {
+                    tonearm.rotation = armAngle + sin(now.toDouble() / STYLUS_VIBRATION_PERIOD_MS).toFloat() * STYLUS_VIBRATION_DEGREES
+                }
+            }
+        }
+        discAnimator = ticker
+        disc.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+        ticker.start()
+    }
+
+    private fun stopFrameTicker() {
+        discAnimator?.cancel()
+        discAnimator = null
+        disc.setLayerType(View.LAYER_TYPE_NONE, null)
+    }
+
+    private fun cancelArmAnimation() {
+        val previousAnimator = armAnimator
+        armAnimator = null
+        previousAnimator?.cancel()
+    }
+
+    private fun stopAllMotion() {
+        discAnimator?.cancel()
+        discAnimator = null
+        val previousSpeedAnimator = speedAnimator
+        speedAnimator = null
+        previousSpeedAnimator?.cancel()
+        val previousArmAnimator = armAnimator
+        armAnimator = null
+        previousArmAnimator?.cancel()
+        disc.setLayerType(View.LAYER_TYPE_NONE, null)
+        tonearm.setLayerType(View.LAYER_TYPE_NONE, null)
+        lastFrameTime = 0L
+    }
+
+    private fun refreshLayers() {
+        val animating = discAnimator?.isRunning == true || speedAnimator?.isRunning == true || armAnimator?.isRunning == true
+        val layer = if (animating) View.LAYER_TYPE_HARDWARE else View.LAYER_TYPE_NONE
+        disc.setLayerType(layer, null)
+        tonearm.setLayerType(layer, null)
+    }
+
+    private fun animationsEnabled(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.O || ValueAnimator.areAnimatorsEnabled()
+
+    override fun onVisibilityChanged(changedView: View, visibility: Int) {
+        super.onVisibilityChanged(changedView, visibility)
+        if (changedView !== this) return
+        if (visibility != VISIBLE) {
+            stopAllMotion()
+        } else {
+            resumeMotionIfNeeded()
         }
     }
 
-    private fun stopDisc() {
-        discAnimator?.cancel()
-        discAnimator = null
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        resumeMotionIfNeeded()
     }
 
     override fun onDetachedFromWindow() {
-        stopDisc()
-        tonearmAnimator?.cancel()
+        stopAllMotion()
         super.onDetachedFromWindow()
+    }
+
+    private fun resumeMotionIfNeeded() {
+        val snapshot = lastSnapshot ?: return
+        if (!isShown || visibility != VISIBLE) return
+        val playing = snapshot.title.isNotBlank() && snapshot.playWhenReady
+        if (playing) {
+            currentSpeed = currentSpeed.coerceIn(0f, 1f)
+            beginPlay(snapshot.positionMs, snapshot.durationMs)
+        } else {
+            currentSpeed = 0f
+            armAngle = REST_ANGLE
+            armLift = 0f
+            deckState = VinylMotion.DeckState.STOPPED
+            armPhase = VinylMotion.ArmPhase.RESTING
+            applyArmFrame()
+        }
     }
 
     private fun button(value: String, size: Float, color: Int) = TextView(context).apply {
@@ -235,234 +528,16 @@ class NowPlayingView(
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
-
-    private class TonearmView(context: Context) : View(context) {
-        private val artwork = RealTonearmArtwork()
-        var angleDegrees: Float = 0f
-            set(value) {
-                field = value
-                invalidate()
-            }
-
+    private inner class RecordShadowView(context: Context) : View(context) {
+        private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val shadowBounds = RectF()
+        override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+            shadowBounds.set(w * 0.06f, h * 0.12f, w * 0.94f, h * 0.90f)
+            shadowPaint.shader = RadialGradient(w / 2f, h * 0.52f, w * 0.48f,
+                intArrayOf(0x26000000, 0x12000000, Color.TRANSPARENT), floatArrayOf(0f, 0.72f, 1f), Shader.TileMode.CLAMP)
+        }
         override fun onDraw(canvas: Canvas) {
-            super.onDraw(canvas)
-            artwork.draw(canvas, width, height, angleDegrees)
-        }
-    }
-
-    private class VinylLightView(context: Context) : View(context) {
-        private val p = Paint(Paint.ANTI_ALIAS_FLAG)
-        override fun onDraw(canvas: Canvas) {
-            super.onDraw(canvas)
-            val side=minOf(width,height).toFloat(); val x=width/2f; val y=height/2f; val r=side*.485f
-            canvas.save()
-            canvas.clipPath(Path().apply { addCircle(x,y,r,Path.Direction.CW) })
-            val tri=Path().apply {
-                moveTo(x-r*.88f,y-r*.52f); lineTo(x-r*.49f,y-r*.84f)
-                cubicTo(x-r*.12f,y-r*.72f,x+r*.23f,y-r*.43f,x+r*.46f,y-r*.10f)
-                lineTo(x+r*.13f,y-r*.31f); cubicTo(x-r*.18f,y-r*.57f,x-r*.54f,y-r*.65f,x-r*.88f,y-r*.52f); close()
-            }
-            p.style=Paint.Style.FILL
-            p.shader=LinearGradient(x-r*.7f,y-r*.75f,x+r*.35f,y-r*.12f,
-                intArrayOf(0x00ffffff,0x12ffffff,0x30ffffff,0x0effffff,0x00ffffff),
-                floatArrayOf(0f,.25f,.48f,.76f,1f),Shader.TileMode.CLAMP)
-            canvas.drawPath(tri,p); p.shader=null
-            val edge=Path().apply { moveTo(x-r*.82f,y-r*.55f); cubicTo(x-r*.45f,y-r*.78f,x-r*.02f,y-r*.48f,x+r*.32f,y-r*.10f) }
-            p.style=Paint.Style.STROKE; p.strokeCap=Paint.Cap.ROUND; p.strokeWidth=side*.010f
-            p.shader=LinearGradient(x-r*.7f,y-r*.6f,x+r*.2f,y-r*.2f,
-                intArrayOf(0x00ffffff,0x24ffffff,0x0affffff,0x00ffffff),
-                floatArrayOf(0f,.42f,.76f,1f),Shader.TileMode.CLAMP)
-            canvas.drawPath(edge,p); p.shader=null
-            canvas.restore()
-        }
-    }
-
-    /** High-gloss black record with fine groove relief and curved light reflections. */
-    private class VinylRecordDrawable : android.graphics.drawable.Drawable() {
-        private val p = Paint(Paint.ANTI_ALIAS_FLAG)
-        override fun draw(c: Canvas) {
-            val side = minOf(bounds.width(), bounds.height()).toFloat()
-            val x = bounds.exactCenterX()
-            val y = bounds.exactCenterY()
-            val r = side * .485f
-
-            p.style = Paint.Style.FILL
-            p.shader = RadialGradient(x-r*.28f, y-r*.34f, r*1.65f,
-                intArrayOf(0xff202022.toInt(), 0xff0d0d0f.toInt(), 0xff020203.toInt()),
-                floatArrayOf(0f, .48f, 1f), Shader.TileMode.CLAMP)
-            c.drawCircle(x, y, r, p)
-            p.shader = null
-
-            val recordClip = Path().apply { addCircle(x, y, r, Path.Direction.CW) }
-            c.save()
-            c.clipPath(recordClip)
-
-            // Very fine concentric groove cuts, with a restrained raised edge on each groove.
-            p.style = Paint.Style.STROKE
-            p.strokeCap = Paint.Cap.BUTT
-            for (i in 0..56) {
-                val rr = r * (.285f + i * .0122f)
-                p.strokeWidth = if (i % 4 == 0) side * .0052f else side * .0021f
-                p.color = if (i % 2 == 0) 0x665b5b60 else 0xaa030304.toInt()
-                c.drawCircle(x, y, rr, p)
-                p.strokeWidth = side * .0018f
-                p.color = 0x557b7b80
-                c.drawCircle(x - side*.001f, y - side*.001f, rr - side*.003f, p)
-                p.strokeWidth = side * .0016f
-                p.color = 0x665f6064
-                for (tick in 0 until 180) {
-                    val a = tick * (Math.PI * 2.0 / 180.0)
-                    val inner = rr - side * .0025f
-                    val outer = rr + side * if (tick % 6 == 0) .0038f else .0018f
-                    c.drawLine(x + kotlin.math.cos(a).toFloat() * inner, y + kotlin.math.sin(a).toFloat() * inner,
-                        x + kotlin.math.cos(a).toFloat() * outer, y + kotlin.math.sin(a).toFloat() * outer, p)
-                }
-            }
-
-            c.restore()
-
-            // Label and spindle.
-            p.style = Paint.Style.FILL
-            p.color = 0xffb65c40.toInt(); c.drawCircle(x, y, r*.255f, p)
-            p.color = 0xffdfbd96.toInt(); c.drawCircle(x, y, r*.216f, p)
-            p.color = 0xff243e38.toInt(); c.drawCircle(x, y, r*.181f, p)
-            p.color = 0xffefe1c6.toInt(); c.drawCircle(x, y, r*.028f, p)
-        }
-        override fun setAlpha(a: Int) { p.alpha = a }
-        override fun setColorFilter(f: android.graphics.ColorFilter?) { p.colorFilter = f }
-        @Deprecated("Deprecated in Android graphics API") override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
-    }
-
-    /**
-     * Fixed bearing platform with a separate moving arm assembly. Only the arm, counterweight,
-     * headshell and cartridge rotate; the pivot housing stays fixed on the deck.
-     */
-    private class RealTonearmArtwork {
-        private val p = Paint(Paint.ANTI_ALIAS_FLAG)
-
-        fun draw(c: Canvas, width: Int, height: Int, angle: Float) {
-            if (width <= 0 || height <= 0) return
-            c.save()
-            c.scale(width / 276f, height / 348f)
-            drawPivotBase(c)
-            c.save()
-            c.rotate(angle, 225f, 50f)
-            drawMovingAssembly(c)
-            c.restore()
-            c.restore()
-        }
-
-        private fun drawPivotBase(c: Canvas) {
-            p.style = Paint.Style.FILL
-            // Flush oval mounting plate and beveled bearing collar.
-            p.shader = LinearGradient(190f, 34f, 260f, 76f,
-                intArrayOf(0xffded9d0.toInt(), 0xff77736d.toInt(), 0xffaaa59c.toInt(), 0xff4f4c47.toInt()),
-                floatArrayOf(0f, .38f, .7f, 1f), Shader.TileMode.CLAMP)
-            c.drawOval(RectF(190f, 29f, 260f, 76f), p)
-            p.shader = null
-            p.color = 0xff45433f.toInt()
-            c.drawOval(RectF(196f, 33f, 254f, 72f), p)
-            p.shader = RadialGradient(225f, 50f, 29f,
-                intArrayOf(0xffeeeae2.toInt(), 0xffaaa69e.toInt(), 0xff5d5a55.toInt()),
-                null, Shader.TileMode.CLAMP)
-            c.drawCircle(225f, 50f, 28f, p)
-            p.shader = null
-            p.color = 0xff77736c.toInt(); c.drawCircle(225f, 50f, 22f, p)
-            p.color = 0xffd9d4cb.toInt(); c.drawCircle(225f, 50f, 18f, p)
-            p.shader = RadialGradient(220f, 43f, 19f,
-                intArrayOf(0xfff8f5ee.toInt(), 0xffb7b2a9.toInt(), 0xff68645e.toInt()),
-                null, Shader.TileMode.CLAMP)
-            c.drawCircle(225f, 50f, 14f, p)
-            p.shader = null
-            p.color = 0xff57544f.toInt(); c.drawCircle(225f, 50f, 8f, p)
-            p.color = 0xffd1cbc1.toInt(); c.drawCircle(225f, 50f, 5.5f, p)
-            p.color = 0xff4c4944.toInt(); c.drawCircle(225f, 50f, 2.4f, p)
-
-            // Three recessed fasteners make the bearing look mechanically mounted, not pasted on.
-            val screws = arrayOf(204f to 49f, 245f to 39f, 242f to 64f)
-            screws.forEach { (sx, sy) ->
-                p.color = 0xff4a4742.toInt(); c.drawCircle(sx, sy, 2.8f, p)
-                p.color = 0xffd8d2c8.toInt(); c.drawCircle(sx, sy, 1.5f, p)
-                p.color = 0xff65615b.toInt(); c.drawLine(sx-1f, sy, sx+1f, sy, p)
-            }
-        }
-
-        private fun stroke(c: Canvas, path: Path, color: Int, width: Float, cap: Paint.Cap = Paint.Cap.ROUND) {
-            p.shader = null
-            p.color = color
-            p.style = Paint.Style.STROKE
-            p.strokeWidth = width
-            p.strokeCap = cap
-            p.strokeJoin = Paint.Join.ROUND
-            c.drawPath(path, p)
-        }
-
-        private fun drawMovingAssembly(c: Canvas) {
-            p.style = Paint.Style.FILL
-            // Rear stub and counterbalance: attached directly behind the pivot, not halfway down the arm.
-            p.color = 0xff4d4a45.toInt()
-            c.drawRoundRect(RectF(229f, 45f, 259f, 55f), 5f, 5f, p)
-            p.shader = LinearGradient(249f, 34f, 274f, 61f,
-                intArrayOf(0xfff3efe7.toInt(), 0xff8a867e.toInt(), 0xffd5d0c7.toInt(), 0xff5b5751.toInt()),
-                floatArrayOf(0f, .36f, .68f, 1f), Shader.TileMode.CLAMP)
-            c.drawRoundRect(RectF(250f, 35f, 274f, 64f), 12f, 12f, p)
-            p.shader = null
-            p.color = 0xff55514b.toInt(); c.drawOval(RectF(267f, 37f, 275f, 62f), p)
-            p.color = 0xffc9c3b9.toInt(); c.drawOval(RectF(269f, 40f, 273f, 59f), p)
-            p.style = Paint.Style.STROKE
-            p.strokeWidth = 1.1f
-            p.color = 0xff706b64.toInt()
-            for (i in 0..4) c.drawLine(253f+i*3.5f, 39f, 253f+i*3.5f, 60f, p)
-
-            // One continuous, gently S-curved satin-metal arm tube.
-            val tube = Path().apply {
-                moveTo(225f, 56f)
-                cubicTo(238f, 94f, 207f, 151f, 181f, 192f)
-                cubicTo(166f, 216f, 157f, 235f, 145f, 255f)
-            }
-            stroke(c, tube, 0xff3b3936.toInt(), 15f)
-            p.shader = LinearGradient(215f, 65f, 145f, 255f,
-                intArrayOf(0xfff3f0e9.toInt(), 0xff858179.toInt(), 0xffd9d4cb.toInt(), 0xff66625b.toInt()),
-                floatArrayOf(0f, .38f, .62f, 1f), Shader.TileMode.CLAMP)
-            p.color = Color.WHITE
-            p.style = Paint.Style.STROKE
-            p.strokeWidth = 11f
-            p.strokeCap = Paint.Cap.ROUND
-            p.strokeJoin = Paint.Join.ROUND
-            c.drawPath(tube, p)
-            p.shader = null
-            p.color = 0xfff8f5ee.toInt()
-            p.strokeWidth = 2.1f
-            c.drawPath(tube, p)
-            p.color = 0xff77736c.toInt()
-            p.strokeWidth = 1f
-            c.drawPath(tube, p)
-
-            // Tapered headshell, cartridge and stylus at the record end.
-            val shell = Path().apply {
-                moveTo(143f, 246f); lineTo(164f, 255f); lineTo(149f, 286f)
-                lineTo(126f, 276f); close()
-            }
-            p.shader = LinearGradient(127f, 250f, 163f, 282f,
-                intArrayOf(0xfff1ede5.toInt(), 0xff8d8981.toInt(), 0xffd8d2c9.toInt(), 0xff66625c.toInt()),
-                null, Shader.TileMode.CLAMP)
-            p.style = Paint.Style.FILL
-            c.drawPath(shell, p)
-            p.shader = null
-            p.color = 0xff4e4b46.toInt()
-            p.style = Paint.Style.STROKE; p.strokeWidth = 1.5f
-            c.drawPath(shell, p)
-            p.style = Paint.Style.FILL
-            p.color = 0xff3a3936.toInt()
-            c.drawRoundRect(RectF(130f, 273f, 151f, 294f), 3f, 3f, p)
-            p.color = 0xffaaa49a.toInt()
-            c.drawCircle(135f, 278f, 2f, p); c.drawCircle(146f, 283f, 2f, p)
-            p.color = 0xffded8ce.toInt()
-            c.drawLine(139f, 294f, 136f, 310f, p)
-            p.color = 0xff46433e.toInt()
-            c.drawLine(136f, 309f, 134f, 316f, p)
-            p.color = 0xffd9d2c8.toInt()
-            c.drawCircle(134f, 316f, 1.7f, p)
+            canvas.drawOval(shadowBounds, shadowPaint)
         }
     }
 
@@ -482,5 +557,34 @@ class NowPlayingView(
         override fun setAlpha(alpha: Int) { paint.alpha = alpha }
         override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) { paint.colorFilter = colorFilter }
         @Deprecated("Deprecated in Android graphics API") override fun getOpacity() = android.graphics.PixelFormat.TRANSLUCENT
+    }
+
+    private companion object {
+        const val DISC_SIZE_DP = 286
+        const val TONEARM_WIDTH_DP = 152
+        const val TONEARM_HEIGHT_DP = 191
+        const val TONEARM_PIVOT_X_DP = 115
+        const val TONEARM_PIVOT_Y_DP = 41
+        const val TONEARM_TRANSLATION_X_DP = 101
+        const val TONEARM_TRANSLATION_Y_DP = -69
+        const val REST_ANGLE = -44f
+        const val PLAY_START_ANGLE = -27f
+        const val PLAY_END_ANGLE = -13f
+        const val LIFT_HEIGHT_DP = 4
+        const val ARM_SHADOW_HEIGHT_DP = 6
+        const val ARM_LIFT_MS = 220L
+        const val ARM_SWING_MS = 800L
+        const val ARM_SETTLE_MS = 320L
+        const val ARM_OVERSHOOT_DEGREES = 2.5f
+        const val SPIN_UP_MS = 1_200L
+        const val SPIN_DOWN_MS = 1_800L
+        const val DEGREES_PER_MS = 360f / 1_800f
+        const val FRAME_TICK_MS = 16L
+        const val SEEK_GLIDE_MS = 300L
+        const val TRACKING_EPSILON_DEGREES = 0.08f
+        const val PLATTER_WOBBLE_PERIOD_MS = 6_000L
+        const val PLATTER_WOBBLE_DEGREES = 0.22f
+        const val STYLUS_VIBRATION_PERIOD_MS = 145L
+        const val STYLUS_VIBRATION_DEGREES = 0.10f
     }
 }
