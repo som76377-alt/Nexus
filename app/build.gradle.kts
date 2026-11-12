@@ -81,7 +81,10 @@ android {
         }
     }
     buildTypes {
-        getByName("debug") { versionNameSuffix = "-debug" }
+        getByName("debug") {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+        }
         getByName("release") {
             isMinifyEnabled = false
             if (hasNexusSigningKey) signingConfig = signingConfigs.getByName("nexus")

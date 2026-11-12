@@ -54,6 +54,10 @@ class GitHubReleaseUpdater(
         val installedInfo = getInstalledPackageInfo(context, signingPackageFlags())
         val installedVersion = installedInfo.versionName
             ?: throw IOException("Android could not read the installed Nexus version.")
+        // Debug installs have a separate application ID and must never consume release APK updates.
+        if (BuildConfig.DEBUG) {
+            return@withContext UpdateCheckResult.UpToDate(installedVersion)
+        }
         val signingIdentity = installedSignerIdentity(installedInfo)
         if (signingIdentity != NexusSigningIdentity.OFFICIAL) {
             val message = if (signingIdentity == NexusSigningIdentity.DIFFERENT) {
