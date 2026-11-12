@@ -117,6 +117,33 @@ class PlaybackService : MediaSessionService() {
 
         player = exoPlayer
         val catalog = NexusCatalog.repository(this)
+        val localStreamRecovery = LocalStreamRecovery(
+            resolveNext = catalog::resolveAudioExcluding,
+            isCurrentSource = { sourceUrl -> exoPlayer.currentMediaItem?.mediaId == sourceUrl },
+            replaceLocally = { replacement, resumePositionMs, resumeWhenReady ->
+                StreamRequestHeaders.replace(
+                    replacement.audioUrl,
+                    replacement.requestHeaders,
+                    replacement.provider
+                )
+                val replacementItem = MediaItem.Builder()
+                    .setMediaId(replacement.sourceUrl)
+                    .setUri(replacement.audioUrl)
+                    .setMimeType(replacement.mimeType)
+                    .setMediaMetadata(
+                        MediaMetadata.Builder()
+                            .setTitle(replacement.title)
+                            .setArtist(replacement.artist.orEmpty())
+                            .setArtworkUri(replacement.thumbnailUrl?.let(android.net.Uri::parse))
+                            .build()
+                    )
+                    .build()
+                // Local-only repair: mutate the raw ExoPlayer, never the room-intent wrapper.
+                exoPlayer.setMediaItem(replacementItem, resumePositionMs)
+                exoPlayer.prepare()
+                exoPlayer.playWhenReady = resumeWhenReady
+            }
+        )
         val failedProvidersBySource = mutableMapOf<String, MutableSet<StreamProvider>>()
         exoPlayer.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -138,30 +165,12 @@ class PlaybackService : MediaSessionService() {
                 val artworkUri = failedItem.mediaMetadata.artworkUri
                 serviceScope.launch {
                     try {
-                        val replacement = catalog.resolveAudioExcluding(sourceUrl, attempted.toSet())
-                        if (exoPlayer.currentMediaItem?.mediaId != sourceUrl) return@launch
-                        StreamRequestHeaders.replace(
-                            replacement.audioUrl,
-                            replacement.requestHeaders,
-                            replacement.provider
+                        localStreamRecovery.recover(
+                            sourceUrl = sourceUrl,
+                            excludedProviders = attempted.toSet(),
+                            resumePositionMs = resumePositionMs,
+                            resumeWhenReady = resumeWhenReady
                         )
-                        val replacementItem = MediaItem.Builder()
-                            .setMediaId(replacement.sourceUrl)
-                            .setUri(replacement.audioUrl)
-                            .setMimeType(replacement.mimeType)
-                            .setMediaMetadata(
-                                MediaMetadata.Builder()
-                                    .setTitle(replacement.title.ifBlank { title })
-                                    .setArtist(replacement.artist ?: artist.orEmpty())
-                                    .setArtworkUri(replacement.thumbnailUrl?.let(android.net.Uri::parse) ?: artworkUri)
-                                    .build()
-                            )
-                            .build()
-                        // This is a local player repair, not a MediaSession command:
-                        // it deliberately bypasses RoomIntentForwardingPlayer.
-                        exoPlayer.setMediaItem(replacementItem, resumePositionMs)
-                        exoPlayer.prepare()
-                        exoPlayer.playWhenReady = resumeWhenReady
                     } catch (_: Exception) {
                         // Exhausted providers leave the original error visible; never loop
                         // on the same provider or publish a room recovery command.

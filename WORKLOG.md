@@ -6,6 +6,12 @@
 | R0a NewPipeExtractor v0.27.1 baseline | DONE | 7c53cb180b3281aa7c79ce1a69b5f58bee376720 | [Android CI run #717](https://github.com/som76377-alt/Nexus/actions/runs/43024780972) | Included in PR #70's squash merge to main. The exact R0b head commit passed Android lint, unit tests, debug APK assembly and the unsigned-release guard. |
 | R0b Provider Lab diagnostics | DONE | 7c53cb180b3281aa7c79ce1a69b5f58bee376720 | [Android CI run #717](https://github.com/som76377-alt/Nexus/actions/runs/43024780972) | Hidden Provider Lab covers five fixed samples across default, IPv4-only and IPv6-only modes with search, exact-ID selection, resolution, ranged probe and 10-second Media3 playback. Live extractor smoke test was skipped. User confirmed mobile-data operation on the primary phone; Wi-Fi and second-device coverage remain UNVERIFIED. |
 
+## R3 stream validation and local failover
+
+| Task | Status | Head SHA | CI runs | Learning |
+|---|---|---|---|---|
+| R3 stream probe, per-stream headers, IP-family consistency, and local playback-error failover | READY FOR MERGE APPROVAL | `6b494e01c38c0ac3ced700ca0629a2ddd31487fa` (will update after the S5/S8 regression-test commit) | [Android CI #790](https://github.com/som76377-alt/Nexus/actions/runs/43257647232); [Web Room Test #362](https://github.com/som76377-alt/Nexus/actions/runs/43257649523) | S5/S8: playback-error recovery re-resolves locally and replaces the underlying ExoPlayer item without using the room-intent forwarding player. Added a local-only recovery seam and regression test proving no room action is published; exact final-head CI is pending. UNVERIFIED: live probe, live failover, and IP-family behavior on a phone. PR #76 remains open and unmerged; squash merge only after owner approval. |
+
 ## R2 implementation
 | Task | Status | Commit | CI run | Learning |
 |---|---|---|---|---|
