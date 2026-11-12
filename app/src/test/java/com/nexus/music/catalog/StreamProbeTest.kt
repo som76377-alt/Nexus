@@ -25,42 +25,50 @@ class StreamProbeTest {
     }
 
     @Test
-    fun sendsSingleByteRangeGetAndAcceptsPartialAudioResponse() = runBlocking {
-        server.enqueue(
-            MockResponse()
-                .setResponseCode(206)
-                .setHeader("Content-Type", "audio/mp4")
-                .setHeader("Content-Range", "bytes 0-0/1024")
-                .setBody("x")
-        )
-        val audio = resolvedAudio(server.url("/audio").toString())
+    fun sendsSingleByteRangeGetAndAcceptsPartialAudioResponse() {
+        runBlocking {
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(206)
+                    .setHeader("Content-Type", "audio/mp4")
+                    .setHeader("Content-Range", "bytes 0-0/1024")
+                    .setBody("x")
+            )
+            val audio = resolvedAudio(server.url("/audio").toString())
 
-        val result = StreamProbe().validate(audio)
-        val request = server.takeRequest()
+            val result = StreamProbe(allowHttpForTests = true).validate(audio)
+            val request = server.takeRequest()
 
-        assertEquals(audio, result)
-        assertEquals("GET", request.method)
-        assertEquals("bytes=0-0", request.getHeader("Range"))
-    }
-
-    @Test
-    fun rejectsProviderHttpFailureSoResolverCanFailOver() = runBlocking {
-        server.enqueue(MockResponse().setResponseCode(403))
-        assertThrows(IOException::class.java) {
-            runBlocking { StreamProbe().validate(resolvedAudio(server.url("/audio").toString())) }
+            assertEquals(audio, result)
+            assertEquals("GET", request.method)
+            assertEquals("bytes=0-0", request.getHeader("Range"))
         }
     }
 
     @Test
-    fun rejectsNonAudioResponse() = runBlocking {
-        server.enqueue(
-            MockResponse()
-                .setResponseCode(200)
-                .setHeader("Content-Type", "text/html")
-                .setBody("blocked")
-        )
+    fun rejectsProviderHttpFailureSoResolverCanFailOver() {
         assertThrows(IOException::class.java) {
-            runBlocking { StreamProbe().validate(resolvedAudio(server.url("/audio").toString())) }
+            runBlocking {
+                server.enqueue(MockResponse().setResponseCode(403))
+                StreamProbe(allowHttpForTests = true)
+                    .validate(resolvedAudio(server.url("/audio").toString()))
+            }
+        }
+    }
+
+    @Test
+    fun rejectsNonAudioResponse() {
+        assertThrows(IOException::class.java) {
+            runBlocking {
+                server.enqueue(
+                    MockResponse()
+                        .setResponseCode(200)
+                        .setHeader("Content-Type", "text/html")
+                        .setBody("blocked")
+                )
+                StreamProbe(allowHttpForTests = true)
+                    .validate(resolvedAudio(server.url("/audio").toString()))
+            }
         }
     }
 

@@ -12,10 +12,13 @@ import java.util.concurrent.TimeUnit
  * This catches dead/blocked/expired provider URLs while the resolver can still fail over.
  */
 internal class StreamProbe(
-    private val client: OkHttpClient = defaultClient()
+    private val client: OkHttpClient = defaultClient(),
+    private val allowHttpForTests: Boolean = false
 ) {
     suspend fun validate(audio: ResolvedAudio): ResolvedAudio = withContext(Dispatchers.IO) {
-        if (!CatalogUrlValidator.isValidHttpsUrl(audio.audioUrl)) {
+        if (!CatalogUrlValidator.isValidHttpsUrl(audio.audioUrl) &&
+            !(allowHttpForTests && audio.audioUrl.startsWith("http://127.0.0.1:"))
+        ) {
             throw IOException("The provider returned an invalid HTTPS audio URL.")
         }
 
@@ -28,7 +31,9 @@ internal class StreamProbe(
             .build()
 
         client.newCall(request).execute().use { response ->
-            if (!response.request.url.isHttps) {
+            if (!response.request.url.isHttps &&
+                !(allowHttpForTests && response.request.url.host == "127.0.0.1")
+            ) {
                 throw IOException("The stream probe was redirected to an insecure URL.")
             }
             if (response.code != 200 && response.code != 206) {
