@@ -17,7 +17,7 @@ internal class StreamProbe(
 ) {
     suspend fun validate(audio: ResolvedAudio): ResolvedAudio = withContext(Dispatchers.IO) {
         if (!CatalogUrlValidator.isValidHttpsUrl(audio.audioUrl) &&
-            !(allowHttpForTests && audio.audioUrl.startsWith("http://127.0.0.1:"))
+            !(allowHttpForTests && isLoopbackHttpUrl(audio.audioUrl))
         ) {
             throw IOException("The provider returned an invalid HTTPS audio URL.")
         }
@@ -32,7 +32,7 @@ internal class StreamProbe(
 
         client.newCall(request).execute().use { response ->
             if (!response.request.url.isHttps &&
-                !(allowHttpForTests && response.request.url.host == "127.0.0.1")
+                !(allowHttpForTests && isLoopbackHost(response.request.url.host))
             ) {
                 throw IOException("The stream probe was redirected to an insecure URL.")
             }
@@ -58,6 +58,15 @@ internal class StreamProbe(
         }
         audio
     }
+
+    private fun isLoopbackHttpUrl(value: String): Boolean {
+        val uri = runCatching { java.net.URI(value) }.getOrNull() ?: return false
+        return uri.scheme.equals("http", ignoreCase = true) && isLoopbackHost(uri.host.orEmpty())
+    }
+
+    private fun isLoopbackHost(host: String): Boolean =
+        host.equals("localhost", ignoreCase = true) ||
+            host == "127.0.0.1" || host == "::1"
 
     private companion object {
         private const val USER_AGENT = "Nexus/0.1 (Android; stream probe)"
