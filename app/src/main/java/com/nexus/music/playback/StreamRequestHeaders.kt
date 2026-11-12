@@ -7,7 +7,7 @@ import com.nexus.music.catalog.sanitizeStreamRequestHeaders
 import java.util.concurrent.ConcurrentHashMap
 
 /** URL-scoped headers for the single local ExoPlayer. Never persisted or broadcast. */
-@OptIn(markerClass = UnstableApi::class)
+@OptIn(UnstableApi::class)
 internal object StreamRequestHeaders {
     private val active = ConcurrentHashMap<String, Map<String, String>>()
 
