@@ -40,5 +40,7 @@ internal object StreamRequestHeaders {
     }
 
     internal fun snapshotForTests(): Map<String, Map<String, String>> =
-        active.mapValues { it.value.headers }
+        active.mapNotNull { (url, request) ->
+            request.headers.takeIf { it.isNotEmpty() }?.let { url to it }
+        }.toMap()
 }
