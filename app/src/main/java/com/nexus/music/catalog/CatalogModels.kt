@@ -21,8 +21,23 @@ data class ResolvedAudio(
     val durationSeconds: Long?,
     val audioUrl: String,
     val averageBitrate: Int?,
-    val mimeType: String?
+    val mimeType: String?,
+    /** Per-stream headers; device-local and never part of room state. */
+    val requestHeaders: Map<String, String> = emptyMap()
 )
+
+/** Restrict provider-supplied headers to safe end-to-end request metadata. */
+internal fun sanitizeStreamRequestHeaders(headers: Map<String, String>): Map<String, String> {
+    val allowed = setOf("user-agent", "referer", "origin", "accept", "accept-language")
+    return headers.entries.mapNotNull { (name, value) ->
+        val key = name.trim()
+        val content = value.trim()
+        if (key.lowercase() in allowed && key.isNotEmpty() && content.isNotEmpty() &&
+            key.none { it <= ' ' || it == ':' || it == '\r' || it == '\n' } &&
+            content.none { it == '\r' || it == '\n' }
+        ) key to content else null
+    }.toMap()
+}
 
 enum class YoutubeSearchScope(internal val extractorFilter: String?) {
     EVERYTHING(null),

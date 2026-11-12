@@ -1127,7 +1127,8 @@ internal class ServiceRoomController(
                     streamUrl = audio.audioUrl,
                     title = audio.title,
                     artist = audio.artist,
-                    mimeType = audio.mimeType
+                    mimeType = audio.mimeType,
+                    requestHeaders = audio.requestHeaders
                 )
                 val ready = withTimeoutOrNull(TRACK_READY_TIMEOUT_MS) {
                     while (isCurrent(roomId, generation) &&

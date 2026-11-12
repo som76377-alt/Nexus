@@ -27,6 +27,11 @@ internal class StreamProbe(
             .header("Range", "bytes=0-0")
             .header("Accept", "audio/*, application/octet-stream;q=0.9, */*;q=0.1")
             .header("User-Agent", USER_AGENT)
+            .apply {
+                sanitizeStreamRequestHeaders(audio.requestHeaders).forEach { (name, value) ->
+                    header(name, value)
+                }
+            }
             .get()
             .build()
 

@@ -94,8 +94,18 @@ internal class Media3RoomPlayerPort(
         title: String,
         artist: String?,
         mimeType: String?
+    ) = prepareCanonicalSource(canonicalSourceUrl, streamUrl, title, artist, mimeType, emptyMap())
+
+    override suspend fun prepareCanonicalSource(
+        canonicalSourceUrl: String,
+        streamUrl: String,
+        title: String,
+        artist: String?,
+        mimeType: String?,
+        requestHeaders: Map<String, String>
     ) {
         withContext(Dispatchers.Main.immediate) {
+            StreamRequestHeaders.replace(streamUrl, requestHeaders)
             val metadata = MediaMetadata.Builder()
                 .setTitle(title)
                 .setArtist(artist.orEmpty())

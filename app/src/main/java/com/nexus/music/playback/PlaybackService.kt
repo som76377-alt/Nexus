@@ -5,6 +5,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -79,8 +80,11 @@ class PlaybackService : MediaSessionService() {
             .setUserAgent(USER_AGENT)
             .setConnectTimeoutMs(15_000)
             .setReadTimeoutMs(30_000)
+        val perStreamHeadersFactory = ResolvingDataSource.Factory(httpDataSourceFactory) { dataSpec ->
+            StreamRequestHeaders.resolve(dataSpec)
+        }
         val mediaSourceFactory = DefaultMediaSourceFactory(this)
-            .setDataSourceFactory(httpDataSourceFactory)
+            .setDataSourceFactory(perStreamHeadersFactory)
         val renderersFactory = DefaultRenderersFactory(this)
             .setEnableDecoderFallback(true)
 

@@ -42,6 +42,16 @@ interface RoomPlayerPort {
         mimeType: String?
     )
 
+    /** Local-only request metadata; the default preserves existing test/player adapters. */
+    suspend fun prepareCanonicalSource(
+        canonicalSourceUrl: String,
+        streamUrl: String,
+        title: String,
+        artist: String?,
+        mimeType: String?,
+        requestHeaders: Map<String, String>
+    ) = prepareCanonicalSource(canonicalSourceUrl, streamUrl, title, artist, mimeType)
+
     /** These methods apply remote state directly and must not emit local user intent. */
     fun play()
     fun pause()
