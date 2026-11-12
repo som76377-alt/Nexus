@@ -7,7 +7,7 @@ package com.nexus.music.catalog
  */
 internal class ResolverChainStreamProviderAdapter(
     private val resolver: ProviderResolverChain
-) : StreamProviderAdapter {
+) : StreamProviderAdapter, StreamProviderFailoverAdapter {
     override val provider: StreamProvider = StreamProvider.NEWPIPE
 
     override suspend fun search(
@@ -17,4 +17,9 @@ internal class ResolverChainStreamProviderAdapter(
 
     override suspend fun resolveAudio(videoUrl: String): ResolvedAudio =
         resolver.resolveAudio(videoUrl)
+
+    override suspend fun resolveAudioNext(
+        videoUrl: String,
+        afterProvider: StreamProvider?
+    ): ResolvedAudio = resolver.resolveAudioNext(videoUrl, afterProvider)
 }

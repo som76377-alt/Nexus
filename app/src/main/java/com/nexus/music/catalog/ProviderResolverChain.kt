@@ -46,7 +46,45 @@ class ProviderResolverChain(
     )
 
     suspend fun resolveAudio(videoUrl: String): ResolvedAudio =
-        execute(operation = { it.resolveAudio(videoUrl) })
+        execute(operation = { adapter -> adapter.resolveAudio(videoUrl).copy(provider = adapter.provider) })
+
+    /** Try only providers after the failed provider in configured order; never loop backwards. */
+    suspend fun resolveAudioNext(
+        videoUrl: String,
+        afterProvider: StreamProvider?
+    ): ResolvedAudio {
+        val startIndex = afterProvider?.let(providerOrder::indexOf) ?: -1
+        val candidates = providerOrder.drop((startIndex + 1).coerceAtLeast(0))
+            .take(maxAttempts)
+            .mapNotNull { provider -> adaptersByProvider[provider]?.let { provider to it } }
+        if (candidates.isEmpty()) {
+            throw IOException("No next stream provider remains after the current provider.")
+        }
+
+        var lastError: Exception? = null
+        for ((provider, adapter) in candidates) {
+            try {
+                val result = adapter.resolveAudio(videoUrl)
+                healthStore.recordSuccess(provider, nowEpochMs())
+                return result.copy(provider = provider)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                if (
+                    error !is ProviderCapabilityException &&
+                    StreamErrorClassifier.classify(error) !in setOf(
+                        StreamErrorClass.INVALID_SOURCE,
+                        StreamErrorClass.CONTENT_UNAVAILABLE,
+                        StreamErrorClass.NETWORK
+                    )
+                ) {
+                    recordFailure(provider, error)
+                }
+                lastError = error
+            }
+        }
+        throw lastError ?: IOException("No next stream provider could resolve this track.")
+    }
 
     private suspend fun <T> execute(
         operation: suspend (StreamProviderAdapter) -> T,

@@ -23,6 +23,11 @@ interface StreamProviderAdapter {
     suspend fun resolveAudio(videoUrl: String): ResolvedAudio
 }
 
+/** Sequential provider continuation used after a resolved stream fails during playback. */
+interface StreamProviderFailoverAdapter {
+    suspend fun resolveAudioNext(videoUrl: String, afterProvider: StreamProvider?): ResolvedAudio
+}
+
 /**
  * Existing NewPipe implementation. Extraction remains serialized because NewPipe's downloader
  * is process-wide; this preserves the current working path while other adapters are added.

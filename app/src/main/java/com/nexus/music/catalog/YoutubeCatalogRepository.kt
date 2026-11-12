@@ -16,4 +16,10 @@ class YoutubeCatalogRepository(
     ): List<CatalogTrack> = adapter.search(query, scope)
 
     suspend fun resolveAudio(videoUrl: String): ResolvedAudio = adapter.resolveAudio(videoUrl)
+
+    suspend fun resolveAudioNext(videoUrl: String, afterProvider: StreamProvider?): ResolvedAudio {
+        val failover = adapter as? StreamProviderFailoverAdapter
+            ?: throw java.io.IOException("This catalogue does not support provider continuation.")
+        return failover.resolveAudioNext(videoUrl, afterProvider)
+    }
 }

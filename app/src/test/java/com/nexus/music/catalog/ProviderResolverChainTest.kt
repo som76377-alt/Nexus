@@ -38,6 +38,51 @@ class ProviderResolverChainTest {
     }
 
     @Test
+    fun resolvedAudioRecordsWinnerAndNextResolutionUsesOnlyFollowingProvider() = runBlocking {
+        val calls = mutableListOf<StreamProvider>()
+        val chain = ProviderResolverChain(
+            adapters = listOf(
+                FakeAdapter(StreamProvider.NEWPIPE, calls) { resolvedAudio() },
+                FakeAdapter(StreamProvider.PIPED, calls) { resolvedAudio().copy(audioUrl = "https://piped.example/audio") },
+                FakeAdapter(StreamProvider.INVIDIOUS, calls) { resolvedAudio().copy(audioUrl = "https://invidious.example/audio") }
+            ),
+            healthStore = InMemoryHealthStore(),
+            providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED, StreamProvider.INVIDIOUS),
+            hedgeDelayMs = 0L
+        )
+
+        val first = chain.resolveAudio("https://youtube.com/watch?v=abcdefghijk")
+        val next = chain.resolveAudioNext("https://youtube.com/watch?v=abcdefghijk", first.provider)
+
+        assertEquals(StreamProvider.NEWPIPE, first.provider)
+        assertEquals(StreamProvider.PIPED, next.provider)
+        assertEquals("https://piped.example/audio", next.audioUrl)
+        assertEquals(listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED), calls)
+    }
+
+    @Test
+    fun nextResolutionDoesNotWrapBackToEarlierProviders() = runBlocking {
+        val calls = mutableListOf<StreamProvider>()
+        val chain = ProviderResolverChain(
+            adapters = listOf(
+                FakeAdapter(StreamProvider.NEWPIPE, calls) { resolvedAudio() },
+                FakeAdapter(StreamProvider.PIPED, calls) { resolvedAudio() },
+                FakeAdapter(StreamProvider.INVIDIOUS, calls) { resolvedAudio() }
+            ),
+            healthStore = InMemoryHealthStore(),
+            providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED, StreamProvider.INVIDIOUS),
+            hedgeDelayMs = 0L
+        )
+
+        val error = runCatching {
+            chain.resolveAudioNext("https://youtube.com/watch?v=abcdefghijk", StreamProvider.INVIDIOUS)
+        }.exceptionOrNull()
+
+        assertEquals(true, error is IOException)
+        assertEquals(emptyList<StreamProvider>(), calls)
+    }
+
+    @Test
     fun searchFallsBackWhenFirstProviderReturnsNoResults() = runBlocking {
         val calls = mutableListOf<StreamProvider>()
         val chain = ProviderResolverChain(

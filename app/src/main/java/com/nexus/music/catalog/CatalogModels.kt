@@ -21,8 +21,13 @@ data class ResolvedAudio(
     val durationSeconds: Long?,
     val audioUrl: String,
     val averageBitrate: Int?,
-    val mimeType: String?
+    val mimeType: String?,
+    val provider: StreamProvider? = null,
+    val requestHeaders: Map<String, String> = emptyMap(),
+    val ipFamily: StreamIpFamily? = null
 )
+
+enum class StreamIpFamily { IPV4, IPV6 }
 
 enum class YoutubeSearchScope(internal val extractorFilter: String?) {
     EVERYTHING(null),
