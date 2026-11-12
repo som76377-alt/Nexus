@@ -8,9 +8,8 @@ import java.net.UnknownHostException
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Pins each stream host to the address family selected by its first DNS lookup.
- * The probe and Media3 playback share this policy, so playback does not silently
- * switch between IPv4 and IPv6 after a stream has been validated.
+ * Pins a stream host to the IP family that actually completed its validation probe.
+ * Media3 playback then uses the same family instead of silently switching families.
  */
 internal object StreamAddressFamily {
     private enum class Family {
@@ -31,15 +30,12 @@ internal object StreamAddressFamily {
 
     val dns: Dns = object : Dns {
         override fun lookup(hostname: String): List<InetAddress> =
-            enforce(hostname, Dns.SYSTEM.lookup(hostname))
+            filterPinned(hostname, Dns.SYSTEM.lookup(hostname))
     }
 
-    internal fun enforce(hostname: String, addresses: List<InetAddress>): List<InetAddress> {
+    internal fun filterPinned(hostname: String, addresses: List<InetAddress>): List<InetAddress> {
         if (addresses.isEmpty()) throw UnknownHostException("No addresses available for $hostname")
-        val key = hostname.lowercase()
-        val selectedFamily = pinnedFamilies[key] ?: familyOf(addresses.first())?.also {
-            pinnedFamilies.putIfAbsent(key, it)
-        } ?: return addresses
+        val selectedFamily = pinnedFamilies[hostname.lowercase()] ?: return addresses
         val matching = addresses.filter(selectedFamily::accepts)
         if (matching.isEmpty()) {
             throw UnknownHostException(
@@ -49,13 +45,16 @@ internal object StreamAddressFamily {
         return matching
     }
 
-    internal fun clear(hostname: String) {
-        pinnedFamilies.remove(hostname.lowercase())
+    internal fun recordConnectedAddress(hostname: String, address: InetAddress) {
+        val family = when (address) {
+            is Inet4Address -> Family.IPV4
+            is Inet6Address -> Family.IPV6
+            else -> return
+        }
+        pinnedFamilies[hostname.lowercase()] = family
     }
 
-    private fun familyOf(address: InetAddress): Family? = when (address) {
-        is Inet4Address -> Family.IPV4
-        is Inet6Address -> Family.IPV6
-        else -> null
+    internal fun clear(hostname: String) {
+        pinnedFamilies.remove(hostname.lowercase())
     }
 }

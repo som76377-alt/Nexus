@@ -63,6 +63,13 @@ internal class StreamProbe(
             if (response.body?.contentLength() == 0L) {
                 throw IOException("The provider returned an empty audio stream.")
             }
+
+            val connectedAddress = response.connection?.socket()?.inetAddress
+                ?: throw IOException("The stream probe could not determine the connected IP family.")
+            StreamAddressFamily.recordConnectedAddress(
+                response.request.url.host,
+                connectedAddress
+            )
         }
         audio
     }
