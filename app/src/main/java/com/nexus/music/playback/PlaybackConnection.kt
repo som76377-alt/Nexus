@@ -122,6 +122,7 @@ class PlaybackConnection(
             val item = MediaItem.Builder()
                 .setMediaId(audio.sourceUrl)
                 .setUri(audio.audioUrl)
+                .setCustomCacheKey(AudioCachePolicy.cacheKey(audio.sourceUrl, audio.audioUrl))
                 .setMimeType(audio.mimeType)
                 .setMediaMetadata(metadata)
                 .build()
