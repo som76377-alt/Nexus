@@ -3,22 +3,35 @@ package com.nexus.music.playback
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSpec
+import com.nexus.music.catalog.StreamProvider
 import com.nexus.music.catalog.sanitizeStreamRequestHeaders
 import java.util.concurrent.ConcurrentHashMap
 
-/** URL-scoped headers for the single local ExoPlayer. Never persisted or broadcast. */
+/** URL-scoped headers/provider identity for the single local ExoPlayer. Never persisted or broadcast. */
 @OptIn(UnstableApi::class)
 internal object StreamRequestHeaders {
-    private val active = ConcurrentHashMap<String, Map<String, String>>()
+    private data class StreamRequest(
+        val headers: Map<String, String>,
+        val provider: StreamProvider
+    )
 
-    fun replace(streamUrl: String, headers: Map<String, String>) {
+    private val active = ConcurrentHashMap<String, StreamRequest>()
+
+    fun replace(
+        streamUrl: String,
+        headers: Map<String, String>,
+        provider: StreamProvider = StreamProvider.NEWPIPE
+    ) {
         active.clear()
         val safe = sanitizeStreamRequestHeaders(headers)
-        if (safe.isNotEmpty()) active[streamUrl] = safe
+        active[streamUrl] = StreamRequest(safe, provider)
     }
 
     internal fun headersForUrl(streamUrl: String): Map<String, String> =
-        active[streamUrl].orEmpty()
+        active[streamUrl]?.headers.orEmpty()
+
+    internal fun providerForUrl(streamUrl: String): StreamProvider? =
+        active[streamUrl]?.provider
 
     fun resolve(dataSpec: DataSpec): DataSpec {
         val headers = headersForUrl(dataSpec.uri.toString())
@@ -26,5 +39,6 @@ internal object StreamRequestHeaders {
         return dataSpec.buildUpon().setHttpRequestHeaders(headers).build()
     }
 
-    internal fun snapshotForTests(): Map<String, Map<String, String>> = active.toMap()
+    internal fun snapshotForTests(): Map<String, Map<String, String>> =
+        active.mapValues { it.value.headers }
 }
