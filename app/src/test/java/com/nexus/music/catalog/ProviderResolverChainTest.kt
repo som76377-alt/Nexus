@@ -56,6 +56,29 @@ class ProviderResolverChainTest {
     }
 
     @Test
+    fun searchFallsBackWhenPreferredProviderThrowsAndRecordsItsFailure() = runBlocking {
+        val health = InMemoryHealthStore()
+        val calls = mutableListOf<StreamProvider>()
+        val chain = ProviderResolverChain(
+            adapters = listOf(
+                FakeAdapter(StreamProvider.NEWPIPE, calls, search = { throw IOException("offline") }) { resolvedAudio() },
+                FakeAdapter(StreamProvider.PIPED, calls, search = { listOf(catalogTrack()) }) { resolvedAudio() }
+            ),
+            healthStore = health,
+            providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
+            hedgeDelayMs = 0L,
+            nowEpochMs = { 1_000L }
+        )
+
+        val results = chain.search("ambient")
+
+        assertEquals(listOf(catalogTrack()), results)
+        assertEquals(listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED), calls)
+        assertEquals(1, health.get(StreamProvider.NEWPIPE).consecutiveFailures)
+        assertEquals(0, health.get(StreamProvider.PIPED).consecutiveFailures)
+    }
+
+    @Test
     fun searchReturnsEmptyWhenEveryProviderHasNoMatches() = runBlocking {
         val calls = mutableListOf<StreamProvider>()
         val chain = ProviderResolverChain(
