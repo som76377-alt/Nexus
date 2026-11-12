@@ -23,7 +23,9 @@ data class ResolvedAudio(
     val averageBitrate: Int?,
     val mimeType: String?,
     /** Per-stream headers; device-local and never part of room state. */
-    val requestHeaders: Map<String, String> = emptyMap()
+    val requestHeaders: Map<String, String> = emptyMap(),
+    /** Provider that produced this short-lived URL; used only for local retry selection. */
+    val provider: StreamProvider = StreamProvider.NEWPIPE
 )
 
 /** Restrict provider-supplied headers to safe end-to-end request metadata. */

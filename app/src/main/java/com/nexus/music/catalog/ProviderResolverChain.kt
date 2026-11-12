@@ -46,18 +46,24 @@ class ProviderResolverChain(
         isEmptySearchResult = { it.isEmpty() }
     )
 
-    suspend fun resolveAudio(videoUrl: String): ResolvedAudio =
-        execute(
-            operation = { it.resolveAudio(videoUrl) },
-            validateResult = validateResolvedAudio
-        )
+    suspend fun resolveAudio(
+        videoUrl: String,
+        excludingProviders: Set<StreamProvider> = emptySet()
+    ): ResolvedAudio = execute(
+        operation = { it.resolveAudio(videoUrl) },
+        validateResult = validateResolvedAudio,
+        excludingProviders = excludingProviders,
+        mapResult = { provider, audio -> audio.copy(provider = provider) }
+    )
 
     private suspend fun <T> execute(
         operation: suspend (StreamProviderAdapter) -> T,
         isEmptySearchResult: (T) -> Boolean = { false },
-        validateResult: suspend (T) -> T = { it }
+        validateResult: suspend (T) -> T = { it },
+        excludingProviders: Set<StreamProvider> = emptySet(),
+        mapResult: (StreamProvider, T) -> T = { _, result -> result }
     ): T {
-        val configured = providerOrder.mapNotNull { provider ->
+        val configured = providerOrder.filterNot(excludingProviders::contains).mapNotNull { provider ->
             adaptersByProvider[provider]?.let { provider to it }
         }
         require(configured.isNotEmpty()) { "No adapters match the configured provider order." }
@@ -73,7 +79,7 @@ class ProviderResolverChain(
                 async {
                     if (index > 0) delay(hedgeDelayMs * index)
                     try {
-                        val result = validateResult(operation(adapter))
+                        val result = mapResult(provider, validateResult(operation(adapter)))
                         healthStore.recordSuccess(provider, nowEpochMs())
                         outcomes.send(Result.success(result))
                     } catch (error: CancellationException) {

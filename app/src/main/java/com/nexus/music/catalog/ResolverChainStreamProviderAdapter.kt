@@ -17,4 +17,9 @@ internal class ResolverChainStreamProviderAdapter(
 
     override suspend fun resolveAudio(videoUrl: String): ResolvedAudio =
         resolver.resolveAudio(videoUrl)
+
+    suspend fun resolveAudioExcluding(
+        videoUrl: String,
+        providers: Set<StreamProvider>
+    ): ResolvedAudio = resolver.resolveAudio(videoUrl, excludingProviders = providers)
 }
