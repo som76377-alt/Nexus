@@ -5,6 +5,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
+import java.net.URI
 import java.util.concurrent.TimeUnit
 
 /**
@@ -21,6 +22,8 @@ internal class StreamProbe(
         ) {
             throw IOException("The provider returned an invalid HTTPS audio URL.")
         }
+
+        URI(audio.audioUrl).host?.let(StreamAddressFamily::clear)
 
         val request = Request.Builder()
             .url(audio.audioUrl)
@@ -65,7 +68,7 @@ internal class StreamProbe(
     }
 
     private fun isLoopbackHttpUrl(value: String): Boolean {
-        val uri = runCatching { java.net.URI(value) }.getOrNull() ?: return false
+        val uri = runCatching { URI(value) }.getOrNull() ?: return false
         return uri.scheme.equals("http", ignoreCase = true) && isLoopbackHost(uri.host.orEmpty())
     }
 
@@ -78,6 +81,7 @@ internal class StreamProbe(
 
         fun defaultClient(): OkHttpClient =
             OkHttpClient.Builder()
+                .dns(StreamAddressFamily.dns)
                 .connectTimeout(5, TimeUnit.SECONDS)
                 .readTimeout(5, TimeUnit.SECONDS)
                 .callTimeout(7, TimeUnit.SECONDS)

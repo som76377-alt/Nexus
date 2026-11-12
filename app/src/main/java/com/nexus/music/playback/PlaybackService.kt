@@ -4,20 +4,21 @@ import android.os.Build
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.ResolvingDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import com.nexus.music.BuildConfig
 import com.nexus.music.catalog.NexusCatalog
+import com.nexus.music.catalog.StreamAddressFamily
+import com.nexus.music.rooms.RoomsApi
 import com.nexus.music.rooms.ServiceRoomController
 import com.nexus.music.rooms.YoutubeRoomMediaResolver
-import com.nexus.music.rooms.RoomsApi
 import com.nexus.music.rooms.data.SupabaseRoomClock
 import com.nexus.music.rooms.data.SupabaseRoomRepository
-import com.nexus.music.BuildConfig
 import com.nexus.music.rooms.domain.RoomController
 import com.nexus.music.rooms.domain.RoomDiagnosticsDeviceInfo
 import kotlinx.coroutines.CoroutineScope
@@ -28,7 +29,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.OkHttpClient
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 
 /**
  * Owns the one ExoPlayer, its MediaSession and the room coordinator.
@@ -76,10 +79,19 @@ class PlaybackService : MediaSessionService() {
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
             .build()
 
-        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-            .setUserAgent(USER_AGENT)
-            .setConnectTimeoutMs(15_000)
-            .setReadTimeoutMs(30_000)
+        val playbackHttpClient = OkHttpClient.Builder()
+            .dns(StreamAddressFamily.dns)
+            .addInterceptor { chain ->
+                chain.proceed(
+                    chain.request().newBuilder().header("User-Agent", USER_AGENT).build()
+                )
+            }
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(false)
+            .build()
+        val httpDataSourceFactory = OkHttpDataSource.Factory(playbackHttpClient)
         val perStreamHeadersFactory = ResolvingDataSource.Factory(httpDataSourceFactory) { dataSpec ->
             StreamRequestHeaders.resolve(dataSpec)
         }
