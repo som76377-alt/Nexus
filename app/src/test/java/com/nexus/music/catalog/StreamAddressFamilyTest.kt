@@ -14,15 +14,14 @@ class StreamAddressFamilyTest {
     }
 
     @Test
-    fun pinsTheFamilyOfTheAddressThatActuallyConnected() {
+    fun pinsFirstResolvedAddressFamilyAndFiltersLaterLookups() {
         val ipv6 = InetAddress.getByAddress(ByteArray(16).also { it[15] = 1 })
         val ipv4 = InetAddress.getByAddress(byteArrayOf(192.toByte(), 0, 2, 1))
 
-        val initial = StreamAddressFamily.filterPinned("cdn.example", listOf(ipv6, ipv4))
-        StreamAddressFamily.recordConnectedAddress("cdn.example", ipv6)
-        val later = StreamAddressFamily.filterPinned("cdn.example", listOf(ipv4, ipv6))
+        val first = StreamAddressFamily.selectAndPin("cdn.example", listOf(ipv6, ipv4))
+        val later = StreamAddressFamily.selectAndPin("cdn.example", listOf(ipv4, ipv6))
 
-        assertEquals(listOf(ipv6, ipv4), initial)
+        assertEquals(listOf(ipv6), first)
         assertEquals(listOf(ipv6), later)
     }
 
@@ -30,10 +29,10 @@ class StreamAddressFamilyTest {
     fun refusesToSilentlySwitchWhenPinnedFamilyDisappears() {
         val ipv6 = InetAddress.getByAddress(ByteArray(16).also { it[15] = 1 })
         val ipv4 = InetAddress.getByAddress(byteArrayOf(192.toByte(), 0, 2, 1))
-        StreamAddressFamily.recordConnectedAddress("cdn.example", ipv6)
+        StreamAddressFamily.selectAndPin("cdn.example", listOf(ipv6, ipv4))
 
         assertThrows(UnknownHostException::class.java) {
-            StreamAddressFamily.filterPinned("cdn.example", listOf(ipv4))
+            StreamAddressFamily.selectAndPin("cdn.example", listOf(ipv4))
         }
     }
 }
