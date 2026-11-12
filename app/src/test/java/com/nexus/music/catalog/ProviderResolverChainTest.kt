@@ -302,6 +302,30 @@ class ProviderResolverChainTest {
         assertEquals(0, health.get(StreamProvider.PIPED).consecutiveFailures)
     }
 
+    @Test
+    fun recoveryResolutionExcludesTheProviderThatProducedTheFailedUrl() = runBlocking {
+        val calls = mutableListOf<StreamProvider>()
+        val chain = ProviderResolverChain(
+            adapters = listOf(
+                FakeAdapter(StreamProvider.NEWPIPE, calls) { resolvedAudio() },
+                FakeAdapter(StreamProvider.PIPED, calls) { resolvedAudio().copy(audioUrl = "https://media.example/piped.m4a") },
+                FakeAdapter(StreamProvider.INVIDIOUS, calls) { resolvedAudio() }
+            ),
+            healthStore = InMemoryHealthStore(),
+            providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED, StreamProvider.INVIDIOUS),
+            hedgeDelayMs = 0L
+        )
+
+        val replacement = chain.resolveAudio(
+            "https://youtube.com/watch?v=abcdefghijk",
+            excludingProviders = setOf(StreamProvider.NEWPIPE)
+        )
+
+        assertEquals(listOf(StreamProvider.PIPED, StreamProvider.INVIDIOUS), calls)
+        assertEquals(StreamProvider.PIPED, replacement.provider)
+        assertEquals("https://media.example/piped.m4a", replacement.audioUrl)
+    }
+
     private fun catalogTrack() = CatalogTrack(
         url = "https://youtube.com/watch?v=abcdefghijk",
         title = "Track",

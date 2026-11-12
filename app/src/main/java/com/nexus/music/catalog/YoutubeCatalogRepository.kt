@@ -16,4 +16,13 @@ class YoutubeCatalogRepository(
     ): List<CatalogTrack> = adapter.search(query, scope)
 
     suspend fun resolveAudio(videoUrl: String): ResolvedAudio = adapter.resolveAudio(videoUrl)
+
+    suspend fun resolveAudioExcluding(
+        videoUrl: String,
+        providers: Set<StreamProvider>
+    ): ResolvedAudio {
+        val chainAdapter = adapter as? ResolverChainStreamProviderAdapter
+            ?: throw IllegalStateException("Provider failover is unavailable for this catalogue adapter.")
+        return chainAdapter.resolveAudioExcluding(videoUrl, providers)
+    }
 }

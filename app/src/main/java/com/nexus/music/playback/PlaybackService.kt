@@ -3,31 +3,40 @@ package com.nexus.music.playback
 import android.os.Build
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.ResolvingDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import com.nexus.music.BuildConfig
 import com.nexus.music.catalog.NexusCatalog
+import com.nexus.music.catalog.StreamAddressFamily
+import com.nexus.music.catalog.StreamProvider
+import com.nexus.music.rooms.RoomsApi
 import com.nexus.music.rooms.ServiceRoomController
 import com.nexus.music.rooms.YoutubeRoomMediaResolver
-import com.nexus.music.rooms.RoomsApi
 import com.nexus.music.rooms.data.SupabaseRoomClock
 import com.nexus.music.rooms.data.SupabaseRoomRepository
-import com.nexus.music.BuildConfig
 import com.nexus.music.rooms.domain.RoomController
 import com.nexus.music.rooms.domain.RoomDiagnosticsDeviceInfo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.OkHttpClient
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 
 /**
  * Owns the one ExoPlayer, its MediaSession and the room coordinator.
@@ -75,12 +84,24 @@ class PlaybackService : MediaSessionService() {
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
             .build()
 
-        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-            .setUserAgent(USER_AGENT)
-            .setConnectTimeoutMs(15_000)
-            .setReadTimeoutMs(30_000)
+        val playbackHttpClient = OkHttpClient.Builder()
+            .dns(StreamAddressFamily.dns)
+            .addInterceptor { chain ->
+                chain.proceed(
+                    chain.request().newBuilder().header("User-Agent", USER_AGENT).build()
+                )
+            }
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(false)
+            .build()
+        val httpDataSourceFactory = OkHttpDataSource.Factory(playbackHttpClient)
+        val perStreamHeadersFactory = ResolvingDataSource.Factory(httpDataSourceFactory) { dataSpec ->
+            StreamRequestHeaders.resolve(dataSpec)
+        }
         val mediaSourceFactory = DefaultMediaSourceFactory(this)
-            .setDataSourceFactory(httpDataSourceFactory)
+            .setDataSourceFactory(perStreamHeadersFactory)
         val renderersFactory = DefaultRenderersFactory(this)
             .setEnableDecoderFallback(true)
 
@@ -95,6 +116,68 @@ class PlaybackService : MediaSessionService() {
             }
 
         player = exoPlayer
+        val catalog = NexusCatalog.repository(this)
+        val localStreamRecovery = LocalStreamRecovery(
+            resolveNext = catalog::resolveAudioExcluding,
+            isCurrentSource = { sourceUrl -> exoPlayer.currentMediaItem?.mediaId == sourceUrl },
+            replaceLocally = { replacement, resumePositionMs, resumeWhenReady ->
+                StreamRequestHeaders.replace(
+                    replacement.audioUrl,
+                    replacement.requestHeaders,
+                    replacement.provider
+                )
+                val replacementItem = MediaItem.Builder()
+                    .setMediaId(replacement.sourceUrl)
+                    .setUri(replacement.audioUrl)
+                    .setMimeType(replacement.mimeType)
+                    .setMediaMetadata(
+                        MediaMetadata.Builder()
+                            .setTitle(replacement.title)
+                            .setArtist(replacement.artist.orEmpty())
+                            .setArtworkUri(replacement.thumbnailUrl?.let(android.net.Uri::parse))
+                            .build()
+                    )
+                    .build()
+                // Local-only repair: mutate the raw ExoPlayer, never the room-intent wrapper.
+                exoPlayer.setMediaItem(replacementItem, resumePositionMs)
+                exoPlayer.prepare()
+                exoPlayer.playWhenReady = resumeWhenReady
+            }
+        )
+        val failedProvidersBySource = mutableMapOf<String, MutableSet<StreamProvider>>()
+        exoPlayer.addListener(object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                val currentSource = mediaItem?.mediaId.orEmpty()
+                failedProvidersBySource.keys.removeAll { it != currentSource }
+            }
+
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                val failedItem = exoPlayer.currentMediaItem ?: return
+                val sourceUrl = failedItem.mediaId.takeIf(String::isNotBlank) ?: return
+                val failedStreamUrl = failedItem.localConfiguration?.uri?.toString() ?: return
+                val failedProvider = StreamRequestHeaders.providerForUrl(failedStreamUrl) ?: return
+                val attempted = failedProvidersBySource.getOrPut(sourceUrl) { mutableSetOf() }
+                if (!attempted.add(failedProvider)) return
+                val resumePositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
+                val resumeWhenReady = exoPlayer.playWhenReady
+                val title = failedItem.mediaMetadata.title?.toString().orEmpty()
+                val artist = failedItem.mediaMetadata.artist?.toString()
+                val artworkUri = failedItem.mediaMetadata.artworkUri
+                serviceScope.launch {
+                    try {
+                        localStreamRecovery.recover(
+                            sourceUrl = sourceUrl,
+                            excludedProviders = attempted.toSet(),
+                            resumePositionMs = resumePositionMs,
+                            resumeWhenReady = resumeWhenReady
+                        )
+                    } catch (_: Exception) {
+                        // Exhausted providers leave the original error visible; never loop
+                        // on the same provider or publish a room recovery command.
+                    }
+                }
+            }
+        })
         val playerPort = Media3RoomPlayerPort(exoPlayer)
 
         val roomsApi = RoomsApi(this)
@@ -102,7 +185,7 @@ class PlaybackService : MediaSessionService() {
         activeRoomsApi.value = roomsApi
         val repository = SupabaseRoomRepository(roomsApi)
         val clock = SupabaseRoomClock(roomsApi)
-        val mediaResolver = YoutubeRoomMediaResolver(NexusCatalog.repository(this))
+        val mediaResolver = YoutubeRoomMediaResolver(catalog)
         val controller = ServiceRoomController(
             parentScope = serviceScope,
             repository = repository,

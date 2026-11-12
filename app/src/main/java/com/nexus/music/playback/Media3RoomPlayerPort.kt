@@ -7,6 +7,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import com.nexus.music.catalog.StreamProvider
 import com.nexus.music.rooms.ServiceRoomController
 import com.nexus.music.rooms.domain.LocalPlaybackSnapshot
 import com.nexus.music.rooms.domain.RoomPlayerIntent
@@ -94,8 +95,19 @@ internal class Media3RoomPlayerPort(
         title: String,
         artist: String?,
         mimeType: String?
+    ) = prepareCanonicalSource(canonicalSourceUrl, streamUrl, title, artist, mimeType, emptyMap(), StreamProvider.NEWPIPE)
+
+    override suspend fun prepareCanonicalSource(
+        canonicalSourceUrl: String,
+        streamUrl: String,
+        title: String,
+        artist: String?,
+        mimeType: String?,
+        requestHeaders: Map<String, String>,
+        provider: StreamProvider
     ) {
         withContext(Dispatchers.Main.immediate) {
+            StreamRequestHeaders.replace(streamUrl, requestHeaders, provider)
             val metadata = MediaMetadata.Builder()
                 .setTitle(title)
                 .setArtist(artist.orEmpty())

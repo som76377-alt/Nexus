@@ -113,6 +113,7 @@ class PlaybackConnection(
     ): Boolean {
         val activeController = controller ?: return false
         return try {
+            StreamRequestHeaders.replace(audio.audioUrl, audio.requestHeaders, audio.provider)
             val metadata = MediaMetadata.Builder()
                 .setTitle(audio.title)
                 .setArtist(audio.artist ?: "")

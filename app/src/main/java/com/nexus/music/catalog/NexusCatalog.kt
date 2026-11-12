@@ -44,7 +44,8 @@ object NexusCatalog {
         val resolver = ProviderResolverChain(
             adapters = adapters,
             healthStore = SharedPreferencesProviderHealthStore(context),
-            providerOrder = order
+            providerOrder = order,
+            validateResolvedAudio = StreamProbe()::validate
         )
 
         // Directory refresh never blocks activity startup or a playback-service call.

@@ -87,7 +87,8 @@ class PipedStreamProviderAdapter(
             durationSeconds = json.optLong("duration", -1L).takeIf { it >= 0L },
             audioUrl = selected.getString("url"),
             averageBitrate = selected.optInt("bitrate", 0).takeIf { it > 0 },
-            mimeType = selected.optString("mimeType").takeIf(String::isNotBlank)
+            mimeType = selected.optString("mimeType").takeIf(String::isNotBlank),
+            requestHeaders = parseSelectedStreamHeaders(selected)
         )
     }
 }
@@ -159,9 +160,24 @@ class InvidiousStreamProviderAdapter(
             durationSeconds = json.optLong("lengthSeconds", -1L).takeIf { it >= 0L },
             audioUrl = selected.getString("url"),
             averageBitrate = selected.optInt("bitrate", 0).takeIf { it > 0 },
-            mimeType = selected.optString("type").takeIf(String::isNotBlank)
+            mimeType = selected.optString("type").takeIf(String::isNotBlank),
+            requestHeaders = parseSelectedStreamHeaders(selected)
         )
     }
+}
+
+/** Parse safe request headers from the chosen audio format only. */
+private fun parseSelectedStreamHeaders(stream: JSONObject): Map<String, String> {
+    val raw = stream.optJSONObject("httpHeaders") ?: stream.optJSONObject("headers") ?: return emptyMap()
+    val values = buildMap {
+        val keys = raw.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            val value = raw.optString(key).takeIf(String::isNotBlank) ?: continue
+            put(key, value)
+        }
+    }
+    return sanitizeStreamRequestHeaders(values)
 }
 
 /** Shared HTTP, instance failover, and YouTube URL validation for JSON provider APIs. */
