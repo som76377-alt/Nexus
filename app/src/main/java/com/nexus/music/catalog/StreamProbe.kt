@@ -1,0 +1,69 @@
+package com.nexus.music.catalog
+
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.io.IOException
+import java.util.concurrent.TimeUnit
+
+/**
+ * Performs a bounded ranged GET before a resolved stream is handed to Media3.
+ * This catches dead/blocked/expired provider URLs while the resolver can still fail over.
+ */
+internal class StreamProbe(
+    private val client: OkHttpClient = defaultClient()
+) {
+    suspend fun validate(audio: ResolvedAudio): ResolvedAudio = withContext(Dispatchers.IO) {
+        if (!CatalogUrlValidator.isValidHttpsUrl(audio.audioUrl)) {
+            throw IOException("The provider returned an invalid HTTPS audio URL.")
+        }
+
+        val request = Request.Builder()
+            .url(audio.audioUrl)
+            .header("Range", "bytes=0-0")
+            .header("Accept", "audio/*, application/octet-stream;q=0.9, */*;q=0.1")
+            .header("User-Agent", USER_AGENT)
+            .get()
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            if (!response.request.url.isHttps) {
+                throw IOException("The stream probe was redirected to an insecure URL.")
+            }
+            if (response.code != 200 && response.code != 206) {
+                throw IOException("The resolved stream is not reachable (HTTP ${response.code}).")
+            }
+
+            val contentType = response.header("Content-Type")
+                ?.substringBefore(';')
+                ?.trim()
+                ?.lowercase()
+            if (
+                contentType != null &&
+                !contentType.startsWith("audio/") &&
+                contentType != "application/octet-stream" &&
+                contentType != "binary/octet-stream"
+            ) {
+                throw IOException("The provider URL did not return an audio stream.")
+            }
+            if (response.body?.contentLength() == 0L) {
+                throw IOException("The provider returned an empty audio stream.")
+            }
+        }
+        audio
+    }
+
+    private companion object {
+        private const val USER_AGENT = "Nexus/0.1 (Android; stream probe)"
+
+        fun defaultClient(): OkHttpClient =
+            OkHttpClient.Builder()
+                .connectTimeout(5, TimeUnit.SECONDS)
+                .readTimeout(5, TimeUnit.SECONDS)
+                .callTimeout(7, TimeUnit.SECONDS)
+                .followRedirects(true)
+                .followSslRedirects(false)
+                .build()
+    }
+}

@@ -19,7 +19,8 @@ class ProviderResolverChain(
     providerOrder: List<StreamProvider> = StreamProvider.DEFAULT_ORDER,
     private val maxAttempts: Int = providerOrder.size,
     private val hedgeDelayMs: Long = DEFAULT_HEDGE_DELAY_MS,
-    private val nowEpochMs: () -> Long = System::currentTimeMillis
+    private val nowEpochMs: () -> Long = System::currentTimeMillis,
+    private val validateResolvedAudio: suspend (ResolvedAudio) -> ResolvedAudio = { it }
 ) {
     private val adaptersByProvider = adapters.associateBy { it.provider }
     private val providerOrder = providerOrder.toList()
@@ -46,11 +47,15 @@ class ProviderResolverChain(
     )
 
     suspend fun resolveAudio(videoUrl: String): ResolvedAudio =
-        execute(operation = { it.resolveAudio(videoUrl) })
+        execute(
+            operation = { it.resolveAudio(videoUrl) },
+            validateResult = validateResolvedAudio
+        )
 
     private suspend fun <T> execute(
         operation: suspend (StreamProviderAdapter) -> T,
-        isEmptySearchResult: (T) -> Boolean = { false }
+        isEmptySearchResult: (T) -> Boolean = { false },
+        validateResult: suspend (T) -> T = { it }
     ): T {
         val configured = providerOrder.mapNotNull { provider ->
             adaptersByProvider[provider]?.let { provider to it }
@@ -68,7 +73,7 @@ class ProviderResolverChain(
                 async {
                     if (index > 0) delay(hedgeDelayMs * index)
                     try {
-                        val result = operation(adapter)
+                        val result = validateResult(operation(adapter))
                         healthStore.recordSuccess(provider, nowEpochMs())
                         outcomes.send(Result.success(result))
                     } catch (error: CancellationException) {
