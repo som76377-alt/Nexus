@@ -17,8 +17,12 @@ internal object StreamRequestHeaders {
         if (safe.isNotEmpty()) active[streamUrl] = safe
     }
 
+    internal fun headersForUrl(streamUrl: String): Map<String, String> =
+        active[streamUrl].orEmpty()
+
     fun resolve(dataSpec: DataSpec): DataSpec {
-        val headers = active[dataSpec.uri.toString()] ?: return dataSpec
+        val headers = headersForUrl(dataSpec.uri.toString())
+        if (headers.isEmpty()) return dataSpec
         return dataSpec.buildUpon().setHttpRequestHeaders(headers).build()
     }
 
