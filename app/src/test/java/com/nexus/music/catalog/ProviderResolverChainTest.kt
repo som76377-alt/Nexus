@@ -14,7 +14,7 @@ import java.io.IOException
 
 class ProviderResolverChainTest {
     @Test
-    fun resolveFallsBackAndRecordsProviderHealth() = runBlocking {
+    fun resolveFallsBackWithoutOpeningCircuitForNetworkFailure() = runBlocking {
         val health = InMemoryHealthStore()
         val calls = mutableListOf<StreamProvider>()
         val chain = ProviderResolverChain(
@@ -32,8 +32,8 @@ class ProviderResolverChainTest {
 
         assertEquals("https://media.example/audio.m4a", result.audioUrl)
         assertEquals(listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED), calls)
-        assertEquals(1, health.get(StreamProvider.NEWPIPE).consecutiveFailures)
-        assertEquals(StreamErrorClass.TRANSIENT, health.get(StreamProvider.NEWPIPE).lastErrorClass)
+        assertEquals(0, health.get(StreamProvider.NEWPIPE).consecutiveFailures)
+        assertEquals(null, health.get(StreamProvider.NEWPIPE).lastErrorClass)
         assertEquals(0, health.get(StreamProvider.PIPED).consecutiveFailures)
     }
 
@@ -57,7 +57,7 @@ class ProviderResolverChainTest {
     }
 
     @Test
-    fun searchFallsBackWhenPreferredProviderThrowsAndRecordsItsFailure() = runBlocking {
+    fun searchFallsBackWithoutOpeningCircuitForNetworkFailure() = runBlocking {
         val health = InMemoryHealthStore()
         val calls = mutableListOf<StreamProvider>()
         val chain = ProviderResolverChain(
@@ -75,7 +75,8 @@ class ProviderResolverChainTest {
 
         assertEquals(listOf(catalogTrack()), results)
         assertEquals(listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED), calls)
-        assertEquals(1, health.get(StreamProvider.NEWPIPE).consecutiveFailures)
+        assertEquals(0, health.get(StreamProvider.NEWPIPE).consecutiveFailures)
+        assertEquals(null, health.get(StreamProvider.NEWPIPE).lastErrorClass)
         assertEquals(0, health.get(StreamProvider.PIPED).consecutiveFailures)
     }
 
