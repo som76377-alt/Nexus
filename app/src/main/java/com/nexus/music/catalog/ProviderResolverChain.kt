@@ -76,7 +76,11 @@ class ProviderResolverChain(
                     } catch (error: Exception) {
                         if (
                             error !is ProviderCapabilityException &&
-                            StreamErrorClassifier.classify(error) != StreamErrorClass.INVALID_SOURCE
+                            StreamErrorClassifier.classify(error) !in setOf(
+                                StreamErrorClass.INVALID_SOURCE,
+                                StreamErrorClass.CONTENT_UNAVAILABLE,
+                                StreamErrorClass.NETWORK
+                            )
                         ) {
                             recordFailure(provider, error)
                         }
@@ -141,7 +145,9 @@ class ProviderResolverChain(
             StreamErrorClass.ACCESS_BLOCKED -> ACCESS_BLOCK_COOLDOWN_MS
             StreamErrorClass.UNSUPPORTED -> UNSUPPORTED_COOLDOWN_MS
             StreamErrorClass.UNKNOWN -> UNKNOWN_COOLDOWN_MS * multiplier
-            StreamErrorClass.INVALID_SOURCE -> 0L
+            StreamErrorClass.INVALID_SOURCE,
+            StreamErrorClass.CONTENT_UNAVAILABLE,
+            StreamErrorClass.NETWORK -> 0L
         }.coerceAtMost(MAX_COOLDOWN_MS)
     }
 

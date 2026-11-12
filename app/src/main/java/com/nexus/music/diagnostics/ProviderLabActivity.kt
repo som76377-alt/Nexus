@@ -23,7 +23,7 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.nexus.music.BuildConfig
 import com.nexus.music.catalog.OkHttpDownloader
 import com.nexus.music.catalog.ExtractorRuntime
-import com.nexus.music.catalog.YoutubeCatalogRepository
+import com.nexus.music.catalog.NewPipeStreamProviderAdapter
 import com.nexus.music.catalog.YoutubeSearchScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -111,13 +111,11 @@ class ProviderLabActivity : Activity() {
         var httpCode: Int? = null
         return try {
             val client = clientFor(family)
-            val repository = withContext(Dispatchers.IO) {
-                YoutubeCatalogRepository(OkHttpDownloader(client))
-            }
-            val found = repository.search(sample.id, YoutubeSearchScope.EVERYTHING)
+            val adapter = NewPipeStreamProviderAdapter(OkHttpDownloader(client))
+            val found = adapter.search(sample.id, YoutubeSearchScope.EVERYTHING)
                 .firstOrNull { videoId(it.url) == sample.id }
                 ?: throw IllegalStateException("Search did not return the fixed sample ID")
-            val audio = repository.resolveAudio(found.url)
+            val audio = adapter.resolveAudio(found.url)
 
             httpCode = withContext(Dispatchers.IO) {
                 client.newCall(

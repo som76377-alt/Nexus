@@ -1,8 +1,8 @@
 package com.nexus.music.catalog
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertThrows
 import org.junit.Test
+import org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException
 import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
 import org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException
 import java.io.IOException
@@ -21,10 +21,11 @@ class StreamProviderTest {
     }
 
     @Test
-    fun rejectsUnknownOrDuplicateProviderConfiguration() {
-        assertThrows(IllegalArgumentException::class.java) { StreamProvider.parseOrder("newpipe,unknown") }
-        assertThrows(IllegalArgumentException::class.java) { StreamProvider.parseOrder("piped,piped") }
-        assertThrows(IllegalArgumentException::class.java) { StreamProvider.parseOrder(" , ") }
+    fun missingOrInvalidProviderConfigurationFallsBackToDefaultOrder() {
+        assertEquals(StreamProvider.DEFAULT_ORDER, StreamProvider.parseOrder(""))
+        assertEquals(StreamProvider.DEFAULT_ORDER, StreamProvider.parseOrder("newpipe,unknown"))
+        assertEquals(StreamProvider.DEFAULT_ORDER, StreamProvider.parseOrder("piped,piped"))
+        assertEquals(StreamProvider.DEFAULT_ORDER, StreamProvider.parseOrder(" , "))
     }
 
     @Test
@@ -35,8 +36,10 @@ class StreamProviderTest {
             StreamErrorClassifier.classify(SignInConfirmNotBotException("verify")))
         assertEquals(StreamErrorClass.INVALID_SOURCE,
             StreamErrorClassifier.classify(IllegalArgumentException("bad URL")))
-        assertEquals(StreamErrorClass.TRANSIENT,
+        assertEquals(StreamErrorClass.NETWORK,
             StreamErrorClassifier.classify(IOException("network unavailable")))
+        assertEquals(StreamErrorClass.CONTENT_UNAVAILABLE,
+            StreamErrorClassifier.classify(ContentNotAvailableException("video unavailable")))
         assertEquals(StreamErrorClass.RATE_LIMITED,
             StreamErrorClassifier.classify(ProviderHttpException(429, "piped")))
         assertEquals(StreamErrorClass.ACCESS_BLOCKED,

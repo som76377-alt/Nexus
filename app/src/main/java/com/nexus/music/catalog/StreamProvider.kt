@@ -1,5 +1,6 @@
 package com.nexus.music.catalog
 
+import org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException
 import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
 import org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException
 import java.io.IOException
@@ -13,7 +14,7 @@ enum class StreamProvider(val key: String) {
     companion object {
         val DEFAULT_ORDER = listOf(NEWPIPE, PIPED, INVIDIOUS)
 
-        fun parseOrder(value: String): List<StreamProvider> {
+        fun parseOrder(value: String): List<StreamProvider> = runCatching {
             val parsed = value.split(',')
                 .map(String::trim)
                 .filter(String::isNotEmpty)
@@ -23,13 +24,13 @@ enum class StreamProvider(val key: String) {
                 }
             require(parsed.isNotEmpty()) { "At least one stream provider must be configured." }
             require(parsed.distinct().size == parsed.size) { "Stream provider order contains duplicates." }
-            return parsed
-        }
+            parsed
+        }.getOrDefault(DEFAULT_ORDER)
     }
 }
 
 enum class StreamErrorClass {
-    TRANSIENT, RATE_LIMITED, ACCESS_BLOCKED, INVALID_SOURCE, UNSUPPORTED, UNKNOWN
+    TRANSIENT, RATE_LIMITED, ACCESS_BLOCKED, INVALID_SOURCE, UNSUPPORTED, CONTENT_UNAVAILABLE, NETWORK, UNKNOWN
 }
 
 /** A provider cannot faithfully perform a requested operation or filter. */
@@ -44,6 +45,7 @@ class ProviderHttpException(
 
 object StreamErrorClassifier {
     fun classify(error: Throwable): StreamErrorClass = when (error) {
+        is ContentNotAvailableException -> StreamErrorClass.CONTENT_UNAVAILABLE
         is ReCaptchaException -> StreamErrorClass.RATE_LIMITED
         is ProviderCapabilityException -> StreamErrorClass.UNSUPPORTED
         is ProviderHttpException -> when (error.statusCode) {
@@ -54,7 +56,7 @@ object StreamErrorClassifier {
         }
         is SignInConfirmNotBotException -> StreamErrorClass.ACCESS_BLOCKED
         is IllegalArgumentException -> StreamErrorClass.INVALID_SOURCE
-        is IOException -> StreamErrorClass.TRANSIENT
+        is IOException -> StreamErrorClass.NETWORK
         else -> StreamErrorClass.UNKNOWN
     }
 }

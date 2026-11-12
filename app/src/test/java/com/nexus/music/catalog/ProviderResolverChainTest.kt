@@ -9,6 +9,7 @@ import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
+import org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException
 import java.io.IOException
 
 class ProviderResolverChainTest {
@@ -118,6 +119,54 @@ class ProviderResolverChainTest {
         assertEquals(listOf(StreamProvider.INVIDIOUS, StreamProvider.PIPED), calls)
         assertEquals(0, health.get(StreamProvider.INVIDIOUS).consecutiveFailures)
         assertEquals(0L, health.get(StreamProvider.INVIDIOUS).cooldownUntilEpochMs)
+    }
+
+    @Test
+    fun contentUnavailableFallsBackWithoutOpeningProviderCircuit() = runBlocking {
+        val health = InMemoryHealthStore()
+        val calls = mutableListOf<StreamProvider>()
+        val chain = ProviderResolverChain(
+            adapters = listOf(
+                FakeAdapter(StreamProvider.NEWPIPE, calls) {
+                    throw ContentNotAvailableException("video unavailable")
+                },
+                FakeAdapter(StreamProvider.PIPED, calls) { resolvedAudio() }
+            ),
+            healthStore = health,
+            providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
+            hedgeDelayMs = 0L,
+            nowEpochMs = { 1_000L }
+        )
+
+        val result = chain.resolveAudio("https://youtube.com/watch?v=abcdefghijk")
+
+        assertEquals("https://media.example/audio.m4a", result.audioUrl)
+        assertEquals(listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED), calls)
+        assertEquals(0, health.get(StreamProvider.NEWPIPE).consecutiveFailures)
+        assertEquals(0L, health.get(StreamProvider.NEWPIPE).cooldownUntilEpochMs)
+    }
+
+    @Test
+    fun networkFailureAloneDoesNotOpenProviderCircuit() = runBlocking {
+        val health = InMemoryHealthStore()
+        val calls = mutableListOf<StreamProvider>()
+        val chain = ProviderResolverChain(
+            adapters = listOf(
+                FakeAdapter(StreamProvider.NEWPIPE, calls) { throw IOException("network unavailable") },
+                FakeAdapter(StreamProvider.PIPED, calls) { resolvedAudio() }
+            ),
+            healthStore = health,
+            providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
+            hedgeDelayMs = 0L,
+            nowEpochMs = { 1_000L }
+        )
+
+        val result = chain.resolveAudio("https://youtube.com/watch?v=abcdefghijk")
+
+        assertEquals("https://media.example/audio.m4a", result.audioUrl)
+        assertEquals(listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED), calls)
+        assertEquals(0, health.get(StreamProvider.NEWPIPE).consecutiveFailures)
+        assertEquals(0L, health.get(StreamProvider.NEWPIPE).cooldownUntilEpochMs)
     }
 
     @Test
