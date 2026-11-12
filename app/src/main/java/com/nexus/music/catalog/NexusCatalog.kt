@@ -59,7 +59,7 @@ object NexusCatalog {
             }
         }
 
-        return YoutubeCatalogRepository(adapter = ResolverChainStreamProviderAdapter(resolver))
+        return YoutubeCatalogRepository(adapter = ResolverChainStreamProviderAdapter(resolver), streamProbe = StreamProbe())
     }
 
     private fun parseEndpoints(value: String): List<String> =

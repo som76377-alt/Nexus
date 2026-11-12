@@ -48,6 +48,7 @@ class ProviderResolverChainTest {
             ),
             healthStore = InMemoryHealthStore(),
             providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED, StreamProvider.INVIDIOUS),
+            maxAttempts = 1,
             hedgeDelayMs = 0L
         )
 

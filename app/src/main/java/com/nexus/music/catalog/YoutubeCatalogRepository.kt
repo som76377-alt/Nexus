@@ -8,18 +8,23 @@ package com.nexus.music.catalog
  */
 class YoutubeCatalogRepository(
     downloader: OkHttpDownloader = OkHttpDownloader(),
-    private val adapter: StreamProviderAdapter = NewPipeStreamProviderAdapter(downloader)
+    private val adapter: StreamProviderAdapter = NewPipeStreamProviderAdapter(downloader),
+    private val streamProbe: StreamProbe? = null
 ) {
     suspend fun search(
         query: String,
         scope: YoutubeSearchScope = YoutubeSearchScope.EVERYTHING
     ): List<CatalogTrack> = adapter.search(query, scope)
 
-    suspend fun resolveAudio(videoUrl: String): ResolvedAudio = adapter.resolveAudio(videoUrl)
+    suspend fun resolveAudio(videoUrl: String): ResolvedAudio {
+        val audio = adapter.resolveAudio(videoUrl)
+        return streamProbe?.probe(audio) ?: audio
+    }
 
     suspend fun resolveAudioNext(videoUrl: String, afterProvider: StreamProvider?): ResolvedAudio {
         val failover = adapter as? StreamProviderFailoverAdapter
             ?: throw java.io.IOException("This catalogue does not support provider continuation.")
-        return failover.resolveAudioNext(videoUrl, afterProvider)
+        val audio = failover.resolveAudioNext(videoUrl, afterProvider)
+        return streamProbe?.probe(audio) ?: audio
     }
 }
