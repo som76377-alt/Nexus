@@ -40,10 +40,8 @@ import com.nexus.music.ui.NexusDesignSystem
 import com.nexus.music.ui.SearchPanel
 import com.nexus.music.ui.YouView
 import com.nexus.music.catalog.ResolvedAudio
-import com.nexus.music.catalog.YoutubeCatalogRepository
+import com.nexus.music.catalog.NexusCatalog
 import com.nexus.music.catalog.YoutubeSearchScope
-import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
-import org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException
 import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackSnapshot
 import com.nexus.music.update.GitHubReleaseUpdater
@@ -64,7 +62,7 @@ import kotlinx.coroutines.withContext
 class MainActivity : Activity() {
     private enum class SearchSort { RELEVANCE, POPULAR, TITLE, DURATION }
     private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private val repository by lazy { YoutubeCatalogRepository() }
+    private val repository by lazy { NexusCatalog.repository(this) }
     private val libraryStore by lazy { LocalLibraryStore(this) }
     private val updateChecker by lazy { GitHubReleaseUpdater() }
     private val progressHandler = Handler(Looper.getMainLooper())
@@ -436,9 +434,9 @@ class MainActivity : Activity() {
                 }
             } catch (error: CancellationException) {
                 throw error
-            } catch (error: Exception) {
+            } catch (_: Exception) {
                 updateStatusText.text =
-                    "Update check failed · ${error.message ?: "Check your connection and retry."}"
+                    "Update check failed · Retry"
                 updateStatusText.setTextColor(Color.rgb(255, 170, 120))
                 updateButton.text = "Retry"
                 updateButton.isEnabled = true
@@ -553,12 +551,12 @@ class MainActivity : Activity() {
                 ).show()
             } catch (error: CancellationException) {
                 throw error
-            } catch (error: InstallPermissionRequiredException) {
+            } catch (_: InstallPermissionRequiredException) {
                 updateStatusText.text = "Allow installs from Nexus in Android settings, then retry."
                 updateButton.text = "Download"
                 AlertDialog.Builder(this@MainActivity)
                     .setTitle("Android install permission needed")
-                    .setMessage(error.message)
+                    .setMessage("Allow Nexus to install updates in Android settings, then retry.")
                     .setPositiveButton("Open settings") { _, _ ->
                         startActivity(
                             Intent(
@@ -570,7 +568,7 @@ class MainActivity : Activity() {
                     .setNegativeButton("Cancel", null)
                     .show()
             } catch (error: Exception) {
-                updateStatusText.text = "Download failed · ${error.message ?: "Please try again."}"
+                updateStatusText.text = "Download failed · Retry"
                 updateProgressText.text = "The update was not installed. Tap Retry to try again."
                 updateButton.text = "Retry download"
                 updateButton.visibility = View.VISIBLE
@@ -622,9 +620,9 @@ class MainActivity : Activity() {
                 updatePlaybackUi(playbackConnection?.snapshot() ?: PlaybackSnapshot(connected = false))
             },
             onStateChanged = ::updatePlaybackUi,
-            onError = { message ->
-                playerSubtitle.text = message
-                Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+            onError = {
+                playerSubtitle.text = "Playback unavailable"
+                Toast.makeText(this, "Playback could not start. Please retry.", Toast.LENGTH_LONG).show()
             }
         )
     }
@@ -716,13 +714,7 @@ class MainActivity : Activity() {
                 throw error
             } catch (error: Exception) {
                 if (requestGeneration == searchGeneration) {
-                    searchPanel.statusText.text = when (error) {
-                        is SignInConfirmNotBotException ->
-                            "YouTube is asking this connection to verify it isn't automated. Try another network or retry later."
-                        is ReCaptchaException ->
-                            "YouTube temporarily limited requests. Wait a bit, then retry."
-                        else -> "Search failed · Retry"
-                    }
+                    searchPanel.statusText.text = "Search unavailable · Retry"
                     searchPanel.statusText.visibility = View.VISIBLE
                     searchPanel.statusText.setOnClickListener { performSearch() }
                 }
@@ -894,18 +886,8 @@ class MainActivity : Activity() {
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                val message = when (error) {
-                    is SignInConfirmNotBotException ->
-                        "YouTube is asking this connection to verify it isn't automated. Try another network or retry later."
-                    is ReCaptchaException ->
-                        "YouTube temporarily limited requests. Wait a bit, then retry."
-                    else -> error.message ?: "Please choose another result."
-                }
-                playerSubtitle.text = when (error) {
-                    is SignInConfirmNotBotException -> "YouTube verification required"
-                    is ReCaptchaException -> "YouTube temporarily limited requests"
-                    else -> "Couldn't prepare audio"
-                }
+                val message = "Could not prepare audio. Try another result or retry."
+                playerSubtitle.text = "Couldn't prepare audio"
                 Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
             } finally {
                 isResolving = false

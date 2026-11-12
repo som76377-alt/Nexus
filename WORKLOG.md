@@ -1,4 +1,16 @@
 # Nexus integration work log
+
+## Stream resolver resilience baseline (R0)
+| Task | Status | Squash commit | CI run | Learning |
+|---|---|---|---|---|
+| R0a NewPipeExtractor v0.27.1 baseline | DONE | 7c53cb180b3281aa7c79ce1a69b5f58bee376720 | [Android CI run #717](https://github.com/som76377-alt/Nexus/actions/runs/43024780972) | Included in PR #70's squash merge to main. The exact R0b head commit passed Android lint, unit tests, debug APK assembly and the unsigned-release guard. |
+| R0b Provider Lab diagnostics | DONE | 7c53cb180b3281aa7c79ce1a69b5f58bee376720 | [Android CI run #717](https://github.com/som76377-alt/Nexus/actions/runs/43024780972) | Hidden Provider Lab covers five fixed samples across default, IPv4-only and IPv6-only modes with search, exact-ID selection, resolution, ranged probe and 10-second Media3 playback. Live extractor smoke test was skipped. User confirmed mobile-data operation on the primary phone; Wi-Fi and second-device coverage remain UNVERIFIED. |
+
+## R2 implementation
+| Task | Status | Commit | CI run | Learning |
+|---|---|---|---|---|
+| R2 stream resolver resilience | DONE (code) | Final PR #71 head | [Android CI checks](https://github.com/som76377-alt/Nexus/pull/71/checks); [Web room test checks](https://github.com/som76377-alt/Nexus/pull/71/checks) | Final code-only audit: MainActivity and PlaybackService share NexusCatalog; Provider Lab uses NewPipeStreamProviderAdapter directly, leaving one YoutubeCatalogRepository construction; obsolete ExtractorFailoverPolicy/PipedFallbackExtractor/InvidiousFallbackExtractor references are absent; missing/invalid STREAM_PROVIDER_ORDER falls back to newpipe,piped,invidious; CONTENT_UNAVAILABLE and NETWORK alone do not open provider circuits; user-facing errors are generic and retryable, with search diagnostics confined to Provider Lab; room playback still resolves locally through the shared catalogue and existing local fallback path. UNVERIFIED: live NewPipe extraction; live Piped/Invidious; real search fallback and audio on the phone; network-failure recovery on the phone. |
+
 | T4 system interruptions and local-first playback | DONE | c73889587620d89744d55dfe4b6c16dc5945d748 | [Android CI](https://github.com/som76377-alt/Nexus/actions/runs/42376020571); [Web room tests](https://github.com/som76377-alt/Nexus/actions/runs/42376020388) | S5/S8: Media3 audio-focus and becoming-noisy reasons now create local-only interruption intents; transient focus release and explicit Play rejoin the current room timeline without publishing. Drift correction and local fallback are suspended during interruption; pending barriers and remote applies are held until release. Added three S5 regression tests. Android lint, unit tests, debug APK assembly, unsigned-release guard, and web build passed. Two-device behavior remains UNVERIFIED. Net diff: +389 / -5. |
 
 | Task | Status | Commit | CI run | Learning |

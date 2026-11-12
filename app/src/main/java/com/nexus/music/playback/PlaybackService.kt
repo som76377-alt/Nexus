@@ -10,7 +10,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
-import com.nexus.music.catalog.YoutubeCatalogRepository
+import com.nexus.music.catalog.NexusCatalog
 import com.nexus.music.rooms.ServiceRoomController
 import com.nexus.music.rooms.YoutubeRoomMediaResolver
 import com.nexus.music.rooms.RoomsApi
@@ -102,7 +102,7 @@ class PlaybackService : MediaSessionService() {
         activeRoomsApi.value = roomsApi
         val repository = SupabaseRoomRepository(roomsApi)
         val clock = SupabaseRoomClock(roomsApi)
-        val mediaResolver = YoutubeRoomMediaResolver(YoutubeCatalogRepository())
+        val mediaResolver = YoutubeRoomMediaResolver(NexusCatalog.repository(this))
         val controller = ServiceRoomController(
             parentScope = serviceScope,
             repository = repository,
