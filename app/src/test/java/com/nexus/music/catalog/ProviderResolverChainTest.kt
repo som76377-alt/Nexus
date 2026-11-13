@@ -4,14 +4,14 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
-import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
 import org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException
+import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
 import java.io.IOException
 
 class ProviderResolverChainTest {
