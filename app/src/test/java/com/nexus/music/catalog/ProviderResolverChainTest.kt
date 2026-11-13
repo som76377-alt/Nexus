@@ -382,9 +382,9 @@ class ProviderResolverChainTest {
         assertEquals(setOf(StreamProvider.NEWPIPE, StreamProvider.PIPED, StreamProvider.INVIDIOUS), calls.toSet())
     }
 
-    // J7 A6: the persisted startup configuration must exclude NewPipe on the next process start.
+    // J7 A6: a valid startup configuration with NewPipe disabled excludes it from the resolver.
     @Test
-    fun a6RemoteConfigurationDisablesNewPipeOnNextResolverInitialization() = runBlocking {
+    fun a6StartupConfigurationDisablesNewPipeWhenResolverIsInitialized() = runBlocking {
         val config = ProviderConfigurationParser.parse(
             """{"version":3,"providers":[{"id":"newpipe","enabled":false},{"id":"piped","enabled":true},{"id":"invidious","enabled":true}]}"""
         )
