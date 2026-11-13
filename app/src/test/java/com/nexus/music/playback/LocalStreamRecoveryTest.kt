@@ -2,11 +2,17 @@ package com.nexus.music.playback
 
 import com.nexus.music.catalog.ResolvedAudio
 import com.nexus.music.catalog.StreamProvider
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.IOException
 
 class LocalStreamRecoveryTest {
     private val source = "https://www.youtube.com/watch?v=local-only"
@@ -55,6 +61,42 @@ class LocalStreamRecoveryTest {
         assertTrue(localReplacements.single().third)
         // The recovery contract has no room publisher; no room action is emitted.
         assertTrue(roomActionsPublished.isEmpty())
+    }
+
+    // J7 A4: recovery resolution is bounded to five seconds; timeout is surfaced to Retry UI.
+    @Test
+    fun a4RecoveryResolutionTimesOutAtFiveSecondsWithoutReplacingThePlayer() = runTest {
+        var replaced = false
+        val recovery = LocalStreamRecovery(
+            resolveNext = { _, _ ->
+                delay(10_000L)
+                replacement()
+            },
+            isCurrentSource = { it == source },
+            replaceLocally = { _, _, _ -> replaced = true }
+        )
+
+        val pending = async {
+            runCatching {
+                recovery.recover(
+                    sourceUrl = source,
+                    excludedProviders = setOf(StreamProvider.NEWPIPE),
+                    resumePositionMs = 42_500L,
+                    resumeWhenReady = true
+                )
+            }
+        }
+        runCurrent()
+        advanceTimeBy(4_999L)
+        runCurrent()
+        assertFalse("recovery must still be pending before the five-second deadline", pending.isCompleted)
+        advanceTimeBy(1L)
+        runCurrent()
+
+        val error = pending.await().exceptionOrNull()
+        assertTrue("timeout must become an ordinary recovery failure", error is IOException)
+        assertTrue(error?.message.orEmpty().contains("timed out"))
+        assertFalse("a timed-out resolver must not replace the active track", replaced)
     }
 
     @Test
