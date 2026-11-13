@@ -154,15 +154,19 @@ class ProviderLabActivity : Activity() {
                         onFailure = { "FAILED: ${it::class.java.simpleName}: ${it.message.orEmpty().take(48)}" }
                     )
                 }
-                for (sample in SAMPLES) {
-                    for (family in FamilyMode.entries) {
-                        status.text = "${selectedProvider} · ${sample.label} · ${family.label}"
-                        rows += if (isYtDlp) {
-                            runYtDlpCell(sample, family, forced403Seconds)
-                        } else {
-                            runCell(sample, family, provider, failure, forced403Seconds)
-                        }
+                if (isYtDlp) {
+                    for (sample in SAMPLES) {
+                        status.text = "yt-dlp · ${sample.label} · native network stack"
+                        rows += runYtDlpCell(sample, forced403Seconds)
                         report.text = formatReport(network, rows)
+                    }
+                } else {
+                    for (sample in SAMPLES) {
+                        for (family in FamilyMode.entries) {
+                            status.text = "${selectedProvider} · ${sample.label} · ${family.label}"
+                            rows += runCell(sample, family, provider, failure, forced403Seconds)
+                            report.text = formatReport(network, rows)
+                        }
                     }
                 }
             } finally {
@@ -176,14 +180,15 @@ class ProviderLabActivity : Activity() {
 
     private suspend fun runYtDlpCell(
         sample: Sample,
-        family: FamilyMode,
         forced403Seconds: Int
     ): ProviderLabReportFormatter.Cell {
         val started = System.nanoTime()
         var httpCode: Int? = null
         return try {
             val engine = ytDlp ?: throw IllegalStateException("yt-dlp is unavailable in this build.")
-            val client = clientFor(family)
+            // youtubedl-android uses its own Python networking stack; the OkHttp DNS
+            // family filter used by the other cells does not control yt-dlp extraction.
+            val client = clientFor(FamilyMode.DEFAULT)
             val found = engine.search(applicationContext, sample.id)
             if (found.videoId != sample.id) {
                 throw IllegalStateException("Search returned ${found.videoId}, expected ${sample.id}.")
@@ -215,7 +220,7 @@ class ProviderLabActivity : Activity() {
             }
             playForTenSeconds(audio.audioUrl, client, forced403Seconds)
             ProviderLabReportFormatter.Cell(
-                YTDLP_PROVIDER, sample.id, family.label, true, null, httpCode,
+                YTDLP_PROVIDER, sample.id, "native-stack", true, null, httpCode,
                 elapsedMs(started), "cold=${coldMs}ms,warm=${warmMs}ms"
             )
         } catch (cancelled: CancellationException) {
@@ -223,7 +228,7 @@ class ProviderLabActivity : Activity() {
         } catch (error: Throwable) {
             if (error is ProviderHttpException) httpCode = error.code
             ProviderLabReportFormatter.Cell(
-                YTDLP_PROVIDER, sample.id, family.label, false,
+                YTDLP_PROVIDER, sample.id, "native-stack", false,
                 error::class.java.simpleName + error.message?.let { ": ${it.take(90)}" }.orEmpty(),
                 httpCode, elapsedMs(started)
             )
