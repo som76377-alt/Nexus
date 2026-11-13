@@ -45,4 +45,10 @@ class AudioCachePolicyTest {
         assertFalse(AudioCachePolicy.isFullyCached(-1L, 100_000L))
         assertFalse(AudioCachePolicy.isFullyCached(0L, 0L))
     }
+
+    @Test
+    fun rejectsLookalikeDomainsThatAreNotYouTube() {
+        assertNull(AudioCachePolicy.cacheKey("https://notyoutube.com/watch?v=abcDEF_1234", "https://media.example/audio?itag=140"))
+        assertNull(AudioCachePolicy.cacheKey("https://youtube.com.evil.example/watch?v=abcDEF_1234", "https://media.example/audio?itag=140"))
+    }
 }
