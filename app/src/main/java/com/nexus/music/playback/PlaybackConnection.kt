@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -31,6 +32,7 @@ data class PlaybackSnapshot(
 )
 
 /** Activity-side bridge to the player owned by PlaybackService. */
+@OptIn(UnstableApi::class)
 class PlaybackConnection(
     context: Context,
     private val onReady: () -> Unit,
@@ -122,6 +124,7 @@ class PlaybackConnection(
             val item = MediaItem.Builder()
                 .setMediaId(audio.sourceUrl)
                 .setUri(audio.audioUrl)
+                .setCustomCacheKey(AudioCachePolicy.cacheKey(audio.sourceUrl, audio.audioUrl))
                 .setMimeType(audio.mimeType)
                 .setMediaMetadata(metadata)
                 .build()

@@ -7,6 +7,8 @@ import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.PopupMenu
+import java.util.Locale
 
 /**
  * Local, account-free listening profile and app information.
@@ -18,7 +20,11 @@ class YouView(
     savedCount: Int,
     recentCount: Int,
     private val onLibrary: () -> Unit,
-    private val onAbout: () -> Unit
+    private val onAbout: () -> Unit,
+    private val cacheUsedBytes: Long,
+    private val cacheMaxBytes: Long,
+    private val onClearCache: () -> Unit,
+    private val onCacheLimitChanged: (Long) -> Unit
 ) : LinearLayout(context) {
     private val ink = NexusDesignSystem.Palette.carbonInk
     private val muted = NexusDesignSystem.Palette.muted
@@ -78,6 +84,45 @@ class YouView(
         })
         stats.addView(statCard("RECENTLY PLAYED", recentCount.toString()), LayoutParams(0, -2, 1f))
         content.addView(stats)
+
+        content.addView(text("OFFLINE STORAGE", 10f, green).apply {
+            letterSpacing = .15f
+            typeface = NexusDesignSystem.Type.technical(context)
+            setPadding(0, dp(26), 0, dp(10))
+        })
+        val storage = LinearLayout(context).apply {
+            orientation = VERTICAL
+            background = rounded(sleeve, 13)
+            setPadding(dp(14), dp(13), dp(14), dp(13))
+        }
+        val storageTop = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        val storageLabels = LinearLayout(context).apply { orientation = VERTICAL }
+        storageLabels.addView(text("Cached audio", 14f, ink).apply {
+            typeface = Typeface.create(NexusDesignSystem.Type.interfaceText(context), Typeface.BOLD)
+        })
+        storageLabels.addView(text(
+            String.format(Locale.US, "%.0f MB used", cacheUsedBytes / (1024.0 * 1024.0)), 11f, muted
+        ).apply { setPadding(0, dp(3), 0, 0) })
+        storageTop.addView(storageLabels, LayoutParams(0, -2, 1f))
+        storageTop.addView(text("Clear", 12f, NexusDesignSystem.Palette.oxblood).apply {
+            isClickable = true; isFocusable = true
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            setOnClickListener { onClearCache() }
+        })
+        storage.addView(storageTop)
+        val capLabel = when (cacheMaxBytes) { 500L shl 20 -> "500 MB"; 2L shl 30 -> "2 GB"; else -> "1 GB" }
+        storage.addView(text("Cache limit · $capLabel", 11f, muted).apply {
+            setPadding(0, dp(10), 0, 0); isClickable = true; isFocusable = true
+            setOnClickListener {
+                PopupMenu(context, this).apply {
+                    menu.add("500 MB").setOnMenuItemClickListener { onCacheLimitChanged(500L shl 20); true }
+                    menu.add("1 GB").setOnMenuItemClickListener { onCacheLimitChanged(1L shl 30); true }
+                    menu.add("2 GB").setOnMenuItemClickListener { onCacheLimitChanged(2L shl 30); true }
+                    show()
+                }
+            }
+        })
+        content.addView(storage, LayoutParams(-1, -2))
 
         content.addView(actionRow(
             "Open your collection",

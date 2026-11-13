@@ -40,4 +40,10 @@
 ## J0 — truth, tripwires, and fast feedback
 | Job | Status | Branch head | CI | SPEC IDs | Net line delta | Learning |
 |---|---|---|---|---|---:|---|
-| J0 truth and CI tripwires | READY FOR REVIEW | Pending branch commit | Android CI and Web Room Test required on exact PR head | S1–S8 unchanged; no SPEC edits | Pending | Corrected stale R3 merge record; removed unsupported R0 phone-verification claim; added Media3 opt-in guard, concise lint/unit failure digest, and current-state evidence table. All device behavior remains UNVERIFIED until timestamped phone reports are stored. |
+| J0 truth and CI tripwires | DONE — squash-merged to main | `002473be01f4f30ad1590ee64efa4e9ca98b4657` | [Android CI #802](https://github.com/som76377-alt/Nexus/actions/runs/43354668894) — success; [Web Room Test #374](https://github.com/som76377-alt/Nexus/actions/runs/43354671382) — success | S1–S8 unchanged; no SPEC edits | +100 net (+102 / -2) | PR #78 tested exact head `854c5e68d42a4ece64bfb32512aeca1e82839c31` and squash-merged after both checks passed. Added first-step Media3 opt-in guard, concise lint/unit failure digest, and current-state evidence table. Phone behavior remains UNVERIFIED. |
+
+
+## J1 — offline-capable persistent audio cache
+| Job | Status | Branch head | CI | SPEC IDs | Net line delta | Learning |
+|---|---|---|---|---|---:|---|
+| J1 persistent byte + metadata cache | IN PROGRESS — exact-head validation | PR #79, branch `jobs/j1-offline-cache`, current head `4c00bd11e1af15a164e043ee7516a833d174dec0` | Web Room Test and Android CI pending on exact head | S1–S8 unchanged; no SPEC edits | +577 net (+599 / -22; 15 files) | Single consolidated implementation commit. Persistent Media3 byte cache uses app-private files, stable videoId:itag keys, configurable LRU cap (500 MB / 1 GB / 2 GB), persisted metadata, app and room resolver integration, failed-entry eviction before local retry, and You-screen storage controls. Resolver tests cover offline full-cache bypass, fresh URL reuse, provider fallback, thrown provider failure, cap clamping and deterministic LRU ordering. Physical airplane-mode replay remains UNVERIFIED. |
