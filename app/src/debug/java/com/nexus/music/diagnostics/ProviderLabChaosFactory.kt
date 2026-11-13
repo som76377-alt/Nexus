@@ -10,6 +10,7 @@ import com.nexus.music.catalog.ProviderHttpException
 import com.nexus.music.catalog.ResolvedAudio
 import com.nexus.music.catalog.StreamProvider
 import com.nexus.music.catalog.StreamProviderAdapter
+import org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException
 import com.nexus.music.catalog.YoutubeSearchScope
 import kotlinx.coroutines.CancellationException
 import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
