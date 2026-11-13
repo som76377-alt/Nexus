@@ -52,3 +52,9 @@
 | Job | Status | Branch head | CI | SPEC IDs | Net line delta | Learning |
 |---|---|---|---|---|---:|---|
 | J2 classify recoverable failures, bound provider retry behavior, and expose one retry action | IN PROGRESS | `jobs/j2-failover-hardening`, current head pending CI | Exact-head Android CI and Web Room Test pending | S5, S8; no SPEC edits | Pending | Recovery eligibility is limited to HTTP 403/404/410/416, validated-network connection failure/timeout, and read-position-out-of-range. Decoder and parsing errors are excluded. Recovery uses raw service-owned ExoPlayer mutations (not the MediaSession forwarding player), preserves position and playWhenReady, evicts the failed cache entry, and exposes one status line with Retry after exhaustion. Physical room behavior and the one-second resume target remain UNVERIFIED. |
+
+
+## J3 — Provider Lab and debug-only chaos switches
+| Job | Status | Branch head | CI | SPEC IDs | Net line delta | Learning |
+|---|---|---|---|---|---:|---|
+| J3 Provider Lab chaos diagnostics | DONE — code and exact-head CI; merge pending | `bf6dd36847558f93e67cb5797ac24003b152329e` | [Android CI #43372468695](https://github.com/som76377-alt/Nexus/actions/runs/43372468695) — success; [Web Room Test #43372468755](https://github.com/som76377-alt/Nexus/actions/runs/43372468755) — success | S1–S8 unchanged; no SPEC edits | +407 / −32 before documentation | Adds per-provider testing and health/backoff diagnostics, six debug-only forced failure classes, timed stream-403 injection, a 40-line environment/config/cache report, and release-build exclusion checks. CI is deterministic and does not contact live services. Physical playback, IP-family behavior, and two-phone acceptance remain UNVERIFIED. |

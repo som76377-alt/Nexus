@@ -264,6 +264,11 @@ jobs:
           done
           exit 1
 
+      - name: Compile release and prove Provider Lab chaos is debug-only
+        run: |
+          ./gradlew --no-daemon :app:compileReleaseKotlin
+          bash scripts/check-provider-lab-chaos-build-types.sh
+
       - name: Verify unsigned release builds fail closed
         shell: bash
         run: |

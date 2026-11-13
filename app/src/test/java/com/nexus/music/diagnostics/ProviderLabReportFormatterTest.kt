@@ -6,19 +6,29 @@ import org.junit.Test
 
 class ProviderLabReportFormatterTest {
     @Test
-    fun reportIncludesNetworkAndPerCellOutcome() {
+    fun reportIncludesBuildNetworkCacheConfigHealthAndCellOutcome() {
         val report = ProviderLabReportFormatter.format(
-            "0.1.0-debug",
-            "Wi-Fi · IPv4=yes · IPv6=no",
-            listOf(
-                ProviderLabReportFormatter.Cell("dQw4w9WgXcQ", "default", true, null, 206, 1234),
-                ProviderLabReportFormatter.Cell("jfKfPfyJRdk", "IPv6-only", false, "UnknownHostException", null, 45)
+            appVersion = "0.1.0-debug",
+            flavor = "main",
+            network = "Wi-Fi · IPv4=yes · IPv6=no",
+            cacheBytes = 1234L,
+            configVersion = "local-v0 · order=newpipe,piped,invidious",
+            providerHealth = listOf(
+                ProviderLabReportFormatter.ProviderHealthRow("newpipe", 2, 1000L, "RATE_LIMITED", 30000L)
+            ),
+            cells = listOf(
+                ProviderLabReportFormatter.Cell("newpipe", "dQw4w9WgXcQ", "default", true, null, 206, 1234),
+                ProviderLabReportFormatter.Cell("piped", "jfKfPfyJRdk", "IPv6-only", false, "UnknownHostException", null, 45)
             )
         )
         assertTrue(report.contains("App: 0.1.0-debug"))
+        assertTrue(report.contains("Flavor: main"))
         assertTrue(report.contains("Wi-Fi"))
-        assertTrue(report.contains("OK dQw4w9WgXcQ default"))
-        assertTrue(report.contains("FAIL jfKfPfyJRdk IPv6-only"))
+        assertTrue(report.contains("Cache: 1234 bytes"))
+        assertTrue(report.contains("Config: local-v0"))
+        assertTrue(report.contains("HEALTH newpipe failures=2"))
+        assertTrue(report.contains("OK newpipe dQw4w9WgXcQ default"))
+        assertTrue(report.contains("FAIL piped jfKfPfyJRdk IPv6-only"))
         assertTrue(report.contains("HTTP=206"))
         assertTrue(report.contains("UnknownHostException"))
     }
@@ -26,9 +36,17 @@ class ProviderLabReportFormatterTest {
     @Test
     fun reportIsBoundedToFortyLinesAndFifteenCells() {
         val cells = (1..20).map {
-            ProviderLabReportFormatter.Cell("dQw4w9WgXcQ", "default", false, "failure", null, it.toLong())
+            ProviderLabReportFormatter.Cell("newpipe", "dQw4w9WgXcQ", "default", false, "failure", null, it.toLong())
         }
-        val lines = ProviderLabReportFormatter.format("test", "offline", cells).lines()
+        val lines = ProviderLabReportFormatter.format(
+            "test", "main", "offline", 0L, "local-v0",
+            listOf(
+                ProviderLabReportFormatter.ProviderHealthRow("newpipe", 0, 0L, null, 0L),
+                ProviderLabReportFormatter.ProviderHealthRow("piped", 0, 0L, null, 0L),
+                ProviderLabReportFormatter.ProviderHealthRow("invidious", 0, 0L, null, 0L)
+            ),
+            cells
+        ).lines()
         assertTrue(lines.size <= 40)
         assertEquals(15, lines.count { it.startsWith("FAIL ") || it.startsWith("OK ") })
     }
@@ -36,8 +54,8 @@ class ProviderLabReportFormatterTest {
     @Test
     fun reportSanitizesMultilineErrors() {
         val report = ProviderLabReportFormatter.format(
-            "test", "cellular",
-            listOf(ProviderLabReportFormatter.Cell("dQw4w9WgXcQ", "IPv4-only", false, "Bad\nHeader|value", 403, 2))
+            "test", "main", "cellular", 0L, "local-v0", emptyList(),
+            listOf(ProviderLabReportFormatter.Cell("newpipe", "dQw4w9WgXcQ", "IPv4-only", false, "Bad\nHeader|value", 403, 2))
         )
         assertTrue(report.contains("Bad Header value"))
     }
