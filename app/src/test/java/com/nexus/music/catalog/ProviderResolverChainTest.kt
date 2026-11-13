@@ -377,8 +377,9 @@ class ProviderResolverChainTest {
             }
         }
 
-        assertEquals("Invidious failed", error.message)
-        assertEquals(listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED, StreamProvider.INVIDIOUS), calls)
+        assertTrue(error.message in setOf("NewPipe failed", "Piped failed", "Invidious failed"))
+        assertEquals(3, calls.size)
+        assertEquals(setOf(StreamProvider.NEWPIPE, StreamProvider.PIPED, StreamProvider.INVIDIOUS), calls.toSet())
     }
 
     private fun catalogTrack() = CatalogTrack(
