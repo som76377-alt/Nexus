@@ -4,7 +4,6 @@ import com.nexus.music.catalog.ResolvedAudio
 import com.nexus.music.catalog.CatalogTrack
 import com.nexus.music.catalog.ProviderHealth
 import com.nexus.music.catalog.ProviderHealthStore
-import com.nexus.music.catalog.ProviderHttpException
 import com.nexus.music.catalog.ProviderResolverChain
 import com.nexus.music.catalog.StreamErrorClass
 import com.nexus.music.catalog.StreamProviderAdapter
@@ -40,7 +39,6 @@ class LocalStreamRecoveryTest {
 
     @Test
     fun streamReresolutionReplacesOnlyLocalPlayerAndPublishesNoRoomAction() = runBlocking {
-        val roomActionsPublished = mutableListOf<String>()
         val localReplacements = mutableListOf<Triple<ResolvedAudio, Long, Boolean>>()
         var resolvedWith = emptySet<StreamProvider>()
         val recovery = LocalStreamRecovery(
@@ -69,7 +67,6 @@ class LocalStreamRecoveryTest {
         assertEquals(42_500L, localReplacements.single().second)
         assertTrue(localReplacements.single().third)
         // The recovery contract has no room publisher; no room action is emitted.
-        assertTrue(roomActionsPublished.isEmpty())
     }
 
     // J7 A4: recovery resolution is bounded to five seconds; timeout is surfaced to Retry UI.
