@@ -6,6 +6,7 @@ on:
     paths:
       - "web-room-test/**"
       - ".github/workflows/web-room-test.yml"
+      - ".github/workflows/android-ci.yml"
       - "app/src/main/java/com/nexus/music/rooms/**"
       - "app/src/main/java/com/nexus/music/playback/**"
       - "supabase/migrations/**"
