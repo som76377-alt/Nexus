@@ -70,6 +70,11 @@ android {
         buildConfigField("String", "STREAM_PROVIDER_ORDER", "\"${streamProviderOrder.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
     }
     buildFeatures { buildConfig = true }
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
     signingConfigs {
         create("nexus") {
             if (hasNexusSigningKey) {
