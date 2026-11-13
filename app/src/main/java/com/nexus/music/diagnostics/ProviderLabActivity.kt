@@ -64,6 +64,8 @@ class ProviderLabActivity : Activity() {
     private lateinit var stream403Seconds: EditText
     private val healthStore by lazy { SharedPreferencesProviderHealthStore(this) }
     private val chaos by lazy { if (BuildConfig.DEBUG) ProviderLabChaosFactory.create() else null }
+    private val ytDlp by lazy { YtDlpProviderLabFactory.create() }
+    private var ytDlpUpdateStatus = "not run"
     private var running = false
     private val labScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -81,7 +83,8 @@ class ProviderLabActivity : Activity() {
             adapter = ArrayAdapter(
                 this@ProviderLabActivity,
                 android.R.layout.simple_spinner_dropdown_item,
-                StreamProvider.entries.map { it.key }
+                StreamProvider.entries.map { it.key } +
+                    if (ytDlp != null) listOf(YTDLP_PROVIDER) else emptyList()
             )
         }
         failureSpinner = Spinner(this).apply {
@@ -131,19 +134,34 @@ class ProviderLabActivity : Activity() {
         labScope.launch {
             val rows = mutableListOf<ProviderLabReportFormatter.Cell>()
             val network = networkSummary()
-            val provider = StreamProvider.entries.first { it.key == providerSpinner.selectedItem.toString() }
-            val failure = if (BuildConfig.DEBUG) {
+            val selectedProvider = providerSpinner.selectedItem.toString()
+            val isYtDlp = selectedProvider == YTDLP_PROVIDER
+            val provider = StreamProvider.entries.firstOrNull { it.key == selectedProvider }
+                ?: StreamProvider.NEWPIPE
+            val failure = if (BuildConfig.DEBUG && !isYtDlp) {
                 ProviderLabFailure.valueOf(failureSpinner.selectedItem.toString())
             } else ProviderLabFailure.NONE
             val forced403Seconds = if (BuildConfig.DEBUG) {
                 stream403Seconds.text.toString().toIntOrNull()?.coerceIn(0, 300) ?: 0
             } else 0
-            status.text = "Running 15 checks · ${provider.key} · failure=${failure.name} · stream403=${forced403Seconds}s"
+            status.text = "Running 15 checks · ${selectedProvider} · failure=${failure.name} · stream403=${forced403Seconds}s"
             try {
+                if (isYtDlp) {
+                    ytDlpUpdateStatus = runCatching {
+                        ytDlp?.initializeAndUpdate(applicationContext) ?: "unavailable"
+                    }.fold(
+                        onSuccess = { it },
+                        onFailure = { "FAILED: ${it::class.java.simpleName}: ${it.message.orEmpty().take(48)}" }
+                    )
+                }
                 for (sample in SAMPLES) {
                     for (family in FamilyMode.entries) {
-                        status.text = "${provider.key} · ${sample.label} · ${family.label}"
-                        rows += runCell(sample, family, provider, failure, forced403Seconds)
+                        status.text = "${selectedProvider} · ${sample.label} · ${family.label}"
+                        rows += if (isYtDlp) {
+                            runYtDlpCell(sample, family, forced403Seconds)
+                        } else {
+                            runCell(sample, family, provider, failure, forced403Seconds)
+                        }
                         report.text = formatReport(network, rows)
                     }
                 }
@@ -154,6 +172,70 @@ class ProviderLabActivity : Activity() {
                 running = false
             }
         }
+    }
+
+    private suspend fun runYtDlpCell(
+        sample: Sample,
+        family: FamilyMode,
+        forced403Seconds: Int
+    ): ProviderLabReportFormatter.Cell {
+        val started = System.nanoTime()
+        var httpCode: Int? = null
+        return try {
+            val engine = ytDlp ?: throw IllegalStateException("yt-dlp is unavailable in this build.")
+            val client = clientFor(family)
+            val found = engine.search(applicationContext, sample.id)
+            if (found.videoId != sample.id) {
+                throw IllegalStateException("Search returned ${found.videoId}, expected ${sample.id}.")
+            }
+
+            val coldStarted = System.nanoTime()
+            engine.resolveAudio(applicationContext, found.sourceUrl)
+            val coldMs = elapsedMs(coldStarted)
+
+            val warmStarted = System.nanoTime()
+            val audio = engine.resolveAudio(applicationContext, found.sourceUrl)
+            val warmMs = elapsedMs(warmStarted)
+            if (audio.audioUrl.isBlank()) throw IOException("yt-dlp returned an empty audio URL.")
+
+            httpCode = withContext(Dispatchers.IO) {
+                client.newCall(
+                    Request.Builder().url(audio.audioUrl).header("Range", "bytes=0-1023").build()
+                ).execute().use { response ->
+                    val code = response.code
+                    if (!response.isSuccessful) throw ProviderHttpException(code, "yt-dlp audio probe rejected")
+                    val bytes = response.body?.byteStream()?.use { stream ->
+                        val buffer = ByteArray(1024)
+                        val count = stream.read(buffer)
+                        if (count > 0) buffer.copyOf(count) else byteArrayOf()
+                    } ?: byteArrayOf()
+                    if (bytes.isEmpty()) throw ProviderHttpException(code, "yt-dlp audio probe returned no bytes")
+                    code
+                }
+            }
+            playForTenSeconds(audio.audioUrl, client, forced403Seconds)
+            ProviderLabReportFormatter.Cell(
+                YTDLP_PROVIDER, sample.id, family.label, true, null, httpCode,
+                elapsedMs(started), "cold=${coldMs}ms,warm=${warmMs}ms"
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            if (error is ProviderHttpException) httpCode = error.code
+            ProviderLabReportFormatter.Cell(
+                YTDLP_PROVIDER, sample.id, family.label, false,
+                error::class.java.simpleName + error.message?.let { ": ${it.take(90)}" }.orEmpty(),
+                httpCode, elapsedMs(started)
+            )
+        }
+    }
+
+    private fun median(values: List<Long>): Long {
+        val sorted = values.sorted()
+        if (sorted.isEmpty()) return 0L
+        val middle = sorted.size / 2
+        return if (sorted.size % 2 == 1) sorted[middle]
+        else (sorted[middle - 1] + sorted[middle]) / 2L
     }
 
     private suspend fun runCell(sample: Sample, family: FamilyMode, provider: StreamProvider, failure: ProviderLabFailure, forced403Seconds: Int): ProviderLabReportFormatter.Cell {
@@ -278,7 +360,15 @@ class ProviderLabActivity : Activity() {
             )
         }
         val cacheBytes = runCatching { AudioCacheStore.usedBytes(this) }.getOrDefault(0L)
-        val config = "local-v0 · order=${BuildConfig.STREAM_PROVIDER_ORDER}"
+        val ytCells = cells.filter { it.provider == YTDLP_PROVIDER }
+        val cold = ytCells.mapNotNull { it.detail?.let { value -> Regex("cold=(\\d+)ms").find(value)?.groupValues?.get(1)?.toLongOrNull() } }
+        val warm = ytCells.mapNotNull { it.detail?.let { value -> Regex("warm=(\\d+)ms").find(value)?.groupValues?.get(1)?.toLongOrNull() } }
+        val latency = if (cold.isEmpty() || warm.isEmpty()) {
+            "latency=n/a"
+        } else {
+            "cold-med=${median(cold)}ms,warm-med=${median(warm)}ms"
+        }
+        val config = "local-v0 · order=${BuildConfig.STREAM_PROVIDER_ORDER} · yt-dlp-update=${ytDlpUpdateStatus.take(16)} · $latency"
         return ProviderLabReportFormatter.format(
             appVersion = BuildConfig.VERSION_NAME,
             flavor = if (BuildConfig.DEBUG) "debug" else "release",
@@ -348,6 +438,8 @@ class ProviderLabActivity : Activity() {
     private class ProviderHttpException(val code: Int, message: String) : java.io.IOException(message)
 
     companion object {
+        private const val YTDLP_PROVIDER = "yt-dlp"
+
         // Fixed IDs cover a popular upload, an obscure upload, long-form video and two live streams.
         private val SAMPLES = listOf(
             Sample("dQw4w9WgXcQ", "popular"),
