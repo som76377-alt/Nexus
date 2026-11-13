@@ -63,6 +63,10 @@ class ListeningRoomActivity : Activity() {
     private lateinit var messageInput: EditText
     private lateinit var sendButton: Button
     private lateinit var copyCodeButton: Button
+    private lateinit var playbackFailureRow: LinearLayout
+    private lateinit var playbackFailureText: TextView
+    private lateinit var playbackRetryButton: Button
+    private var recoveryStatusJob: Job? = null
 
     private var playback: PlaybackConnection? = null
     private var roomId: String? = null
@@ -184,6 +188,27 @@ class ListeningRoomActivity : Activity() {
         })
         roomPanel.addView(roomHeader, params(0))
 
+        playbackFailureRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = rounded(raised, 9)
+            setPadding(dp(10), dp(4), dp(6), dp(4))
+            visibility = View.GONE
+        }
+        playbackFailureText = label("", 11f, foreground).apply {
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        playbackFailureRow.addView(playbackFailureText, LinearLayout.LayoutParams(0, -2, 1f))
+        playbackRetryButton = actionButton("Retry", true).apply {
+            minHeight = dp(36)
+            setOnClickListener { PlaybackService.retryPlaybackRecovery() }
+        }
+        playbackFailureRow.addView(playbackRetryButton, LinearLayout.LayoutParams(-2, dp(36)).apply {
+            marginStart = dp(8)
+        })
+        roomPanel.addView(playbackFailureRow, params(8))
+
         roomPanel.addView(label("THE CONVERSATION", 10f, accent, true).apply {
             letterSpacing = .14f
             typeface = NexusDesignSystem.Type.technical(this@ListeningRoomActivity)
@@ -236,8 +261,21 @@ class ListeningRoomActivity : Activity() {
             context = this,
             onReady = { restoreActiveRoomIfPresent() },
             onStateChanged = { },
-            onError = { message -> status.text = "Player: $message" }
+            onError = { message ->
+                if (!PlaybackService.isRecoveryInProgress()) status.text = "Player: $message"
+            }
         )
+        recoveryStatusJob = scope.launch {
+            PlaybackService.recoveryStatus().collect { recovery ->
+                if (!::playbackFailureRow.isInitialized) return@collect
+                val visible = roomId != null && recovery != null
+                playbackFailureRow.visibility = if (visible) View.VISIBLE else View.GONE
+                playbackFailureText.text = recovery?.message.orEmpty()
+                playbackRetryButton.visibility =
+                    if (recovery?.canRetry == true) View.VISIBLE else View.GONE
+                playbackRetryButton.isEnabled = recovery?.canRetry == true
+            }
+        }
     }
 
     private var restoreRoomAttempted = false
@@ -572,6 +610,7 @@ class ListeningRoomActivity : Activity() {
         messageInput.text.clear()
         codeInput.text.clear()
         roomId = null
+        playbackFailureRow.visibility = View.GONE
         inviteCode = null
         userId = null
         if (clearPersistedRoom) ActiveRoomSessionStore.clear(this)
@@ -725,6 +764,8 @@ class ListeningRoomActivity : Activity() {
         // Activity navigation/recreation while PlaybackService remains alive.
         stopChatFallbackSync()
         roomStateJob?.cancel()
+        recoveryStatusJob?.cancel()
+        recoveryStatusJob = null
         playback?.close()
         playback = null
         scope.cancel()
