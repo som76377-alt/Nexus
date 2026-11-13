@@ -10,7 +10,6 @@ import com.nexus.music.catalog.ProviderHttpException
 import com.nexus.music.catalog.ResolvedAudio
 import com.nexus.music.catalog.StreamProvider
 import com.nexus.music.catalog.StreamProviderAdapter
-import org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException
 import com.nexus.music.catalog.YoutubeSearchScope
 import kotlinx.coroutines.CancellationException
 import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
@@ -26,18 +25,18 @@ private object DebugProviderLabChaos : ProviderLabChaos {
         provider: StreamProvider,
         failure: ProviderLabFailure
     ): StreamProviderAdapter {
-        if (failure == ProviderLabFailure.NONE) return adapter
+        if (failure == ProviderLabFailure.NONE || adapter.provider != provider) return adapter
+        val selectedProvider = provider
         return object : StreamProviderAdapter {
             override val provider: StreamProvider = adapter.provider
 
             private fun failIfSelected() {
-                if (adapter.provider != provider) return
                 when (failure) {
                     ProviderLabFailure.NONE -> Unit
                     ProviderLabFailure.BOT_CHECK ->
                         throw ReCaptchaException("Provider Lab forced bot-check challenge.", "https://www.youtube.com/")
                     ProviderLabFailure.RATE_LIMITED ->
-                        throw ProviderHttpException(429, provider.key, 60_000L)
+                        throw ProviderHttpException(429, selectedProvider.key, 60_000L)
                     ProviderLabFailure.EXTRACTOR_BROKEN ->
                         throw IllegalStateException("Provider Lab forced extractor failure.")
                     ProviderLabFailure.NETWORK ->
@@ -45,7 +44,7 @@ private object DebugProviderLabChaos : ProviderLabChaos {
                     ProviderLabFailure.CONTENT_UNAVAILABLE ->
                         throw ContentNotAvailableException("Provider Lab forced content-unavailable response.")
                     ProviderLabFailure.STREAM_FORBIDDEN ->
-                        throw ProviderHttpException(403, provider.key)
+                        throw ProviderHttpException(403, selectedProvider.key)
                 }
             }
 

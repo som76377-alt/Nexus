@@ -27,12 +27,12 @@ import com.nexus.music.BuildConfig
 import com.nexus.music.catalog.OkHttpDownloader
 import com.nexus.music.catalog.InvidiousStreamProviderAdapter
 import com.nexus.music.catalog.PipedStreamProviderAdapter
-import com.nexus.music.catalog.ProviderHealth
 import com.nexus.music.catalog.ProviderResolverChain
 import com.nexus.music.catalog.SharedPreferencesProviderHealthStore
 import com.nexus.music.catalog.StreamProvider
 import com.nexus.music.catalog.StreamProviderAdapter
 import com.nexus.music.catalog.ProviderInstanceDiscovery
+import com.nexus.music.catalog.ProviderHttpException as CatalogProviderHttpException
 import com.nexus.music.catalog.ExtractorRuntime
 import com.nexus.music.catalog.NewPipeStreamProviderAdapter
 import com.nexus.music.catalog.YoutubeSearchScope
@@ -198,7 +198,10 @@ class ProviderLabActivity : Activity() {
             throw cancelled
         } catch (error: Throwable) {
             if (error is ProviderHttpException) httpCode = error.code
-            if (error.message?.contains("forced HTTP 403") == true) httpCode = 403
+            if (error is CatalogProviderHttpException) httpCode = error.statusCode
+            if (generateSequence(error) { it.cause }.any { it.message?.contains("forced HTTP 403") == true }) {
+                httpCode = 403
+            }
             ProviderLabReportFormatter.Cell(
                 provider.key, sample.id, family.label, false,
                 error::class.java.simpleName + error.message?.let { ": ${it.take(90)}" }.orEmpty(),
