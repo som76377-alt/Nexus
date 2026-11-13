@@ -20,6 +20,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -211,7 +212,9 @@ class ProviderLabActivity : Activity() {
 
             httpCode = withContext(Dispatchers.IO) {
                 client.newCall(
-                    Request.Builder().url(audio.audioUrl).header("Range", "bytes=0-1023").build()
+                    Request.Builder().url(audio.audioUrl).apply {
+                        audio.httpHeaders.forEach { (name, value) -> header(name, value) }
+                    }.header("Range", "bytes=0-1023").build()
                 ).execute().use { response ->
                     val code = response.code
                     if (!response.isSuccessful) throw ProviderHttpException(code, "yt-dlp audio probe rejected")
@@ -224,7 +227,7 @@ class ProviderLabActivity : Activity() {
                     code
                 }
             }
-            playForTenSeconds(audio.audioUrl, client, forced403Seconds)
+            playForTenSeconds(audio.audioUrl, client, audio.httpHeaders, forced403Seconds)
             ProviderLabReportFormatter.Cell(
                 YTDLP_PROVIDER, sample.id, "native-stack", true, null, httpCode,
                 elapsedMs(started), "cold=${coldMs}ms,warm=${warmMs}ms"
@@ -235,7 +238,7 @@ class ProviderLabActivity : Activity() {
             if (error is ProviderHttpException) httpCode = error.code
             ProviderLabReportFormatter.Cell(
                 YTDLP_PROVIDER, sample.id, "native-stack", false,
-                error::class.java.simpleName + error.message?.let { ": ${it.take(90)}" }.orEmpty(),
+                error::class.java.simpleName + error.message?.let { ": ${it.take(220)}" }.orEmpty(),
                 httpCode, elapsedMs(started)
             )
         }
@@ -309,9 +312,16 @@ class ProviderLabActivity : Activity() {
     }
 
     @OptIn(UnstableApi::class)
-    private suspend fun playForTenSeconds(url: String, client: OkHttpClient, forced403Seconds: Int) {
+    private suspend fun playForTenSeconds(
+        url: String,
+        client: OkHttpClient,
+        headers: Map<String, String>,
+        forced403Seconds: Int
+    ) {
+        val sourceFactory = OkHttpDataSource.Factory(client).setDefaultRequestProperties(headers)
+        val mediaSourceFactory = chaos?.wrapMediaDataSource(sourceFactory, forced403Seconds) ?: sourceFactory
         val player = ExoPlayer.Builder(this)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(chaos?.wrapMediaDataSource(OkHttpDataSource.Factory(client), forced403Seconds) ?: OkHttpDataSource.Factory(client)))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(mediaSourceFactory))
             .build()
         try {
             player.setAudioAttributes(
@@ -325,7 +335,18 @@ class ProviderLabActivity : Activity() {
             val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(25)
             var beganAt: Long? = null
             while (System.nanoTime() < deadline) {
-                player.playerError?.let { throw IllegalStateException(it.errorCodeName + ": " + it.message) }
+                player.playerError?.let { playbackError ->
+                    val responseError = generateSequence(playbackError as Throwable) { it.cause }
+                        .filterIsInstance<HttpDataSource.InvalidResponseCodeException>()
+                        .firstOrNull()
+                    if (responseError != null) {
+                        throw ProviderHttpException(responseError.responseCode, "Media3 audio request rejected")
+                    }
+                    throw IllegalStateException(
+                        playbackError.errorCodeName + ": " + playbackError.message,
+                        playbackError
+                    )
+                }
                 if (player.isPlaying) {
                     if (beganAt == null) beganAt = System.nanoTime()
                     if (System.nanoTime() - beganAt >= TimeUnit.SECONDS.toNanos(10)) return
@@ -379,7 +400,7 @@ class ProviderLabActivity : Activity() {
         } else {
             "cold-med=${median(cold)}ms,warm-med=${median(warm)}ms"
         }
-        val config = "local-v0 · order=${BuildConfig.STREAM_PROVIDER_ORDER} · yt-dlp-update=${ytDlpUpdateStatus.take(16)} · $latency"
+        val config = "local-v0 · order=${BuildConfig.STREAM_PROVIDER_ORDER} · yt-dlp-update=${ytDlpUpdateStatus.take(96)} · $latency"
         return ProviderLabReportFormatter.format(
             appVersion = BuildConfig.VERSION_NAME,
             flavor = if (BuildConfig.DEBUG) "debug" else "release",

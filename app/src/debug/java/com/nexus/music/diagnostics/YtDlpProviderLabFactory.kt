@@ -35,7 +35,8 @@ private object AndroidYtDlpProviderLab : YtDlpProviderLab {
             YtDlpResolvedAudio(
                 videoId = id,
                 title = info.title.orEmpty(),
-                audioUrl = url
+                audioUrl = url,
+                httpHeaders = info.httpHeaders.orEmpty()
             )
         }
 }

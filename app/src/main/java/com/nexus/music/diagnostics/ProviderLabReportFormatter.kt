@@ -35,7 +35,7 @@ internal object ProviderLabReportFormatter {
         appendLine("Flavor: ${flavor.take(24)}")
         appendLine("Network: ${network.take(100)}")
         appendLine("Cache: ${cacheBytes.coerceAtLeast(0)} bytes")
-        appendLine("Config: ${configVersion.take(100)}")
+        appendLine("Config: ${configVersion.take(180)}")
         providerHealth.take(3).forEach { health ->
             appendLine(
                 "HEALTH ${health.provider} failures=${health.consecutiveFailures.coerceAtLeast(0)} " +
@@ -47,7 +47,7 @@ internal object ProviderLabReportFormatter {
         val expectedCells = if (cells.any { it.provider == "yt-dlp" }) 5 else 15
         cells.take(expectedCells).forEach { cell ->
             val state = if (cell.ok) "OK" else "FAIL"
-            val error = cell.error?.replace(Regex("[\\r\\n|]"), " ")?.take(90).orEmpty()
+            val error = cell.error?.replace(Regex("[\\r\\n|]"), " ")?.take(220).orEmpty()
             val detail = cell.detail?.replace(Regex("[\\r\\n|]"), " ")?.take(70).orEmpty()
             appendLine(
                 "$state ${cell.provider} ${cell.videoId} ${cell.networkMode} · " +

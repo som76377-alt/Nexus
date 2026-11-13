@@ -11,5 +11,6 @@ internal interface YtDlpProviderLab {
 internal data class YtDlpResolvedAudio(
     val videoId: String,
     val title: String,
-    val audioUrl: String
+    val audioUrl: String,
+    val httpHeaders: Map<String, String>
 )
