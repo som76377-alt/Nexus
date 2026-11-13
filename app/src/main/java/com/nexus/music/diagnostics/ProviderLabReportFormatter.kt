@@ -9,7 +9,8 @@ internal object ProviderLabReportFormatter {
         val ok: Boolean,
         val error: String?,
         val httpCode: Int?,
-        val elapsedMs: Long
+        val elapsedMs: Long,
+        val detail: String? = null
     )
 
     data class ProviderHealthRow(
@@ -34,7 +35,7 @@ internal object ProviderLabReportFormatter {
         appendLine("Flavor: ${flavor.take(24)}")
         appendLine("Network: ${network.take(100)}")
         appendLine("Cache: ${cacheBytes.coerceAtLeast(0)} bytes")
-        appendLine("Config: ${configVersion.take(100)}")
+        appendLine("Config: ${configVersion.take(180)}")
         providerHealth.take(3).forEach { health ->
             appendLine(
                 "HEALTH ${health.provider} failures=${health.consecutiveFailures.coerceAtLeast(0)} " +
@@ -43,16 +44,19 @@ internal object ProviderLabReportFormatter {
                     "cooldownMs=${health.cooldownRemainingMs.coerceAtLeast(0)}"
             )
         }
-        cells.take(15).forEach { cell ->
+        val expectedCells = if (cells.any { it.provider == "yt-dlp" }) 5 else 15
+        cells.take(expectedCells).forEach { cell ->
             val state = if (cell.ok) "OK" else "FAIL"
-            val error = cell.error?.replace(Regex("[\\r\\n|]"), " ")?.take(90).orEmpty()
+            val error = cell.error?.replace(Regex("[\\r\\n|]"), " ")?.take(900).orEmpty()
+            val detail = cell.detail?.replace(Regex("[\\r\\n|]"), " ")?.take(70).orEmpty()
             appendLine(
                 "$state ${cell.provider} ${cell.videoId} ${cell.networkMode} · " +
+                    "detail=${detail.ifBlank { "n/a" }} · " +
                     "exception=${error.ifBlank { "none" }} · " +
                     "HTTP=${cell.httpCode?.toString() ?: "n/a"} · ${cell.elapsedMs}ms"
             )
         }
-        if (cells.size < 15) appendLine("Pending: ${15 - cells.size} checks")
-        if (cells.size > 15) appendLine("Omitted: ${cells.size - 15} additional checks")
+        if (cells.size < expectedCells) appendLine("Pending: ${expectedCells - cells.size} checks")
+        if (cells.size > expectedCells) appendLine("Omitted: ${cells.size - expectedCells} additional checks")
     }.lineSequence().take(40).joinToString("\n")
 }

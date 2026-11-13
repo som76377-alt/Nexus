@@ -20,6 +20,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -49,6 +50,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.io.IOException
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
@@ -64,6 +66,8 @@ class ProviderLabActivity : Activity() {
     private lateinit var stream403Seconds: EditText
     private val healthStore by lazy { SharedPreferencesProviderHealthStore(this) }
     private val chaos by lazy { if (BuildConfig.DEBUG) ProviderLabChaosFactory.create() else null }
+    private val ytDlp by lazy { YtDlpProviderLabFactory.create() }
+    private var ytDlpUpdateStatus = "not run"
     private var running = false
     private val labScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -75,13 +79,14 @@ class ProviderLabActivity : Activity() {
             setPadding(24, 24, 24, 24)
         }
         status = TextView(this).apply {
-            text = "Tests five fixed YouTube samples against one selected provider across default, IPv4-only and IPv6-only networking. Successful cells play audio for 10 seconds."
+            text = "Tests five fixed YouTube samples against one selected provider. NewPipe, Piped and Invidious run default, IPv4-only and IPv6-only; yt-dlp uses its native network stack. Successful cells play audio for 10 seconds."
         }
         providerSpinner = Spinner(this).apply {
             adapter = ArrayAdapter(
                 this@ProviderLabActivity,
                 android.R.layout.simple_spinner_dropdown_item,
-                StreamProvider.entries.map { it.key }
+                StreamProvider.entries.map { it.key } +
+                    if (ytDlp != null) listOf(YTDLP_PROVIDER) else emptyList()
             )
         }
         failureSpinner = Spinner(this).apply {
@@ -131,20 +136,40 @@ class ProviderLabActivity : Activity() {
         labScope.launch {
             val rows = mutableListOf<ProviderLabReportFormatter.Cell>()
             val network = networkSummary()
-            val provider = StreamProvider.entries.first { it.key == providerSpinner.selectedItem.toString() }
-            val failure = if (BuildConfig.DEBUG) {
+            val selectedProvider = providerSpinner.selectedItem.toString()
+            val isYtDlp = selectedProvider == YTDLP_PROVIDER
+            val provider = StreamProvider.entries.firstOrNull { it.key == selectedProvider }
+                ?: StreamProvider.NEWPIPE
+            val failure = if (BuildConfig.DEBUG && !isYtDlp) {
                 ProviderLabFailure.valueOf(failureSpinner.selectedItem.toString())
             } else ProviderLabFailure.NONE
             val forced403Seconds = if (BuildConfig.DEBUG) {
                 stream403Seconds.text.toString().toIntOrNull()?.coerceIn(0, 300) ?: 0
             } else 0
-            status.text = "Running 15 checks · ${provider.key} · failure=${failure.name} · stream403=${forced403Seconds}s"
+            val checkCount = if (isYtDlp) SAMPLES.size else SAMPLES.size * FamilyMode.entries.size
+            status.text = "Running ${checkCount} checks · ${selectedProvider} · failure=${failure.name} · stream403=${forced403Seconds}s"
             try {
-                for (sample in SAMPLES) {
-                    for (family in FamilyMode.entries) {
-                        status.text = "${provider.key} · ${sample.label} · ${family.label}"
-                        rows += runCell(sample, family, provider, failure, forced403Seconds)
+                if (isYtDlp) {
+                    ytDlpUpdateStatus = runCatching {
+                        ytDlp?.initializeAndUpdate(applicationContext) ?: "unavailable"
+                    }.fold(
+                        onSuccess = { it },
+                        onFailure = { "FAILED: ${it::class.java.simpleName}: ${it.message.orEmpty().take(120)}" }
+                    )
+                }
+                if (isYtDlp) {
+                    for (sample in SAMPLES) {
+                        status.text = "yt-dlp · ${sample.label} · native network stack"
+                        rows += runYtDlpCell(sample, forced403Seconds)
                         report.text = formatReport(network, rows)
+                    }
+                } else {
+                    for (sample in SAMPLES) {
+                        for (family in FamilyMode.entries) {
+                            status.text = "${selectedProvider} · ${sample.label} · ${family.label}"
+                            rows += runCell(sample, family, provider, failure, forced403Seconds)
+                            report.text = formatReport(network, rows)
+                        }
                     }
                 }
             } finally {
@@ -154,6 +179,77 @@ class ProviderLabActivity : Activity() {
                 running = false
             }
         }
+    }
+
+    private suspend fun runYtDlpCell(
+        sample: Sample,
+        forced403Seconds: Int
+    ): ProviderLabReportFormatter.Cell {
+        val started = System.nanoTime()
+        var httpCode: Int? = null
+        return try {
+            val engine = ytDlp ?: throw IllegalStateException("yt-dlp is unavailable in this build.")
+            // youtubedl-android uses its own Python networking stack; the OkHttp DNS
+            // family filter used by the other cells does not control yt-dlp extraction.
+            val client = clientFor(FamilyMode.DEFAULT)
+            // These are fixed sample IDs, not search queries. Resolve each canonical
+            // watch URL directly so search ranking cannot substitute a different video.
+            val sourceUrl = "https://www.youtube.com/watch?v=${sample.id}"
+            val coldStarted = System.nanoTime()
+            val cold = engine.resolveAudio(applicationContext, sourceUrl)
+            val coldMs = elapsedMs(coldStarted)
+            if (cold.videoId != sample.id) {
+                throw IllegalStateException("Resolved video ID ${cold.videoId}, expected ${sample.id}.")
+            }
+
+            val warmStarted = System.nanoTime()
+            val audio = engine.resolveAudio(applicationContext, sourceUrl)
+            val warmMs = elapsedMs(warmStarted)
+            if (audio.videoId != sample.id) {
+                throw IllegalStateException("Resolved video ID ${audio.videoId}, expected ${sample.id}.")
+            }
+            if (audio.audioUrl.isBlank()) throw IOException("yt-dlp returned an empty audio URL.")
+
+            httpCode = withContext(Dispatchers.IO) {
+                client.newCall(
+                    Request.Builder().url(audio.audioUrl).apply {
+                        audio.httpHeaders.forEach { (name, value) -> header(name, value) }
+                    }.header("Range", "bytes=0-1023").build()
+                ).execute().use { response ->
+                    val code = response.code
+                    if (!response.isSuccessful) throw ProviderHttpException(code, "yt-dlp audio probe rejected")
+                    val bytes = response.body?.byteStream()?.use { stream ->
+                        val buffer = ByteArray(1024)
+                        val count = stream.read(buffer)
+                        if (count > 0) buffer.copyOf(count) else byteArrayOf()
+                    } ?: byteArrayOf()
+                    if (bytes.isEmpty()) throw ProviderHttpException(code, "yt-dlp audio probe returned no bytes")
+                    code
+                }
+            }
+            playForTenSeconds(audio.audioUrl, client, audio.httpHeaders, forced403Seconds)
+            ProviderLabReportFormatter.Cell(
+                YTDLP_PROVIDER, sample.id, "native-stack", true, null, httpCode,
+                elapsedMs(started), "cold=${coldMs}ms,warm=${warmMs}ms"
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            if (error is ProviderHttpException) httpCode = error.code
+            ProviderLabReportFormatter.Cell(
+                YTDLP_PROVIDER, sample.id, "native-stack", false,
+                error::class.java.simpleName + error.message?.let { ": ${it.take(900)}" }.orEmpty(),
+                httpCode, elapsedMs(started)
+            )
+        }
+    }
+
+    private fun median(values: List<Long>): Long {
+        val sorted = values.sorted()
+        if (sorted.isEmpty()) return 0L
+        val middle = sorted.size / 2
+        return if (sorted.size % 2 == 1) sorted[middle]
+        else (sorted[middle - 1] + sorted[middle]) / 2L
     }
 
     private suspend fun runCell(sample: Sample, family: FamilyMode, provider: StreamProvider, failure: ProviderLabFailure, forced403Seconds: Int): ProviderLabReportFormatter.Cell {
@@ -189,7 +285,7 @@ class ProviderLabActivity : Activity() {
                     code
                 }
             }
-            playForTenSeconds(audio.audioUrl, client, forced403Seconds)
+            playForTenSeconds(audio.audioUrl, client, emptyMap(), forced403Seconds)
             ProviderLabReportFormatter.Cell(
                 provider.key, sample.id, family.label, true, null, httpCode,
                 elapsedMs(started)
@@ -216,9 +312,16 @@ class ProviderLabActivity : Activity() {
     }
 
     @OptIn(UnstableApi::class)
-    private suspend fun playForTenSeconds(url: String, client: OkHttpClient, forced403Seconds: Int) {
+    private suspend fun playForTenSeconds(
+        url: String,
+        client: OkHttpClient,
+        headers: Map<String, String>,
+        forced403Seconds: Int
+    ) {
+        val sourceFactory = OkHttpDataSource.Factory(client).setDefaultRequestProperties(headers)
+        val mediaSourceFactory = chaos?.wrapMediaDataSource(sourceFactory, forced403Seconds) ?: sourceFactory
         val player = ExoPlayer.Builder(this)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(chaos?.wrapMediaDataSource(OkHttpDataSource.Factory(client), forced403Seconds) ?: OkHttpDataSource.Factory(client)))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(mediaSourceFactory))
             .build()
         try {
             player.setAudioAttributes(
@@ -232,14 +335,32 @@ class ProviderLabActivity : Activity() {
             val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(25)
             var beganAt: Long? = null
             while (System.nanoTime() < deadline) {
-                player.playerError?.let { throw IllegalStateException(it.errorCodeName + ": " + it.message) }
+                player.playerError?.let { playbackError ->
+                    val responseError = generateSequence(playbackError as Throwable) { it.cause }
+                        .filterIsInstance<HttpDataSource.InvalidResponseCodeException>()
+                        .firstOrNull()
+                    if (responseError != null) {
+                        throw ProviderHttpException(responseError.responseCode, "Media3 audio request rejected")
+                    }
+                    throw IllegalStateException(
+                        playbackError.errorCodeName + ": " + playbackError.message,
+                        playbackError
+                    )
+                }
                 if (player.isPlaying) {
                     if (beganAt == null) beganAt = System.nanoTime()
                     if (System.nanoTime() - beganAt >= TimeUnit.SECONDS.toNanos(10)) return
                 }
                 delay(100)
             }
-            throw IllegalStateException("Media3 did not sustain 10 seconds of playback")
+            throw IllegalStateException(
+                "Media3 did not sustain 10 seconds of playback " +
+                    "(state=${player.playbackState},isPlaying=${player.isPlaying}," +
+                    "playWhenReady=${player.playWhenReady},loading=${player.isLoading}," +
+                    "positionMs=${player.currentPosition.coerceAtLeast(0L)}," +
+                    "bufferedMs=${player.bufferedPosition.coerceAtLeast(0L)}," +
+                    "suppression=${player.playbackSuppressionReason})"
+            )
         } finally {
             player.release()
         }
@@ -278,7 +399,15 @@ class ProviderLabActivity : Activity() {
             )
         }
         val cacheBytes = runCatching { AudioCacheStore.usedBytes(this) }.getOrDefault(0L)
-        val config = "local-v0 · order=${BuildConfig.STREAM_PROVIDER_ORDER}"
+        val ytCells = cells.filter { it.provider == YTDLP_PROVIDER }
+        val cold = ytCells.mapNotNull { it.detail?.let { value -> Regex("cold=(\\d+)ms").find(value)?.groupValues?.get(1)?.toLongOrNull() } }
+        val warm = ytCells.mapNotNull { it.detail?.let { value -> Regex("warm=(\\d+)ms").find(value)?.groupValues?.get(1)?.toLongOrNull() } }
+        val latency = if (cold.isEmpty() || warm.isEmpty()) {
+            "latency=n/a"
+        } else {
+            "cold-med=${median(cold)}ms,warm-med=${median(warm)}ms"
+        }
+        val config = "local-v0 · order=${BuildConfig.STREAM_PROVIDER_ORDER} · yt-dlp-update=${ytDlpUpdateStatus.take(96)} · $latency"
         return ProviderLabReportFormatter.format(
             appVersion = BuildConfig.VERSION_NAME,
             flavor = if (BuildConfig.DEBUG) "debug" else "release",
@@ -348,6 +477,8 @@ class ProviderLabActivity : Activity() {
     private class ProviderHttpException(val code: Int, message: String) : java.io.IOException(message)
 
     companion object {
+        private const val YTDLP_PROVIDER = "yt-dlp"
+
         // Fixed IDs cover a popular upload, an obscure upload, long-form video and two live streams.
         private val SAMPLES = listOf(
             Sample("dQw4w9WgXcQ", "popular"),

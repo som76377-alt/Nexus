@@ -70,6 +70,11 @@ android {
         buildConfigField("String", "STREAM_PROVIDER_ORDER", "\"${streamProviderOrder.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
     }
     buildFeatures { buildConfig = true }
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
     signingConfigs {
         create("nexus") {
             if (hasNexusSigningKey) {
@@ -109,6 +114,7 @@ dependencies {
     implementation(libs.media3.datasource.okhttp)
     implementation("androidx.media3:media3-database:1.11.1")
     implementation(libs.newpipe.extractor)
+    debugImplementation(libs.youtubedl.android)
     implementation(libs.okhttp)
     implementation(libs.coroutines.android)
     implementation(libs.coil)
