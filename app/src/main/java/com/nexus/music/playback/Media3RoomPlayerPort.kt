@@ -115,6 +115,7 @@ internal class Media3RoomPlayerPort(
             val mediaItem = MediaItem.Builder()
                 .setMediaId(canonicalSourceUrl)
                 .setUri(streamUrl)
+                .setCustomCacheKey(AudioCachePolicy.cacheKey(canonicalSourceUrl, streamUrl))
                 .setMimeType(mimeType)
                 .setMediaMetadata(metadata)
                 .build()

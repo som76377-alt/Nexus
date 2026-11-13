@@ -44,6 +44,9 @@ import com.nexus.music.catalog.NexusCatalog
 import com.nexus.music.catalog.YoutubeSearchScope
 import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackSnapshot
+import com.nexus.music.playback.AudioCacheStore
+import com.nexus.music.playback.CachedAudioResolver
+import com.nexus.music.playback.PersistentAudioCacheLookup
 import com.nexus.music.update.GitHubReleaseUpdater
 import com.nexus.music.update.InstallPermissionRequiredException
 import com.nexus.music.update.NexusUpdate
@@ -94,6 +97,7 @@ class MainActivity : Activity() {
     private var searchJob: Job? = null
     private var searchGeneration = 0L
     private var isResolving = false
+    private var youRenderGeneration = 0L
     private var isSeeking = false
     private var isActivityStarted = false
     private var lastPlaybackSnapshot = PlaybackSnapshot(connected = false)
@@ -289,6 +293,7 @@ class MainActivity : Activity() {
         )
 
     private fun showHome() {
+        youRenderGeneration++
         if (!::mainScroll.isInitialized) return
         mainScroll.removeAllViews()
         mainScroll.addView(homeContent)
@@ -297,6 +302,7 @@ class MainActivity : Activity() {
     }
 
     private fun showLibrary() {
+        youRenderGeneration++
         if (!::mainScroll.isInitialized) return
         mainScroll.removeAllViews()
         mainScroll.addView(
@@ -315,18 +321,48 @@ class MainActivity : Activity() {
 
     private fun showYou() {
         if (!::mainScroll.isInitialized) return
-        mainScroll.removeAllViews()
-        mainScroll.addView(
-            YouView(
-                context = this,
-                savedCount = libraryStore.savedTracks().size,
-                recentCount = libraryStore.recentTracks().size,
-                onLibrary = ::showLibrary,
-                onAbout = ::showAboutNexus
+        val generation = ++youRenderGeneration
+        activityScope.launch {
+            val usedBytes = withContext(Dispatchers.IO) {
+                AudioCacheStore.usedBytes(this@MainActivity)
+            }
+            if (generation != youRenderGeneration || isFinishing || isDestroyed) return@launch
+            mainScroll.removeAllViews()
+            mainScroll.addView(
+                YouView(
+                    context = this@MainActivity,
+                    savedCount = libraryStore.savedTracks().size,
+                    recentCount = libraryStore.recentTracks().size,
+                    onLibrary = ::showLibrary,
+                    onAbout = ::showAboutNexus,
+                    cacheUsedBytes = usedBytes,
+                    cacheMaxBytes = AudioCacheStore.maxBytes(this@MainActivity),
+                    onClearCache = {
+                        val requestedGeneration = youRenderGeneration
+                        activityScope.launch(Dispatchers.IO) {
+                            PersistentAudioCacheLookup(this@MainActivity).clear()
+                            withContext(Dispatchers.Main) {
+                                if (requestedGeneration == youRenderGeneration) showYou()
+                            }
+                        }
+                    },
+                    onCacheLimitChanged = { bytes ->
+                        val requestedGeneration = youRenderGeneration
+                        activityScope.launch(Dispatchers.IO) {
+                            AudioCacheStore.setMaxBytes(this@MainActivity, bytes)
+                            withContext(Dispatchers.Main) {
+                                if (requestedGeneration == youRenderGeneration) showYou()
+                            }
+                        }
+                    }
+                )
             )
-        )
-        bottomNavigationHost.removeAllViews()
-        bottomNavigationHost.addView(buildBottomNavigation(NexusUi.NavigationTab.YOU), LinearLayout.LayoutParams(-1, dp(62)))
+            bottomNavigationHost.removeAllViews()
+            bottomNavigationHost.addView(
+                buildBottomNavigation(NexusUi.NavigationTab.YOU),
+                LinearLayout.LayoutParams(-1, dp(62))
+            )
+        }
     }
 
     private fun showAboutNexus() {
@@ -342,6 +378,7 @@ class MainActivity : Activity() {
     }
 
     private fun openRoomPage() {
+        youRenderGeneration++
         startActivity(
             Intent(this, com.nexus.music.rooms.ListeningRoomActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
@@ -881,7 +918,10 @@ class MainActivity : Activity() {
         playerSubtitle.text = "Preparing audio…"
         activityScope.launch {
             try {
-                val audio = repository.resolveAudio(track.url)
+                val audio = CachedAudioResolver(
+                    PersistentAudioCacheLookup(this@MainActivity),
+                    repository::resolveAudio
+                ).resolve(track.url)
                 showResolved(audio)
             } catch (error: CancellationException) {
                 throw error

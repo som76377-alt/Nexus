@@ -107,6 +107,7 @@ dependencies {
     implementation(libs.media3.exoplayer.hls)
     implementation(libs.media3.session)
     implementation(libs.media3.datasource.okhttp)
+    implementation("androidx.media3:media3-database:1.11.1")
     implementation(libs.newpipe.extractor)
     implementation(libs.okhttp)
     implementation(libs.coroutines.android)

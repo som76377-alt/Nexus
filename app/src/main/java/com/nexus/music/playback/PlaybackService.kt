@@ -100,8 +100,12 @@ class PlaybackService : MediaSessionService() {
         val perStreamHeadersFactory = ResolvingDataSource.Factory(httpDataSourceFactory) { dataSpec ->
             StreamRequestHeaders.resolve(dataSpec)
         }
+        val cachedDataSourceFactory = AudioCacheStore.dataSourceFactory(
+            this,
+            perStreamHeadersFactory
+        )
         val mediaSourceFactory = DefaultMediaSourceFactory(this)
-            .setDataSourceFactory(perStreamHeadersFactory)
+            .setDataSourceFactory(cachedDataSourceFactory)
         val renderersFactory = DefaultRenderersFactory(this)
             .setEnableDecoderFallback(true)
 
@@ -117,10 +121,13 @@ class PlaybackService : MediaSessionService() {
 
         player = exoPlayer
         val catalog = NexusCatalog.repository(this)
+        val audioCacheLookup = PersistentAudioCacheLookup(this)
+        val cachedAudioResolver = CachedAudioResolver(audioCacheLookup, catalog::resolveAudio)
         val localStreamRecovery = LocalStreamRecovery(
             resolveNext = catalog::resolveAudioExcluding,
             isCurrentSource = { sourceUrl -> exoPlayer.currentMediaItem?.mediaId == sourceUrl },
             replaceLocally = { replacement, resumePositionMs, resumeWhenReady ->
+                audioCacheLookup.rememberImmediately(replacement, System.currentTimeMillis())
                 StreamRequestHeaders.replace(
                     replacement.audioUrl,
                     replacement.requestHeaders,
@@ -129,6 +136,7 @@ class PlaybackService : MediaSessionService() {
                 val replacementItem = MediaItem.Builder()
                     .setMediaId(replacement.sourceUrl)
                     .setUri(replacement.audioUrl)
+                    .setCustomCacheKey(AudioCachePolicy.cacheKey(replacement.sourceUrl, replacement.audioUrl))
                     .setMimeType(replacement.mimeType)
                     .setMediaMetadata(
                         MediaMetadata.Builder()
@@ -165,6 +173,7 @@ class PlaybackService : MediaSessionService() {
                 val artworkUri = failedItem.mediaMetadata.artworkUri
                 serviceScope.launch {
                     try {
+                        audioCacheLookup.evictFailed(sourceUrl, failedStreamUrl)
                         localStreamRecovery.recover(
                             sourceUrl = sourceUrl,
                             excludedProviders = attempted.toSet(),
@@ -185,7 +194,7 @@ class PlaybackService : MediaSessionService() {
         activeRoomsApi.value = roomsApi
         val repository = SupabaseRoomRepository(roomsApi)
         val clock = SupabaseRoomClock(roomsApi)
-        val mediaResolver = YoutubeRoomMediaResolver(catalog)
+        val mediaResolver = YoutubeRoomMediaResolver(cachedAudioResolver)
         val controller = ServiceRoomController(
             parentScope = serviceScope,
             repository = repository,
