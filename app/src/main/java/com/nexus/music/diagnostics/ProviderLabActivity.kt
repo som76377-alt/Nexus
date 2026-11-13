@@ -154,7 +154,7 @@ class ProviderLabActivity : Activity() {
                         ytDlp?.initializeAndUpdate(applicationContext) ?: "unavailable"
                     }.fold(
                         onSuccess = { it },
-                        onFailure = { "FAILED: ${it::class.java.simpleName}: ${it.message.orEmpty().take(48)}" }
+                        onFailure = { "FAILED: ${it::class.java.simpleName}: ${it.message.orEmpty().take(120)}" }
                     )
                 }
                 if (isYtDlp) {
@@ -285,7 +285,7 @@ class ProviderLabActivity : Activity() {
                     code
                 }
             }
-            playForTenSeconds(audio.audioUrl, client, forced403Seconds)
+            playForTenSeconds(audio.audioUrl, client, emptyMap(), forced403Seconds)
             ProviderLabReportFormatter.Cell(
                 provider.key, sample.id, family.label, true, null, httpCode,
                 elapsedMs(started)
