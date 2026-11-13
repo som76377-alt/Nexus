@@ -9,6 +9,9 @@ import android.net.NetworkCapabilities
 import android.net.LinkProperties
 import android.os.Bundle
 import android.widget.Button
+import android.widget.ArrayAdapter
+import android.widget.EditText
+import android.widget.Spinner
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -22,9 +25,18 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.nexus.music.BuildConfig
 import com.nexus.music.catalog.OkHttpDownloader
+import com.nexus.music.catalog.InvidiousStreamProviderAdapter
+import com.nexus.music.catalog.PipedStreamProviderAdapter
+import com.nexus.music.catalog.ProviderResolverChain
+import com.nexus.music.catalog.SharedPreferencesProviderHealthStore
+import com.nexus.music.catalog.StreamProvider
+import com.nexus.music.catalog.StreamProviderAdapter
+import com.nexus.music.catalog.ProviderInstanceDiscovery
+import com.nexus.music.catalog.ProviderHttpException as CatalogProviderHttpException
 import com.nexus.music.catalog.ExtractorRuntime
 import com.nexus.music.catalog.NewPipeStreamProviderAdapter
 import com.nexus.music.catalog.YoutubeSearchScope
+import com.nexus.music.playback.AudioCacheStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -47,6 +59,11 @@ class ProviderLabActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var report: TextView
     private lateinit var runButton: Button
+    private lateinit var providerSpinner: Spinner
+    private lateinit var failureSpinner: Spinner
+    private lateinit var stream403Seconds: EditText
+    private val healthStore by lazy { SharedPreferencesProviderHealthStore(this) }
+    private val chaos by lazy { if (BuildConfig.DEBUG) ProviderLabChaosFactory.create() else null }
     private var running = false
     private val labScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -57,7 +74,28 @@ class ProviderLabActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(24, 24, 24, 24)
         }
-        status = TextView(this).apply { text = "Tests five fixed YouTube samples using the current NewPipe provider. Each successful cell plays audio for 10 seconds." }
+        status = TextView(this).apply {
+            text = "Tests five fixed YouTube samples against one selected provider across default, IPv4-only and IPv6-only networking. Successful cells play audio for 10 seconds."
+        }
+        providerSpinner = Spinner(this).apply {
+            adapter = ArrayAdapter(
+                this@ProviderLabActivity,
+                android.R.layout.simple_spinner_dropdown_item,
+                StreamProvider.entries.map { it.key }
+            )
+        }
+        failureSpinner = Spinner(this).apply {
+            adapter = ArrayAdapter(
+                this@ProviderLabActivity,
+                android.R.layout.simple_spinner_dropdown_item,
+                ProviderLabFailure.entries.map { it.name }
+            )
+        }
+        stream403Seconds = EditText(this).apply {
+            hint = "Force stream HTTP 403 after seconds (0 = off)"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setText("0")
+        }
         runButton = Button(this).apply {
             text = "Run Provider Lab"
             setOnClickListener { runLab() }
@@ -72,6 +110,13 @@ class ProviderLabActivity : Activity() {
             }
         }
         root.addView(status)
+        if (BuildConfig.DEBUG && chaos != null) {
+            root.addView(TextView(this).apply { text = "Provider" })
+            root.addView(providerSpinner)
+            root.addView(TextView(this).apply { text = "Force provider failure (debug only)" })
+            root.addView(failureSpinner)
+            root.addView(stream403Seconds)
+        }
         root.addView(runButton)
         root.addView(copy)
         root.addView(ScrollView(this).apply { addView(report) }, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -86,19 +131,24 @@ class ProviderLabActivity : Activity() {
         labScope.launch {
             val rows = mutableListOf<ProviderLabReportFormatter.Cell>()
             val network = networkSummary()
-            status.text = "Running 15 checks. Keep Nexus open; successful checks play for 10 seconds."
+            val provider = StreamProvider.entries.first { it.key == providerSpinner.selectedItem.toString() }
+            val failure = if (BuildConfig.DEBUG) {
+                ProviderLabFailure.valueOf(failureSpinner.selectedItem.toString())
+            } else ProviderLabFailure.NONE
+            val forced403Seconds = if (BuildConfig.DEBUG) {
+                stream403Seconds.text.toString().toIntOrNull()?.coerceIn(0, 300) ?: 0
+            } else 0
+            status.text = "Running 15 checks · ${provider.key} · failure=${failure.name} · stream403=${forced403Seconds}s"
             try {
                 for (sample in SAMPLES) {
                     for (family in FamilyMode.entries) {
-                        status.text = "NewPipe · ${sample.label} · ${family.label}"
-                        rows += runCell(sample, family)
-                        report.text = ProviderLabReportFormatter.format(
-                            BuildConfig.VERSION_NAME, network, rows
-                        )
+                        status.text = "${provider.key} · ${sample.label} · ${family.label}"
+                        rows += runCell(sample, family, provider, failure, forced403Seconds)
+                        report.text = formatReport(network, rows)
                     }
                 }
             } finally {
-                report.text = ProviderLabReportFormatter.format(BuildConfig.VERSION_NAME, network, rows)
+                report.text = formatReport(network, rows)
                 status.text = "Finished · ${rows.count { it.ok }}/${rows.size} checks passed. Copy the report and share it."
                 runButton.isEnabled = true
                 running = false
@@ -106,16 +156,23 @@ class ProviderLabActivity : Activity() {
         }
     }
 
-    private suspend fun runCell(sample: Sample, family: FamilyMode): ProviderLabReportFormatter.Cell {
+    private suspend fun runCell(sample: Sample, family: FamilyMode, provider: StreamProvider, failure: ProviderLabFailure, forced403Seconds: Int): ProviderLabReportFormatter.Cell {
         val started = System.nanoTime()
         var httpCode: Int? = null
         return try {
             val client = clientFor(family)
-            val adapter = NewPipeStreamProviderAdapter(OkHttpDownloader(client))
-            val found = adapter.search(sample.id, YoutubeSearchScope.EVERYTHING)
+            val baseAdapter = adapterFor(provider, client)
+            val testAdapter = chaos?.wrap(baseAdapter, provider, failure) ?: baseAdapter
+            val resolver = ProviderResolverChain(
+                adapters = listOf(testAdapter),
+                healthStore = healthStore,
+                providerOrder = listOf(provider),
+                hedgeDelayMs = 0L
+            )
+            val found = resolver.search(sample.id, YoutubeSearchScope.EVERYTHING)
                 .firstOrNull { videoId(it.url) == sample.id }
                 ?: throw IllegalStateException("Search did not return the fixed sample ID")
-            val audio = adapter.resolveAudio(found.url)
+            val audio = resolver.resolveAudio(found.url)
 
             httpCode = withContext(Dispatchers.IO) {
                 client.newCall(
@@ -132,17 +189,21 @@ class ProviderLabActivity : Activity() {
                     code
                 }
             }
-            playForTenSeconds(audio.audioUrl, client)
+            playForTenSeconds(audio.audioUrl, client, forced403Seconds)
             ProviderLabReportFormatter.Cell(
-                sample.id, family.label, true, null, httpCode,
+                provider.key, sample.id, family.label, true, null, httpCode,
                 elapsedMs(started)
             )
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Throwable) {
             if (error is ProviderHttpException) httpCode = error.code
+            if (error is CatalogProviderHttpException) httpCode = error.statusCode
+            if (generateSequence(error) { it.cause }.any { it.message?.contains("forced HTTP 403") == true }) {
+                httpCode = 403
+            }
             ProviderLabReportFormatter.Cell(
-                sample.id, family.label, false,
+                provider.key, sample.id, family.label, false,
                 error::class.java.simpleName + error.message?.let { ": ${it.take(90)}" }.orEmpty(),
                 httpCode, elapsedMs(started)
             )
@@ -155,9 +216,9 @@ class ProviderLabActivity : Activity() {
     }
 
     @OptIn(UnstableApi::class)
-    private suspend fun playForTenSeconds(url: String, client: OkHttpClient) {
+    private suspend fun playForTenSeconds(url: String, client: OkHttpClient, forced403Seconds: Int) {
         val player = ExoPlayer.Builder(this)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(OkHttpDataSource.Factory(client)))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(chaos?.wrapMediaDataSource(OkHttpDataSource.Factory(client), forced403Seconds) ?: OkHttpDataSource.Factory(client)))
             .build()
         try {
             player.setAudioAttributes(
@@ -182,6 +243,51 @@ class ProviderLabActivity : Activity() {
         } finally {
             player.release()
         }
+    }
+
+    private fun adapterFor(provider: StreamProvider, client: OkHttpClient): StreamProviderAdapter {
+        val discovery = ProviderInstanceDiscovery(this)
+        return when (provider) {
+            StreamProvider.NEWPIPE -> NewPipeStreamProviderAdapter(OkHttpDownloader(client))
+            StreamProvider.PIPED -> PipedStreamProviderAdapter(
+                (BuildConfig.PIPED_API_ENDPOINTS.split(',').filter(String::isNotBlank) +
+                    discovery.cachedEndpoints(StreamProvider.PIPED)).distinct(),
+                client
+            )
+            StreamProvider.INVIDIOUS -> InvidiousStreamProviderAdapter(
+                (BuildConfig.INVIDIOUS_API_ENDPOINTS.split(',').filter(String::isNotBlank) +
+                    discovery.cachedEndpoints(StreamProvider.INVIDIOUS)).distinct(),
+                client
+            )
+        }
+    }
+
+    private fun formatReport(
+        network: String,
+        cells: List<ProviderLabReportFormatter.Cell>
+    ): String {
+        val now = System.currentTimeMillis()
+        val health = StreamProvider.entries.map { provider ->
+            val value = healthStore.get(provider)
+            ProviderLabReportFormatter.ProviderHealthRow(
+                provider = provider.key,
+                consecutiveFailures = value.consecutiveFailures,
+                lastSuccessEpochMs = value.lastSuccessEpochMs,
+                lastError = value.lastErrorClass?.name,
+                cooldownRemainingMs = (value.cooldownUntilEpochMs - now).coerceAtLeast(0L)
+            )
+        }
+        val cacheBytes = runCatching { AudioCacheStore.usedBytes(this) }.getOrDefault(0L)
+        val config = "local-v0 · order=${BuildConfig.STREAM_PROVIDER_ORDER}"
+        return ProviderLabReportFormatter.format(
+            appVersion = BuildConfig.VERSION_NAME,
+            flavor = if (BuildConfig.DEBUG) "debug" else "release",
+            network = network,
+            cacheBytes = cacheBytes,
+            configVersion = config,
+            providerHealth = health,
+            cells = cells
+        )
     }
 
     private fun clientFor(mode: FamilyMode): OkHttpClient {
