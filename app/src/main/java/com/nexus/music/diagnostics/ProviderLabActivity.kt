@@ -78,7 +78,7 @@ class ProviderLabActivity : Activity() {
             setPadding(24, 24, 24, 24)
         }
         status = TextView(this).apply {
-            text = "Tests five fixed YouTube samples against one selected provider across default, IPv4-only and IPv6-only networking. Successful cells play audio for 10 seconds."
+            text = "Tests five fixed YouTube samples against one selected provider. NewPipe, Piped and Invidious run default, IPv4-only and IPv6-only; yt-dlp uses its native network stack. Successful cells play audio for 10 seconds."
         }
         providerSpinner = Spinner(this).apply {
             adapter = ArrayAdapter(
@@ -145,7 +145,8 @@ class ProviderLabActivity : Activity() {
             val forced403Seconds = if (BuildConfig.DEBUG) {
                 stream403Seconds.text.toString().toIntOrNull()?.coerceIn(0, 300) ?: 0
             } else 0
-            status.text = "Running 15 checks · ${selectedProvider} · failure=${failure.name} · stream403=${forced403Seconds}s"
+            val checkCount = if (isYtDlp) SAMPLES.size else SAMPLES.size * FamilyMode.entries.size
+            status.text = "Running ${checkCount} checks · ${selectedProvider} · failure=${failure.name} · stream403=${forced403Seconds}s"
             try {
                 if (isYtDlp) {
                     ytDlpUpdateStatus = runCatching {
