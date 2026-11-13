@@ -238,11 +238,20 @@ class PlaybackService : MediaSessionService() {
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                if (StreamRecoveryPolicy.classify(
+                val sourceAtFailure = exoPlayer.currentMediaItem?.mediaId.orEmpty()
+                val recoveryReason = StreamRecoveryPolicy.classify(
                     errorCode = error.errorCode,
                     httpResponseCode = responseCode(error),
                     networkAvailable = hasValidatedNetwork()
-                ) == null) return
+                )
+                if (recoveryReason == null) {
+                    if (sourceAtFailure == activeRecoverySource) {
+                        mutableRecoveryStatus.value = null
+                        activeRecoverySource = null
+                        activeRecoveryRetry = null
+                    }
+                    return
+                }
                 val failedItem = exoPlayer.currentMediaItem ?: return
                 val sourceUrl = failedItem.mediaId.takeIf(String::isNotBlank) ?: return
                 val failedStreamUrl = failedItem.localConfiguration?.uri?.toString() ?: return
