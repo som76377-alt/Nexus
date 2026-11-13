@@ -19,20 +19,6 @@ private object AndroidYtDlpProviderLab : YtDlpProviderLab {
         "success"
     }
 
-    override suspend fun search(context: Context, query: String): YtDlpSearchResult = withContext(Dispatchers.IO) {
-        require(query.isNotBlank()) { "Search query must not be blank." }
-        val request = YoutubeDLRequest("ytsearch1:$query")
-        request.addOption("--no-warnings")
-        val info = YoutubeDL.getInstance().getInfo(request)
-        val id = info.id?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{11}")) }
-            ?: throw IOException("yt-dlp search did not return a YouTube video ID.")
-        YtDlpSearchResult(
-            videoId = id,
-            title = info.title.orEmpty(),
-            sourceUrl = "https://www.youtube.com/watch?v=$id"
-        )
-    }
-
     override suspend fun resolveAudio(context: Context, sourceUrl: String): YtDlpResolvedAudio =
         withContext(Dispatchers.IO) {
             require(sourceUrl.startsWith("https://www.youtube.com/")) {
@@ -42,9 +28,12 @@ private object AndroidYtDlpProviderLab : YtDlpProviderLab {
             request.addOption("-f", "bestaudio/best")
             request.addOption("--js-runtimes", "quickjs")
             val info = YoutubeDL.getInstance().getInfo(request)
+            val id = info.id?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{11}")) }
+                ?: throw IOException("yt-dlp did not return a valid YouTube video ID.")
             val url = info.url?.takeIf { it.startsWith("https://") }
                 ?: throw IOException("yt-dlp did not return a directly playable HTTPS stream.")
             YtDlpResolvedAudio(
+                videoId = id,
                 title = info.title.orEmpty(),
                 audioUrl = url
             )

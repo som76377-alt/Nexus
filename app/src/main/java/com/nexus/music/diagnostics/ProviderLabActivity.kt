@@ -191,18 +191,22 @@ class ProviderLabActivity : Activity() {
             // youtubedl-android uses its own Python networking stack; the OkHttp DNS
             // family filter used by the other cells does not control yt-dlp extraction.
             val client = clientFor(FamilyMode.DEFAULT)
-            val found = engine.search(applicationContext, sample.id)
-            if (found.videoId != sample.id) {
-                throw IllegalStateException("Search returned ${found.videoId}, expected ${sample.id}.")
+            // These are fixed sample IDs, not search queries. Resolve each canonical
+            // watch URL directly so search ranking cannot substitute a different video.
+            val sourceUrl = "https://www.youtube.com/watch?v=${sample.id}"
+            val coldStarted = System.nanoTime()
+            val cold = engine.resolveAudio(applicationContext, sourceUrl)
+            val coldMs = elapsedMs(coldStarted)
+            if (cold.videoId != sample.id) {
+                throw IllegalStateException("Resolved video ID ${cold.videoId}, expected ${sample.id}.")
             }
 
-            val coldStarted = System.nanoTime()
-            engine.resolveAudio(applicationContext, found.sourceUrl)
-            val coldMs = elapsedMs(coldStarted)
-
             val warmStarted = System.nanoTime()
-            val audio = engine.resolveAudio(applicationContext, found.sourceUrl)
+            val audio = engine.resolveAudio(applicationContext, sourceUrl)
             val warmMs = elapsedMs(warmStarted)
+            if (audio.videoId != sample.id) {
+                throw IllegalStateException("Resolved video ID ${audio.videoId}, expected ${sample.id}.")
+            }
             if (audio.audioUrl.isBlank()) throw IOException("yt-dlp returned an empty audio URL.")
 
             httpCode = withContext(Dispatchers.IO) {
