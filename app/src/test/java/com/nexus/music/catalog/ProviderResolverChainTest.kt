@@ -382,6 +382,32 @@ class ProviderResolverChainTest {
         assertEquals(setOf(StreamProvider.NEWPIPE, StreamProvider.PIPED, StreamProvider.INVIDIOUS), calls.toSet())
     }
 
+    // J7 A6: the persisted startup configuration must exclude NewPipe on the next process start.
+    @Test
+    fun a6RemoteConfigurationDisablesNewPipeOnNextResolverInitialization() = runBlocking {
+        val config = ProviderConfigurationParser.parse(
+            """{"version":3,"providers":[{"id":"newpipe","enabled":false},{"id":"piped","enabled":true},{"id":"invidious","enabled":true}]}"""
+        )
+        val calls = mutableListOf<StreamProvider>()
+        val chain = ProviderResolverChain(
+            adapters = listOf(
+                FakeAdapter(StreamProvider.NEWPIPE, calls) { resolvedAudio() },
+                FakeAdapter(StreamProvider.PIPED, calls) { resolvedAudio() },
+                FakeAdapter(StreamProvider.INVIDIOUS, calls) { resolvedAudio() }
+            ),
+            healthStore = InMemoryHealthStore(),
+            providerOrder = config.enabledOrder,
+            hedgeDelayMs = 0L
+        )
+
+        val result = chain.resolveAudio("https://youtube.com/watch?v=abcdefghijk")
+
+        assertEquals(listOf(StreamProvider.PIPED, StreamProvider.INVIDIOUS), config.enabledOrder)
+        assertEquals(StreamProvider.PIPED, result.provider)
+        assertEquals(listOf(StreamProvider.PIPED), calls)
+        assertTrue(StreamProvider.NEWPIPE !in calls)
+    }
+
     private fun catalogTrack() = CatalogTrack(
         url = "https://youtube.com/watch?v=abcdefghijk",
         title = "Track",
