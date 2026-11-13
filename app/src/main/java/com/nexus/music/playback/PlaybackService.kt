@@ -166,6 +166,7 @@ class PlaybackService : MediaSessionService() {
             }
         )
         val failedProvidersBySource = mutableMapOf<String, MutableSet<StreamProvider>>()
+        var activeRecoverySource: String? = null
         fun hasValidatedNetwork(): Boolean {
             val connectivity = getSystemService(CONNECTIVITY_SERVICE) as? ConnectivityManager
                 ?: return false
@@ -187,6 +188,7 @@ class PlaybackService : MediaSessionService() {
         }
         fun publishRecoveryFailure(sourceUrl: String) {
             if (exoPlayer.currentMediaItem?.mediaId != sourceUrl) return
+            activeRecoverySource = sourceUrl
             mutableRecoveryStatus.value = PlaybackRecoveryStatus(
                 message = "Couldn't recover audio.",
                 canRetry = true
@@ -199,6 +201,7 @@ class PlaybackService : MediaSessionService() {
             resumePositionMs: Long,
             resumeWhenReady: Boolean
         ) {
+            activeRecoverySource = sourceUrl
             mutableRecoveryStatus.value = PlaybackRecoveryStatus("Recovering audio…", canRetry = false)
             serviceScope.launch {
                 try {
@@ -211,6 +214,7 @@ class PlaybackService : MediaSessionService() {
                     )
                     if (recovered) {
                         mutableRecoveryStatus.value = null
+                        activeRecoverySource = null
                         activeRecoveryRetry = null
                     } else {
                         publishRecoveryFailure(sourceUrl)
@@ -226,20 +230,19 @@ class PlaybackService : MediaSessionService() {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 val currentSource = mediaItem?.mediaId.orEmpty()
                 failedProvidersBySource.keys.removeAll { it != currentSource }
-                if (mutableRecoveryStatus.value != null &&
-                    currentSource != mutableRecoveryStatus.value?.let { exoPlayer.currentMediaItem?.mediaId }
-                ) {
+                if (activeRecoverySource != null && currentSource != activeRecoverySource) {
                     mutableRecoveryStatus.value = null
+                    activeRecoverySource = null
                     activeRecoveryRetry = null
                 }
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                val recoveryReason = StreamRecoveryPolicy.classify(
+                if (StreamRecoveryPolicy.classify(
                     errorCode = error.errorCode,
-                    httpResponseCode = responseCode(error.cause),
+                    httpResponseCode = responseCode(error),
                     networkAvailable = hasValidatedNetwork()
-                ) ?: return
+                ) == null) return
                 val failedItem = exoPlayer.currentMediaItem ?: return
                 val sourceUrl = failedItem.mediaId.takeIf(String::isNotBlank) ?: return
                 val failedStreamUrl = failedItem.localConfiguration?.uri?.toString() ?: return
