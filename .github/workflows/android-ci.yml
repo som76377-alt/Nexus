@@ -211,7 +211,7 @@ jobs:
                   line = raw.strip()
                   if not line:
                       continue
-                  match = re.search(r"([^ :]+\\.(?:kt|java|xml|gradle|kts)):(\\d+)(?::\\d+)?:?\\s*(.*)", line)
+                  match = re.search(r"([^ :]+\.(?:kt|java|xml|gradle|kts)):(\d+)(?::\d+)?:?\s*(.*)", line)
                   if match and re.search(r"error|failed|warning", match.group(3), re.I):
                       item = f"{match.group(1)}:{match.group(2)} — {match.group(3)[:150]}"
                       if item not in lines:
@@ -223,8 +223,8 @@ jobs:
           lines = lines[:9]
           summary = ["### Android lint/unit-test failure digest"]
           summary += [f"- {item}" for item in lines] if lines else ["- No lint/unit-test failure signatures found in captured output."]
-          Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text("\\n".join(summary) + "\\n")
-          print("\\n".join(summary))
+          Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text("\n".join(summary) + "\n")
+          print("\n".join(summary))
           PY
 
       - name: Upload unit-test reports
