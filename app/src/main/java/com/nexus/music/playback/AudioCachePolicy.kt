@@ -19,7 +19,7 @@ internal object AudioCachePolicy {
         val path = uri.path.orEmpty().trim('/')
         val id = when {
             host == "youtu.be" -> path.substringBefore('/').takeIf(String::isNotBlank)
-            host.endsWith("youtube.com") -> {
+            (host == "youtube.com" || host.endsWith(".youtube.com")) -> {
                 val segments = path.split('/').filter(String::isNotBlank)
                 when {
                     path == "watch" -> query(uri.rawQuery)["v"]
