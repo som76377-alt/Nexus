@@ -1,11 +1,15 @@
 package com.nexus.music.playback
 
 import android.os.Build
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.common.PlaybackException
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
@@ -31,6 +35,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
@@ -42,6 +47,8 @@ import java.util.concurrent.TimeUnit
  * Owns the one ExoPlayer, its MediaSession and the room coordinator.
  * Room synchronization is not tied to ListeningRoomActivity's lifetime.
  */
+data class PlaybackRecoveryStatus(val message: String, val canRetry: Boolean)
+
 class PlaybackService : MediaSessionService() {
     private var player: ExoPlayer? = null
     private var mediaSession: MediaSession? = null
@@ -56,6 +63,12 @@ class PlaybackService : MediaSessionService() {
 
         private val activeRoomController = MutableStateFlow<RoomController?>(null)
         private val activeRoomsApi = MutableStateFlow<RoomsApi?>(null)
+        private val mutableRecoveryStatus = MutableStateFlow<PlaybackRecoveryStatus?>(null)
+        private var activeRecoveryRetry: (() -> Unit)? = null
+
+        fun recoveryStatus(): StateFlow<PlaybackRecoveryStatus?> = mutableRecoveryStatus
+        fun isRecoveryInProgress(): Boolean = mutableRecoveryStatus.value?.canRetry == false
+        fun retryPlaybackRecovery() { activeRecoveryRetry?.invoke() }
 
         /** Process-local UI bridge; the controller and authenticated API remain service-owned. */
         fun currentRoomController(): RoomController? = activeRoomController.value
@@ -153,38 +166,125 @@ class PlaybackService : MediaSessionService() {
             }
         )
         val failedProvidersBySource = mutableMapOf<String, MutableSet<StreamProvider>>()
+        var activeRecoverySource: String? = null
+        fun hasValidatedNetwork(): Boolean {
+            val connectivity = getSystemService(CONNECTIVITY_SERVICE) as? ConnectivityManager
+                ?: return false
+            val network = connectivity.activeNetwork ?: return false
+            val capabilities = connectivity.getNetworkCapabilities(network) ?: return false
+            return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        }
+        fun responseCode(cause: Throwable?): Int? {
+            var current = cause
+            val seen = mutableSetOf<Throwable>()
+            while (current != null && seen.add(current)) {
+                if (current is HttpDataSource.InvalidResponseCodeException) {
+                    return current.responseCode
+                }
+                current = current.cause
+            }
+            return null
+        }
+        fun publishRecoveryFailure(sourceUrl: String) {
+            if (exoPlayer.currentMediaItem?.mediaId != sourceUrl) return
+            activeRecoverySource = sourceUrl
+            mutableRecoveryStatus.value = PlaybackRecoveryStatus(
+                message = "Couldn't recover audio.",
+                canRetry = true
+            )
+        }
+        fun attemptRecovery(
+            sourceUrl: String,
+            failedStreamUrl: String,
+            excludedProviders: Set<StreamProvider>,
+            resumePositionMs: Long,
+            resumeWhenReady: Boolean
+        ) {
+            activeRecoverySource = sourceUrl
+            mutableRecoveryStatus.value = PlaybackRecoveryStatus("Recovering audio…", canRetry = false)
+            serviceScope.launch {
+                try {
+                    audioCacheLookup.evictFailed(sourceUrl, failedStreamUrl)
+                    val recovered = localStreamRecovery.recover(
+                        sourceUrl = sourceUrl,
+                        excludedProviders = excludedProviders,
+                        resumePositionMs = resumePositionMs,
+                        resumeWhenReady = resumeWhenReady
+                    )
+                    if (recovered) {
+                        mutableRecoveryStatus.value = null
+                        activeRecoverySource = null
+                        activeRecoveryRetry = null
+                    } else {
+                        publishRecoveryFailure(sourceUrl)
+                    }
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    publishRecoveryFailure(sourceUrl)
+                }
+            }
+        }
         exoPlayer.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 val currentSource = mediaItem?.mediaId.orEmpty()
                 failedProvidersBySource.keys.removeAll { it != currentSource }
+                if (activeRecoverySource != null && currentSource != activeRecoverySource) {
+                    mutableRecoveryStatus.value = null
+                    activeRecoverySource = null
+                    activeRecoveryRetry = null
+                }
             }
 
-            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            override fun onPlayerError(error: PlaybackException) {
+                val sourceAtFailure = exoPlayer.currentMediaItem?.mediaId.orEmpty()
+                val recoveryReason = StreamRecoveryPolicy.classify(
+                    errorCode = error.errorCode,
+                    httpResponseCode = responseCode(error),
+                    networkAvailable = hasValidatedNetwork()
+                )
+                if (recoveryReason == null) {
+                    if (sourceAtFailure == activeRecoverySource) {
+                        mutableRecoveryStatus.value = null
+                        activeRecoverySource = null
+                        activeRecoveryRetry = null
+                    }
+                    return
+                }
                 val failedItem = exoPlayer.currentMediaItem ?: return
                 val sourceUrl = failedItem.mediaId.takeIf(String::isNotBlank) ?: return
                 val failedStreamUrl = failedItem.localConfiguration?.uri?.toString() ?: return
                 val failedProvider = StreamRequestHeaders.providerForUrl(failedStreamUrl) ?: return
                 val attempted = failedProvidersBySource.getOrPut(sourceUrl) { mutableSetOf() }
-                if (!attempted.add(failedProvider)) return
+                if (!attempted.add(failedProvider)) {
+                    publishRecoveryFailure(sourceUrl)
+                    return
+                }
                 val resumePositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
                 val resumeWhenReady = exoPlayer.playWhenReady
-                val title = failedItem.mediaMetadata.title?.toString().orEmpty()
-                val artist = failedItem.mediaMetadata.artist?.toString()
-                val artworkUri = failedItem.mediaMetadata.artworkUri
-                serviceScope.launch {
-                    try {
-                        audioCacheLookup.evictFailed(sourceUrl, failedStreamUrl)
-                        localStreamRecovery.recover(
+                activeRecoveryRetry = {
+                    if (exoPlayer.currentMediaItem?.mediaId == sourceUrl) {
+                        failedProvidersBySource.remove(sourceUrl)
+                        attemptRecovery(
                             sourceUrl = sourceUrl,
-                            excludedProviders = attempted.toSet(),
-                            resumePositionMs = resumePositionMs,
-                            resumeWhenReady = resumeWhenReady
+                            failedStreamUrl = exoPlayer.currentMediaItem?.localConfiguration?.uri?.toString()
+                                ?: failedStreamUrl,
+                            excludedProviders = emptySet(),
+                            resumePositionMs = exoPlayer.currentPosition.coerceAtLeast(0L),
+                            resumeWhenReady = exoPlayer.playWhenReady
                         )
-                    } catch (_: Exception) {
-                        // Exhausted providers leave the original error visible; never loop
-                        // on the same provider or publish a room recovery command.
                     }
                 }
+                // Recovery changes only the raw ExoPlayer. It never calls the MediaSession
+                // forwarding player, so it cannot publish a room command.
+                attemptRecovery(
+                    sourceUrl = sourceUrl,
+                    failedStreamUrl = failedStreamUrl,
+                    excludedProviders = attempted.toSet(),
+                    resumePositionMs = resumePositionMs,
+                    resumeWhenReady = resumeWhenReady
+                )
             }
         })
         val playerPort = Media3RoomPlayerPort(exoPlayer)
@@ -238,6 +338,8 @@ class PlaybackService : MediaSessionService() {
         roomController?.close()
         roomController = null
         serviceScope.cancel()
+        mutableRecoveryStatus.value = null
+        activeRecoveryRetry = null
         mediaSession?.release()
         player?.release()
         mediaSession = null
