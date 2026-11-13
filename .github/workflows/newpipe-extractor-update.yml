@@ -67,4 +67,3 @@ jobs:
             - Version: ${{ steps.latest.outputs.version }}
             - No live YouTube tests are run by this workflow.
             - This PR is not auto-merged; normal Android CI and review are required.
-          labels: dependencies
