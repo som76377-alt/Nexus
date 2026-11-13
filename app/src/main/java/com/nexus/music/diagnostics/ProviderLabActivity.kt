@@ -353,7 +353,14 @@ class ProviderLabActivity : Activity() {
                 }
                 delay(100)
             }
-            throw IllegalStateException("Media3 did not sustain 10 seconds of playback")
+            throw IllegalStateException(
+                "Media3 did not sustain 10 seconds of playback " +
+                    "(state=${player.playbackState},isPlaying=${player.isPlaying}," +
+                    "playWhenReady=${player.playWhenReady},loading=${player.isLoading}," +
+                    "positionMs=${player.currentPosition.coerceAtLeast(0L)}," +
+                    "bufferedMs=${player.bufferedPosition.coerceAtLeast(0L)}," +
+                    "suppression=${player.playbackSuppressionReason})"
+            )
         } finally {
             player.release()
         }
