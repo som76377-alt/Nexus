@@ -281,7 +281,7 @@ class ProviderLabActivity : Activity() {
         val config = "local-v0 · order=${BuildConfig.STREAM_PROVIDER_ORDER}"
         return ProviderLabReportFormatter.format(
             appVersion = BuildConfig.VERSION_NAME,
-            flavor = BuildConfig.FLAVOR.ifBlank { "main" },
+            flavor = if (BuildConfig.DEBUG) "debug" else "release",
             network = network,
             cacheBytes = cacheBytes,
             configVersion = config,
