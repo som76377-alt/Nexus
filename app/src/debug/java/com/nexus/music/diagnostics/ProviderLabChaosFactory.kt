@@ -1,12 +1,11 @@
 package com.nexus.music.diagnostics
 
 import android.net.Uri
-import androidx.media3.common.C
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.TransferListener
 import com.nexus.music.catalog.CatalogTrack
-import com.nexus.music.catalog.ContentNotAvailableException
+import org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException
 import com.nexus.music.catalog.ProviderHttpException
 import com.nexus.music.catalog.ResolvedAudio
 import com.nexus.music.catalog.StreamProvider
@@ -17,7 +16,7 @@ import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
 import java.io.IOException
 
 internal object ProviderLabChaosFactory {
-    fun create(): ProviderLabChaos = DebugProviderLabChaos
+    fun create(): ProviderLabChaos? = DebugProviderLabChaos
 }
 
 private object DebugProviderLabChaos : ProviderLabChaos {

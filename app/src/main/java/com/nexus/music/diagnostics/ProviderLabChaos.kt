@@ -18,7 +18,3 @@ internal interface ProviderLabChaos {
     fun wrap(adapter: StreamProviderAdapter, provider: StreamProvider, failure: ProviderLabFailure): StreamProviderAdapter
     fun wrapMediaDataSource(upstream: DataSource.Factory, force403AfterSeconds: Int): DataSource.Factory
 }
-
-internal object ProviderLabChaosFactory {
-    fun create(): ProviderLabChaos? = null
-}
