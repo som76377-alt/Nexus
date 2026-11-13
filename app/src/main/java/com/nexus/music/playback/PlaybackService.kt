@@ -100,8 +100,12 @@ class PlaybackService : MediaSessionService() {
         val perStreamHeadersFactory = ResolvingDataSource.Factory(httpDataSourceFactory) { dataSpec ->
             StreamRequestHeaders.resolve(dataSpec)
         }
+        val cachedDataSourceFactory = AudioCacheStore.dataSourceFactory(
+            this,
+            perStreamHeadersFactory
+        )
         val mediaSourceFactory = DefaultMediaSourceFactory(this)
-            .setDataSourceFactory(perStreamHeadersFactory)
+            .setDataSourceFactory(cachedDataSourceFactory)
         val renderersFactory = DefaultRenderersFactory(this)
             .setEnableDecoderFallback(true)
 
@@ -129,6 +133,7 @@ class PlaybackService : MediaSessionService() {
                 val replacementItem = MediaItem.Builder()
                     .setMediaId(replacement.sourceUrl)
                     .setUri(replacement.audioUrl)
+                    .setCustomCacheKey(AudioCachePolicy.cacheKey(replacement.sourceUrl, replacement.audioUrl))
                     .setMimeType(replacement.mimeType)
                     .setMediaMetadata(
                         MediaMetadata.Builder()

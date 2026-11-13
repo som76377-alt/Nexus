@@ -31,6 +31,7 @@ data class PlaybackSnapshot(
 )
 
 /** Activity-side bridge to the player owned by PlaybackService. */
+@OptIn(UnstableApi::class)
 class PlaybackConnection(
     context: Context,
     private val onReady: () -> Unit,
@@ -122,6 +123,7 @@ class PlaybackConnection(
             val item = MediaItem.Builder()
                 .setMediaId(audio.sourceUrl)
                 .setUri(audio.audioUrl)
+                .setCustomCacheKey(AudioCachePolicy.cacheKey(audio.sourceUrl, audio.audioUrl))
                 .setMimeType(audio.mimeType)
                 .setMediaMetadata(metadata)
                 .build()
