@@ -1,5 +1,6 @@
 package com.nexus.music.rooms.domain
 
+import com.nexus.music.catalog.StreamProvider
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -41,6 +42,17 @@ interface RoomPlayerPort {
         artist: String?,
         mimeType: String?
     )
+
+    /** Local-only request metadata; the default preserves existing test/player adapters. */
+    suspend fun prepareCanonicalSource(
+        canonicalSourceUrl: String,
+        streamUrl: String,
+        title: String,
+        artist: String?,
+        mimeType: String?,
+        requestHeaders: Map<String, String>,
+        provider: StreamProvider = StreamProvider.NEWPIPE
+    ) = prepareCanonicalSource(canonicalSourceUrl, streamUrl, title, artist, mimeType)
 
     /** These methods apply remote state directly and must not emit local user intent. */
     fun play()

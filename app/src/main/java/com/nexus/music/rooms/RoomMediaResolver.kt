@@ -2,6 +2,7 @@ package com.nexus.music.rooms
 
 import com.nexus.music.catalog.ResolvedAudio
 import com.nexus.music.catalog.YoutubeCatalogRepository
+import com.nexus.music.playback.CachedAudioResolver
 
 /**
  * Converts a canonical room track reference into a stream this device can play.
@@ -13,10 +14,10 @@ internal interface RoomMediaResolver {
 
 /** Current provider adapter: every device resolves the canonical YouTube URL locally. */
 internal class YoutubeRoomMediaResolver(
-    private val catalog: YoutubeCatalogRepository
+    private val cachedResolver: CachedAudioResolver
 ) : RoomMediaResolver {
     override suspend fun resolve(canonicalSourceUrl: String): ResolvedAudio {
         require(canonicalSourceUrl.isNotBlank()) { "The shared track has no canonical source URL." }
-        return catalog.resolveAudio(canonicalSourceUrl)
+        return cachedResolver.resolve(canonicalSourceUrl)
     }
 }

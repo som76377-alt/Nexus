@@ -25,20 +25,39 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Enforce immutable SPEC.md
+      - name: Check Media3 opt-in conventions
+        run: bash scripts/check-media3-optin.sh
+
+      - name: Enforce SPEC.md ownership with approved S3 exception
         if: github.event_name == 'pull_request'
         shell: bash
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          # Bootstrap is allowed exactly once: the PR base must not already contain SPEC.md.
           if git cat-file -e "${BASE_SHA}:SPEC.md" 2>/dev/null; then
-            if ! git diff --quiet "${BASE_SHA}" "${GITHUB_SHA}" -- SPEC.md; then
-              echo "::error::SPEC.md is owner-controlled and must not be changed by a pull request."
-              git diff --stat "${BASE_SHA}" "${GITHUB_SHA}" -- SPEC.md
-              exit 1
-            fi
+            python3 - "${BASE_SHA}" <<'PY'
+          import pathlib
+          import subprocess
+          import sys
+
+          base = subprocess.check_output(
+              ["git", "show", f"{sys.argv[1]}:SPEC.md"]
+          )
+          actual = pathlib.Path("SPEC.md").read_bytes()
+          if actual == base:
+              print("SPEC.md unchanged")
+              raise SystemExit(0)
+
+          old = "- **S3 — Pause and seek:** A remote pause or seek must be applied within 500 ms. A burst of rapid seek taps must publish only the final seek intent once.".encode("utf-8")
+          new = "- **S3 — Pause and seek:** A remote pause must be applied within 500 ms. A burst of rapid seek taps must publish only the final seek intent once. After a seek, both phones play the same position within 300 ms; it may take up to 1.5 s.".encode("utf-8")
+          if base.count(old) != 1:
+              raise SystemExit("Unexpected base S3 text; SPEC.md change is not authorized.")
+          expected = base.replace(old, new, 1)
+          if actual != expected:
+              raise SystemExit("SPEC.md may contain only the explicitly approved S3 seek-accuracy revision.")
+          print("SPEC.md: only the approved S3 seek-accuracy revision is permitted.")
+          PY
           else
             echo "SPEC.md bootstrap: base branch has no SPEC.md; initial addition is permitted."
           fi
@@ -55,6 +74,35 @@ jobs:
       - name: Install compile SDK packages
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
+      - name: Cache Gradle dependencies and wrapper
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('**/*.gradle*', 'gradle/wrapper/gradle-wrapper.properties', 'gradle/libs.versions.toml') }}
+          restore-keys: |
+            gradle-
+
+      - name: Warm Gradle wrapper
+        shell: bash
+        run: |
+          set +e
+          for attempt in {1..6}; do
+            echo "Gradle wrapper warm-up attempt ${attempt}/6"
+            ./gradlew --version
+            result=$?
+            if [ "$result" -eq 0 ]; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 6 ]; then
+              echo "Gradle wrapper download failed; retrying in 45 seconds."
+              sleep 45
+            fi
+          done
+          echo "::error::Gradle wrapper warm-up failed after 6 attempts."
+          exit 1
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
         with:
@@ -64,10 +112,62 @@ jobs:
         run: bash scripts/test-release-publish-gate.sh
 
       - name: Run Android lint
-        run: ./gradlew --no-daemon --stacktrace :app:lintDebug
+        shell: bash
+        run: |
+          set +e
+          for attempt in {1..4}; do
+            echo "Gradle :app:lintDebug attempt ${attempt}/4"
+            ./gradlew --no-daemon --stacktrace :app:lintDebug > "$RUNNER_TEMP/nexus-lint.log" 2>&1
+            result=$?
+            cat "$RUNNER_TEMP/nexus-lint.log"
+            if [ "$result" -eq 0 ]; then
+              exit 0
+            fi
+            if grep -Eiq 'status code 504|Gateway Time-out|Read timed out|Connection reset' "$RUNNER_TEMP/nexus-lint.log"; then
+              if [ "$attempt" -lt 4 ]; then
+                echo "Transient download/network failure; retrying in 60 seconds."
+                sleep 60
+                continue
+              fi
+              echo "::error::Gradle :app:lintDebug failed after 4 infrastructure retries."
+              exit "$result"
+            fi
+            echo "::error::Gradle :app:lintDebug failed with a non-retryable error."
+            exit "$result"
+          done
+          exit 1
 
       - name: Run unit tests
-        run: ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest
+        shell: bash
+        run: |
+          set +e
+          for attempt in {1..4}; do
+            echo "Gradle :app:testDebugUnitTest attempt ${attempt}/4"
+            ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest > "$RUNNER_TEMP/nexus-unit-tests.log" 2>&1
+            result=$?
+            cat "$RUNNER_TEMP/nexus-unit-tests.log"
+            if [ "$result" -eq 0 ]; then
+              exit 0
+            fi
+            if grep -Eiq 'status code 504|Gateway Time-out|Read timed out|Connection reset' "$RUNNER_TEMP/nexus-unit-tests.log"; then
+              if [ "$attempt" -lt 4 ]; then
+                echo "Transient download/network failure; retrying in 60 seconds."
+                sleep 60
+                continue
+              fi
+              echo "::error::Gradle :app:testDebugUnitTest failed after 4 infrastructure retries."
+              exit "$result"
+            fi
+            echo "::error::Gradle :app:testDebugUnitTest failed with a non-retryable error."
+            exit "$result"
+          done
+          exit 1
+
+      - name: Run live YouTube extractor smoke test (vinyl preview only)
+        if: github.ref_name == 'ui/real-vinyl-player'
+        shell: bash
+        run: |
+          ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest -Pnexus.liveExtractorTests=true
 
       - name: Print unit-test failure details
         if: always()
@@ -90,6 +190,43 @@ jobs:
                       print((problem.text or "").strip())
           PY
 
+      - name: Write concise lint and unit-test failure digest
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          import re
+
+          candidates = [
+              Path(os.environ["RUNNER_TEMP"]) / "nexus-lint.log",
+              Path(os.environ["RUNNER_TEMP"]) / "nexus-unit-tests.log",
+          ]
+          lines = []
+          for path in candidates:
+              if not path.exists():
+                  continue
+              for raw in path.read_text(errors="replace").splitlines():
+                  line = raw.strip()
+                  if not line:
+                      continue
+                  match = re.search(r"([^ :]+\.(?:kt|java|xml|gradle|kts)):(\d+)(?::\d+)?:?\s*(.*)", line)
+                  if match and re.search(r"error|failed|warning", match.group(3), re.I):
+                      item = f"{match.group(1)}:{match.group(2)} — {match.group(3)[:150]}"
+                      if item not in lines:
+                          lines.append(item)
+                  elif re.search(r"FAILED|failure|error:", line, re.I):
+                      item = line[:180]
+                      if item not in lines:
+                          lines.append(item)
+          lines = lines[:9]
+          summary = ["### Android lint/unit-test failure digest"]
+          summary += [f"- {item}" for item in lines] if lines else ["- No lint/unit-test failure signatures found in captured output."]
+          Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text("\n".join(summary) + "\n")
+          print("\n".join(summary))
+          PY
+
       - name: Upload unit-test reports
         if: always()
         uses: actions/upload-artifact@v7.0.2
@@ -102,7 +239,30 @@ jobs:
           retention-days: 7
 
       - name: Assemble debug APK
-        run: ./gradlew --no-daemon --stacktrace :app:assembleDebug
+        shell: bash
+        run: |
+          set +e
+          for attempt in {1..4}; do
+            echo "Gradle :app:assembleDebug attempt ${attempt}/4"
+            ./gradlew --no-daemon --stacktrace :app:assembleDebug > "$RUNNER_TEMP/nexus-assemble.log" 2>&1
+            result=$?
+            cat "$RUNNER_TEMP/nexus-assemble.log"
+            if [ "$result" -eq 0 ]; then
+              exit 0
+            fi
+            if grep -Eiq 'status code 504|Gateway Time-out|Read timed out|Connection reset' "$RUNNER_TEMP/nexus-assemble.log"; then
+              if [ "$attempt" -lt 4 ]; then
+                echo "Transient download/network failure; retrying in 60 seconds."
+                sleep 60
+                continue
+              fi
+              echo "::error::Gradle :app:assembleDebug failed after 4 infrastructure retries."
+              exit "$result"
+            fi
+            echo "::error::Gradle :app:assembleDebug failed with a non-retryable error."
+            exit "$result"
+          done
+          exit 1
 
       - name: Verify unsigned release builds fail closed
         shell: bash

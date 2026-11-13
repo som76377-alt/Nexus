@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -21,6 +22,7 @@ data class PlaybackSnapshot(
     val sourceId: String = "",
     val title: String = "",
     val artist: String = "",
+    val artworkUrl: String? = null,
     val isPlaying: Boolean = false,
     val playbackState: Int = Player.STATE_IDLE,
     val positionMs: Long = 0L,
@@ -30,6 +32,7 @@ data class PlaybackSnapshot(
 )
 
 /** Activity-side bridge to the player owned by PlaybackService. */
+@OptIn(UnstableApi::class)
 class PlaybackConnection(
     context: Context,
     private val onReady: () -> Unit,
@@ -112,6 +115,7 @@ class PlaybackConnection(
     ): Boolean {
         val activeController = controller ?: return false
         return try {
+            StreamRequestHeaders.replace(audio.audioUrl, audio.requestHeaders, audio.provider)
             val metadata = MediaMetadata.Builder()
                 .setTitle(audio.title)
                 .setArtist(audio.artist ?: "")
@@ -120,6 +124,7 @@ class PlaybackConnection(
             val item = MediaItem.Builder()
                 .setMediaId(audio.sourceUrl)
                 .setUri(audio.audioUrl)
+                .setCustomCacheKey(AudioCachePolicy.cacheKey(audio.sourceUrl, audio.audioUrl))
                 .setMimeType(audio.mimeType)
                 .setMediaMetadata(metadata)
                 .build()
@@ -173,6 +178,7 @@ class PlaybackConnection(
             sourceId = item?.mediaId.orEmpty(),
             title = item?.mediaMetadata?.title?.toString().orEmpty(),
             artist = item?.mediaMetadata?.artist?.toString().orEmpty(),
+            artworkUrl = item?.mediaMetadata?.artworkUri?.toString(),
             isPlaying = activeController.isPlaying,
             playbackState = activeController.playbackState,
             positionMs = activeController.currentPosition.coerceAtLeast(0L),

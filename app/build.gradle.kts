@@ -12,6 +12,9 @@ if (nexusVersionCode !in 1..2_100_000_000) {
 }
 val updateRepositoryOwner = providers.gradleProperty("nexusUpdateOwner").orElse("som76377-alt").get()
 val updateRepositoryName = providers.gradleProperty("nexusUpdateRepository").orElse("Nexus").get()
+val pipedApiEndpoints = providers.gradleProperty("nexusPipedApiEndpoints").orElse("").get()
+val invidiousApiEndpoints = providers.gradleProperty("nexusInvidiousApiEndpoints").orElse("").get()
+val streamProviderOrder = providers.gradleProperty("nexusStreamProviderOrder").orElse("newpipe,piped,invidious").get()
 
 val nexusKeystorePath = providers.environmentVariable("NEXUS_KEYSTORE_PATH").orNull
 val nexusKeystorePassword = providers.environmentVariable("NEXUS_KEYSTORE_PASSWORD").orNull
@@ -62,6 +65,9 @@ android {
         buildConfigField("String", "UPDATE_REPOSITORY_NAME", "\"$updateRepositoryName\"")
         buildConfigField("String", "SUPABASE_URL", "\"https://fdptukvfcpkpbutgoolj.supabase.co\"")
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"sb_publishable_jYtp6H2E2SKakHkb-Z1u4g_-ZlAai42\"")
+        buildConfigField("String", "PIPED_API_ENDPOINTS", "\"${pipedApiEndpoints.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
+        buildConfigField("String", "INVIDIOUS_API_ENDPOINTS", "\"${invidiousApiEndpoints.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
+        buildConfigField("String", "STREAM_PROVIDER_ORDER", "\"${streamProviderOrder.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
     }
     buildFeatures { buildConfig = true }
     signingConfigs {
@@ -75,7 +81,10 @@ android {
         }
     }
     buildTypes {
-        getByName("debug") { versionNameSuffix = "-debug" }
+        getByName("debug") {
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+        }
         getByName("release") {
             isMinifyEnabled = false
             if (hasNexusSigningKey) signingConfig = signingConfigs.getByName("nexus")
@@ -97,6 +106,8 @@ dependencies {
     implementation(libs.media3.exoplayer.dash)
     implementation(libs.media3.exoplayer.hls)
     implementation(libs.media3.session)
+    implementation(libs.media3.datasource.okhttp)
+    implementation("androidx.media3:media3-database:1.11.1")
     implementation(libs.newpipe.extractor)
     implementation(libs.okhttp)
     implementation(libs.coroutines.android)

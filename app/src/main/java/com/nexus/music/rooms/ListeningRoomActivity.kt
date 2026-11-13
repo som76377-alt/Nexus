@@ -20,6 +20,8 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import com.nexus.music.MainActivity
+import com.nexus.music.ui.NexusUi
+import com.nexus.music.ui.NexusDesignSystem
 import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackService
 import com.nexus.music.rooms.domain.RoomConnectionState
@@ -61,6 +63,10 @@ class ListeningRoomActivity : Activity() {
     private lateinit var messageInput: EditText
     private lateinit var sendButton: Button
     private lateinit var copyCodeButton: Button
+    private lateinit var playbackFailureRow: LinearLayout
+    private lateinit var playbackFailureText: TextView
+    private lateinit var playbackRetryButton: Button
+    private var recoveryStatusJob: Job? = null
 
     private var playback: PlaybackConnection? = null
     private var roomId: String? = null
@@ -77,12 +83,12 @@ class ListeningRoomActivity : Activity() {
     private var isActivityStarted = false
     private var backInvokedCallback: android.window.OnBackInvokedCallback? = null
 
-    private val background = Color.rgb(12, 14, 18)
-    private val surface = Color.rgb(24, 28, 35)
-    private val raised = Color.rgb(31, 36, 44)
-    private val accent = Color.rgb(167, 240, 106)
-    private val foreground = Color.rgb(244, 247, 250)
-    private val muted = Color.rgb(160, 172, 187)
+    private val background = NexusDesignSystem.Palette.archiveIvory
+    private val surface = NexusDesignSystem.Palette.sleeveWhite
+    private val raised = Color.rgb(235, 225, 207)
+    private val accent = NexusDesignSystem.Palette.deepVinylGreen
+    private val foreground = NexusDesignSystem.Palette.carbonInk
+    private val muted = Color.rgb(104, 94, 82)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -93,7 +99,7 @@ class ListeningRoomActivity : Activity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(this@ListeningRoomActivity.background)
-            setPadding(dp(20), dp(24), dp(20), dp(18))
+            setPadding(dp(22), dp(24), dp(22), dp(16))
         }
         introPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -102,18 +108,19 @@ class ListeningRoomActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        header.addView(label("NEXUS", 12f, accent, true), LinearLayout.LayoutParams(0, -2, 1f))
+        header.addView(label("NEXUS  /  LISTENING ROOM", 11f, accent, true).apply {
+            letterSpacing = .12f
+            typeface = NexusDesignSystem.Type.technical(this@ListeningRoomActivity)
+        }, LinearLayout.LayoutParams(0, -2, 1f))
         introPanel.addView(header)
-        introPanel.addView(label("Listening room", 28f, foreground, true), params(16))
-        introPanel.addView(label(
-            "Private rooms for two. Chat history is kept separately in each room.",
-            13f, muted
-        ), params(6))
+        introPanel.addView(label("A room of your own.", 29f, foreground, true).apply {
+            typeface = NexusDesignSystem.Type.display(this@ListeningRoomActivity)
+        }, params(14))
         root.addView(introPanel)
 
-        status = label("Connect to create a room or enter an invite code.", 12f, muted)
+        status = label("Ready when you are", 11f, muted)
         status.setPadding(dp(12), dp(12), dp(12), dp(12))
-        status.background = rounded(surface, 12)
+        status.background = rounded(surface, 8)
         status.maxLines = 1
         status.ellipsize = android.text.TextUtils.TruncateAt.END
         status.contentDescription = "Room connection status. Long-press for diagnostics."
@@ -130,12 +137,12 @@ class ListeningRoomActivity : Activity() {
             background = rounded(surface, 14)
             setPadding(dp(12), dp(12), dp(12), dp(12))
         }
-        createButton = actionButton("Create room", true).apply {
+        createButton = actionButton("Create a room", true).apply {
             setOnClickListener { createRoom() }
         }
         roomActions.addView(createButton, params(0))
         codeInput = EditText(this).apply {
-            hint = "5-character room code"
+            hint = "ENTER 5-CHARACTER CODE"
             setHintTextColor(muted)
             setTextColor(this@ListeningRoomActivity.foreground)
             textSize = 14f
@@ -181,7 +188,31 @@ class ListeningRoomActivity : Activity() {
         })
         roomPanel.addView(roomHeader, params(0))
 
-        roomPanel.addView(label("Room chat", 15f, foreground, true), params(16))
+        playbackFailureRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = rounded(raised, 9)
+            setPadding(dp(10), dp(4), dp(6), dp(4))
+            visibility = View.GONE
+        }
+        playbackFailureText = label("", 11f, foreground).apply {
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        playbackFailureRow.addView(playbackFailureText, LinearLayout.LayoutParams(0, -2, 1f))
+        playbackRetryButton = actionButton("Retry", true).apply {
+            minHeight = dp(36)
+            setOnClickListener { PlaybackService.retryPlaybackRecovery() }
+        }
+        playbackFailureRow.addView(playbackRetryButton, LinearLayout.LayoutParams(-2, dp(36)).apply {
+            marginStart = dp(8)
+        })
+        roomPanel.addView(playbackFailureRow, params(8))
+
+        roomPanel.addView(label("THE CONVERSATION", 10f, accent, true).apply {
+            letterSpacing = .14f
+            typeface = NexusDesignSystem.Type.technical(this@ListeningRoomActivity)
+        }, params(18))
         val chatScroll = ScrollView(this).apply {
             background = rounded(surface, 12)
             isFillViewport = false
@@ -230,8 +261,21 @@ class ListeningRoomActivity : Activity() {
             context = this,
             onReady = { restoreActiveRoomIfPresent() },
             onStateChanged = { },
-            onError = { message -> status.text = "Player: $message" }
+            onError = { message ->
+                if (!PlaybackService.isRecoveryInProgress()) status.text = "Player: $message"
+            }
         )
+        recoveryStatusJob = scope.launch {
+            PlaybackService.recoveryStatus().collect { recovery ->
+                if (!::playbackFailureRow.isInitialized) return@collect
+                val visible = roomId != null && recovery != null
+                playbackFailureRow.visibility = if (visible) View.VISIBLE else View.GONE
+                playbackFailureText.text = recovery?.message.orEmpty()
+                playbackRetryButton.visibility =
+                    if (recovery?.canRetry == true) View.VISIBLE else View.GONE
+                playbackRetryButton.isEnabled = recovery?.canRetry == true
+            }
+        }
     }
 
     private var restoreRoomAttempted = false
@@ -480,10 +524,13 @@ class ListeningRoomActivity : Activity() {
                 val mine = message.senderId == userId
                 val bubble = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
-                    background = rounded(if (mine) Color.rgb(45, 62, 39) else raised, 12)
+                    background = rounded(if (mine) Color.rgb(221, 231, 218) else raised, 12)
                     setPadding(dp(10), dp(8), dp(10), dp(8))
                 }
-                bubble.addView(label(if (mine) "You" else "Room member", 10f, if (mine) accent else muted, true))
+                bubble.addView(label(if (mine) "YOU" else "ROOM MEMBER", 9f, if (mine) accent else muted, true).apply {
+                    letterSpacing = .08f
+                    typeface = NexusDesignSystem.Type.technical(this@ListeningRoomActivity)
+                })
                 bubble.addView(label(message.body, 13f, foreground))
                 bubble.addView(label(formatTime(message.createdAt), 9f, muted))
                 val row = LinearLayout(this).apply {
@@ -563,6 +610,7 @@ class ListeningRoomActivity : Activity() {
         messageInput.text.clear()
         codeInput.text.clear()
         roomId = null
+        playbackFailureRow.visibility = View.GONE
         inviteCode = null
         userId = null
         if (clearPersistedRoom) ActiveRoomSessionStore.clear(this)
@@ -590,29 +638,30 @@ class ListeningRoomActivity : Activity() {
         }
     }
 
-    private fun buildBottomNavigation(): LinearLayout {
-        val bar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            background = rounded(surface, 18)
-            setPadding(dp(10), dp(7), dp(10), dp(7))
-        }
-        fun tab(title: String, selected: Boolean, onClick: () -> Unit) = Button(this).apply {
-            text = title
-            textSize = 14f
-            isAllCaps = false
-            minWidth = 0
-            minimumWidth = 0
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(if (selected) Color.rgb(14, 20, 12) else this@ListeningRoomActivity.foreground)
-            background = rounded(if (selected) accent else raised, 12)
-            setOnClickListener { onClick() }
-        }
-        bar.addView(tab("Home", false) { navigateHome() }, LinearLayout.LayoutParams(0, dp(46), 1f).apply {
-            marginEnd = dp(7)
-        })
-        bar.addView(tab("Room", true) {}, LinearLayout.LayoutParams(0, dp(46), 1f))
-        return bar
+    private fun buildBottomNavigation(): LinearLayout =
+        NexusUi.bottomNavigation(
+            context = this,
+            selected = NexusUi.NavigationTab.ROOM,
+            onHome = ::navigateHome,
+            onLibrary = ::navigateLibrary,
+            onRoom = {},
+            onYou = ::navigateYou
+        )
+
+    private fun navigateYou() {
+        startActivity(
+            Intent(this, MainActivity::class.java)
+                .putExtra(MainActivity.EXTRA_OPEN_YOU, true)
+                .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+        )
+    }
+
+    private fun navigateLibrary() {
+        startActivity(
+            Intent(this, MainActivity::class.java)
+                .putExtra(MainActivity.EXTRA_OPEN_LIBRARY, true)
+                .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+        )
     }
 
     private fun navigateHome() {
@@ -646,7 +695,8 @@ class ListeningRoomActivity : Activity() {
             text = value
             textSize = size
             setTextColor(color)
-            if (bold) typeface = Typeface.DEFAULT_BOLD
+            typeface = if (bold) NexusDesignSystem.Type.experimental(this@ListeningRoomActivity)
+                else NexusDesignSystem.Type.interfaceText(this@ListeningRoomActivity)
         }
 
     private fun rounded(color: Int, radius: Int) = GradientDrawable().apply {
@@ -661,9 +711,11 @@ class ListeningRoomActivity : Activity() {
         minWidth = 0
         minimumWidth = 0
         setPadding(dp(12), 0, dp(12), 0)
-        setTextColor(if (primary) Color.rgb(14, 20, 12) else this@ListeningRoomActivity.foreground)
+        setTextColor(if (primary) NexusDesignSystem.Palette.sleeveWhite else this@ListeningRoomActivity.foreground)
         typeface = Typeface.DEFAULT_BOLD
         background = rounded(if (primary) accent else raised, 10)
+        typeface = NexusDesignSystem.Type.experimental(this@ListeningRoomActivity)
+        minHeight = dp(46)
     }
 
     private fun params(top: Int) = LinearLayout.LayoutParams(-1, -2).apply {
@@ -712,6 +764,8 @@ class ListeningRoomActivity : Activity() {
         // Activity navigation/recreation while PlaybackService remains alive.
         stopChatFallbackSync()
         roomStateJob?.cancel()
+        recoveryStatusJob?.cancel()
+        recoveryStatusJob = null
         playback?.close()
         playback = null
         scope.cancel()
