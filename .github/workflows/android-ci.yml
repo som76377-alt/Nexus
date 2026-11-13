@@ -25,6 +25,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Check Media3 opt-in conventions
+        run: bash scripts/check-media3-optin.sh
+
       - name: Enforce SPEC.md ownership with approved S3 exception
         if: github.event_name == 'pull_request'
         shell: bash
@@ -185,6 +188,43 @@ jobs:
                       print(f"FAILED: {case.get('classname')}.{case.get('name')}")
                       print(problem.get("message", ""))
                       print((problem.text or "").strip())
+          PY
+
+      - name: Write concise lint and unit-test failure digest
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          import re
+
+          candidates = [
+              Path(os.environ["RUNNER_TEMP"]) / "nexus-lint.log",
+              Path(os.environ["RUNNER_TEMP"]) / "nexus-unit-tests.log",
+          ]
+          lines = []
+          for path in candidates:
+              if not path.exists():
+                  continue
+              for raw in path.read_text(errors="replace").splitlines():
+                  line = raw.strip()
+                  if not line:
+                      continue
+                  match = re.search(r"([^ :]+\.(?:kt|java|xml|gradle|kts)):(\d+)(?::\d+)?:?\s*(.*)", line)
+                  if match and re.search(r"error|failed|warning", match.group(3), re.I):
+                      item = f"{match.group(1)}:{match.group(2)} — {match.group(3)[:150]}"
+                      if item not in lines:
+                          lines.append(item)
+                  elif re.search(r"FAILED|failure|error:", line, re.I):
+                      item = line[:180]
+                      if item not in lines:
+                          lines.append(item)
+          lines = lines[:9]
+          summary = ["### Android lint/unit-test failure digest"]
+          summary += [f"- {item}" for item in lines] if lines else ["- No lint/unit-test failure signatures found in captured output."]
+          Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text("\n".join(summary) + "\n")
+          print("\n".join(summary))
           PY
 
       - name: Upload unit-test reports
