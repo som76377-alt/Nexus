@@ -9,7 +9,8 @@ internal object ProviderLabReportFormatter {
         val ok: Boolean,
         val error: String?,
         val httpCode: Int?,
-        val elapsedMs: Long
+        val elapsedMs: Long,
+        val detail: String? = null
     )
 
     data class ProviderHealthRow(
@@ -46,8 +47,10 @@ internal object ProviderLabReportFormatter {
         cells.take(15).forEach { cell ->
             val state = if (cell.ok) "OK" else "FAIL"
             val error = cell.error?.replace(Regex("[\\r\\n|]"), " ")?.take(90).orEmpty()
+            val detail = cell.detail?.replace(Regex("[\\r\\n|]"), " ")?.take(70).orEmpty()
             appendLine(
                 "$state ${cell.provider} ${cell.videoId} ${cell.networkMode} · " +
+                    "detail=${detail.ifBlank { "n/a" }} · " +
                     "exception=${error.ifBlank { "none" }} · " +
                     "HTTP=${cell.httpCode?.toString() ?: "n/a"} · ${cell.elapsedMs}ms"
             )
