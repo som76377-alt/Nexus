@@ -43,6 +43,7 @@ import com.nexus.music.catalog.ResolvedAudio
 import com.nexus.music.catalog.NexusCatalog
 import com.nexus.music.catalog.YoutubeSearchScope
 import com.nexus.music.playback.PlaybackConnection
+import com.nexus.music.playback.PlaybackService
 import com.nexus.music.playback.PlaybackSnapshot
 import com.nexus.music.playback.AudioCacheStore
 import com.nexus.music.playback.CachedAudioResolver
@@ -60,6 +61,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.withContext
 
 class MainActivity : Activity() {
@@ -260,6 +262,7 @@ class MainActivity : Activity() {
         registerBackNavigation()
         applySystemBarInsets(base)
         connectPlaybackService()
+        observePlaybackRecovery()
         NexusUpdateScheduler.disableBackgroundUpdates(this)
     }
 
@@ -664,6 +667,14 @@ class MainActivity : Activity() {
         )
     }
 
+    private fun observePlaybackRecovery() {
+        activityScope.launch {
+            PlaybackService.recoveryStatus().collect {
+                updatePlaybackUi(playbackConnection?.snapshot() ?: PlaybackSnapshot(connected = false))
+            }
+        }
+    }
+
     private fun updatePlaybackUi(snapshot: PlaybackSnapshot) {
         lastPlaybackSnapshot = snapshot
         if (::nowPlayingView.isInitialized) {
@@ -671,28 +682,42 @@ class MainActivity : Activity() {
             if (nowPlayingView.visibility == View.VISIBLE) nowPlayingView.render(snapshot)
         }
         scheduleProgressTicker(snapshot)
-        if (!snapshot.connected) {
-            playerSubtitle.text = "Connecting to playback service…"
-            playPauseButton.isEnabled = false
-            return
-        }
-
-        if (snapshot.title.isNotBlank()) {
-            playerTitle.text = snapshot.title
-            playerSubtitle.text = when (snapshot.playbackState) {
-                Player.STATE_BUFFERING -> "Loading audio…"
-                Player.STATE_READY -> if (snapshot.playWhenReady) {
-                    "Playing" + snapshot.artist.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
-                } else {
-                    "Paused" + snapshot.artist.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
+        val recovery = PlaybackService.recoveryStatus().value
+        if (recovery != null) {
+            playerSubtitle.text = if (recovery.canRetry) recovery.message + " · Retry" else recovery.message
+            playerSubtitle.setOnClickListener {
+                if (PlaybackService.recoveryStatus().value?.canRetry == true) {
+                    PlaybackService.retryPlaybackRecovery()
                 }
-                Player.STATE_ENDED -> "Finished"
-                else -> snapshot.artist.ifBlank { "Ready" }
             }
-            playPauseButton.isEnabled = true
+            playerSubtitle.isClickable = recovery.canRetry
+            playPauseButton.isEnabled = snapshot.connected && snapshot.title.isNotBlank()
         } else {
-            playerSubtitle.text = "Ready · choose a result to listen"
-            playPauseButton.isEnabled = false
+            playerSubtitle.setOnClickListener(null)
+            playerSubtitle.isClickable = false
+            if (!snapshot.connected) {
+                playerSubtitle.text = "Connecting to playback service…"
+                playPauseButton.isEnabled = false
+                return
+            }
+
+            if (snapshot.title.isNotBlank()) {
+                playerTitle.text = snapshot.title
+                playerSubtitle.text = when (snapshot.playbackState) {
+                    Player.STATE_BUFFERING -> "Loading audio…"
+                    Player.STATE_READY -> if (snapshot.playWhenReady) {
+                        "Playing" + snapshot.artist.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
+                    } else {
+                        "Paused" + snapshot.artist.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
+                    }
+                    Player.STATE_ENDED -> "Finished"
+                    else -> snapshot.artist.ifBlank { "Ready" }
+                }
+                playPauseButton.isEnabled = true
+            } else {
+                playerSubtitle.text = "Ready · choose a result to listen"
+                playPauseButton.isEnabled = false
+            }
         }
 
         NexusUi.setPlaying(this, playPauseButton, snapshot.playWhenReady)
