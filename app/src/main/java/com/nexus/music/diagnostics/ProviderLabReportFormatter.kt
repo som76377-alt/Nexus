@@ -44,7 +44,8 @@ internal object ProviderLabReportFormatter {
                     "cooldownMs=${health.cooldownRemainingMs.coerceAtLeast(0)}"
             )
         }
-        cells.take(15).forEach { cell ->
+        val expectedCells = if (cells.any { it.provider == "yt-dlp" }) 5 else 15
+        cells.take(expectedCells).forEach { cell ->
             val state = if (cell.ok) "OK" else "FAIL"
             val error = cell.error?.replace(Regex("[\\r\\n|]"), " ")?.take(90).orEmpty()
             val detail = cell.detail?.replace(Regex("[\\r\\n|]"), " ")?.take(70).orEmpty()
@@ -55,7 +56,7 @@ internal object ProviderLabReportFormatter {
                     "HTTP=${cell.httpCode?.toString() ?: "n/a"} · ${cell.elapsedMs}ms"
             )
         }
-        if (cells.size < 15) appendLine("Pending: ${15 - cells.size} checks")
-        if (cells.size > 15) appendLine("Omitted: ${cells.size - 15} additional checks")
+        if (cells.size < expectedCells) appendLine("Pending: ${expectedCells - cells.size} checks")
+        if (cells.size > expectedCells) appendLine("Omitted: ${cells.size - expectedCells} additional checks")
     }.lineSequence().take(40).joinToString("\n")
 }
