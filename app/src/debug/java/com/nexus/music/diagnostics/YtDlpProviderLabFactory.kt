@@ -41,7 +41,6 @@ private object AndroidYtDlpProviderLab : YtDlpProviderLab {
             val request = YoutubeDLRequest(sourceUrl)
             request.addOption("-f", "bestaudio/best")
             request.addOption("--js-runtimes", "quickjs")
-            request.addOption("--remote-components", "ejs:github")
             val info = YoutubeDL.getInstance().getInfo(request)
             val url = info.url?.takeIf { it.startsWith("https://") }
                 ?: throw IOException("yt-dlp did not return a directly playable HTTPS stream.")
