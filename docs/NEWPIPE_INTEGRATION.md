@@ -82,3 +82,38 @@ YouTube tests; the repository's normal CI and human review remain required.
 J4 unit tests use MockWebServer and deterministic JSON. They do not contact GitHub,
 NewPipe, YouTube, Piped, or Invidious. The six-hour refresh cadence is process
 lifetime scoped; a new app launch always performs a fresh conditional request.
+
+
+## J7 acceptance matrix — code-level evidence
+
+The J7 unit/build checks cover the following deterministic cases:
+
+- A2: a forced NewPipe bot-check is classified as rate-limited and the resolver returns
+  the next provider's result within a six-second test bound.
+- A3: exhausting all configured providers terminates within a six-second test bound
+  and returns one terminal resolver error. The user-facing Retry presentation is
+  covered by the existing recovery UI path, not by this resolver test.
+- A4: local stream re-resolution is bounded to five seconds; timeout does not replace
+  the active source. Successful recovery passes the saved position and play intent
+  to the local replacement callback. The one-second audible-resume target and
+  physical mid-play 403 behavior remain UNVERIFIED.
+- A5: the room-local recovery contract is composed with the provider resolver in a
+  regression test: NewPipe bot-check falls through to Piped, and the replacement
+  remains a local player operation. Existing S2/S8 controller tests separately
+  cover the shared start barrier and three-second fallback. Two-device timing and
+  end-to-end room behavior remain UNVERIFIED.
+- A6: a valid startup provider configuration with NewPipe disabled initializes the
+  resolver with only the enabled providers. Last-good persistence and conditional
+  refresh are implemented; a physical process-restart/config-rollout check remains
+  UNVERIFIED.
+
+Provider chaos tests cover the six documented forced failure classes, and report
+formatter tests cover environment, provider health, cell outcomes, sanitization and
+the 40-line bound. CI compiles the release source set and checks that debug chaos
+implementation is absent from release output.
+
+These are code-level tests, not evidence of successful live extraction or audible
+playback. The two supplied J5 yt-dlp reports are partial single-device evidence:
+wrong-video-ID search results occurred on both cellular and Wi-Fi; the Wi-Fi report
+also contains DNS/API failures after the user reported a disconnect. No second-phone
+or release N-to-N+1 physical update result is available, so A7 remains UNVERIFIED.
