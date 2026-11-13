@@ -238,7 +238,7 @@ class ProviderLabActivity : Activity() {
             if (error is ProviderHttpException) httpCode = error.code
             ProviderLabReportFormatter.Cell(
                 YTDLP_PROVIDER, sample.id, "native-stack", false,
-                error::class.java.simpleName + error.message?.let { ": ${it.take(220)}" }.orEmpty(),
+                error::class.java.simpleName + error.message?.let { ": ${it.take(900)}" }.orEmpty(),
                 httpCode, elapsedMs(started)
             )
         }

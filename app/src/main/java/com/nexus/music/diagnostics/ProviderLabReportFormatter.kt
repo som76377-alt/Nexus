@@ -47,7 +47,7 @@ internal object ProviderLabReportFormatter {
         val expectedCells = if (cells.any { it.provider == "yt-dlp" }) 5 else 15
         cells.take(expectedCells).forEach { cell ->
             val state = if (cell.ok) "OK" else "FAIL"
-            val error = cell.error?.replace(Regex("[\\r\\n|]"), " ")?.take(220).orEmpty()
+            val error = cell.error?.replace(Regex("[\\r\\n|]"), " ")?.take(900).orEmpty()
             val detail = cell.detail?.replace(Regex("[\\r\\n|]"), " ")?.take(70).orEmpty()
             appendLine(
                 "$state ${cell.provider} ${cell.videoId} ${cell.networkMode} · " +
