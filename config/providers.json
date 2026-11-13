@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "providers": [
+    { "id": "newpipe", "enabled": true },
+    { "id": "piped", "enabled": true },
+    { "id": "invidious", "enabled": true }
+  ]
+}

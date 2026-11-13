@@ -40,7 +40,9 @@ object NexusCatalog {
             piped,
             invidious
         )
-        val order = StreamProvider.parseOrder(BuildConfig.STREAM_PROVIDER_ORDER)
+        val remoteConfig = RemoteProviderConfiguration(context)
+        val initialOrder = remoteConfig.current().enabledOrder
+        val order = initialOrder.ifEmpty { StreamProvider.parseOrder(BuildConfig.STREAM_PROVIDER_ORDER) }
         val resolver = ProviderResolverChain(
             adapters = adapters,
             healthStore = SharedPreferencesProviderHealthStore(context),
@@ -49,6 +51,14 @@ object NexusCatalog {
         )
 
         // Directory refresh never blocks activity startup or a playback-service call.
+        discoveryScope.launch {
+            remoteConfig.refresh().let { updated -> resolver.updateProviderOrder(updated.enabledOrder) }
+            while (true) {
+                kotlinx.coroutines.delay(REMOTE_CONFIG_REFRESH_INTERVAL_MS)
+                remoteConfig.refresh().let { updated -> resolver.updateProviderOrder(updated.enabledOrder) }
+            }
+        }
+
         discoveryScope.launch {
             discovery.refreshIfStale { provider, discovered ->
                 when (provider) {
@@ -62,6 +72,8 @@ object NexusCatalog {
 
         return YoutubeCatalogRepository(adapter = ResolverChainStreamProviderAdapter(resolver))
     }
+
+    private const val REMOTE_CONFIG_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000L
 
     private fun parseEndpoints(value: String): List<String> =
         value.split(',')

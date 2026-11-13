@@ -23,7 +23,15 @@ class ProviderResolverChain(
     private val validateResolvedAudio: suspend (ResolvedAudio) -> ResolvedAudio = { it }
 ) {
     private val adaptersByProvider = adapters.associateBy { it.provider }
-    private val providerOrder = providerOrder.toList()
+    @Volatile
+    private var providerOrder = providerOrder.toList()
+
+    fun updateProviderOrder(order: List<StreamProvider>) {
+        require(order.isNotEmpty()) { "At least one stream provider must be enabled." }
+        require(order.distinct().size == order.size) { "Stream provider order contains duplicates." }
+        require(order.all(adaptersByProvider::containsKey)) { "Provider order references an unavailable adapter." }
+        providerOrder = order.toList()
+    }
 
     init {
         require(adapters.isNotEmpty()) { "At least one stream provider adapter is required." }

@@ -38,7 +38,6 @@ The live test is intentionally skipped in normal CI because upstream availabilit
 - The NewPipe Extractor is GPL-3.0-or-later. Review licence obligations before distributing a derivative application or binary.
 - The extractor uses unofficial service-facing interfaces; upstream changes can require dependency updates. Keep this module isolated from playback and UI code.
 
-
 ## Provider Lab and provider health diagnostics (J3)
 
 The debug-only Provider Lab can exercise NewPipe, Piped, and Invidious through the
@@ -58,3 +57,28 @@ CI uses deterministic unit/build checks only; it does not contact live extractor
 services. A successful Provider Lab cell's audible playback, forced mid-stream
 recovery, real IPv4/IPv6 behavior, and both-phone results remain UNVERIFIED until
 timestamped reports are collected from the physical devices.
+
+## Remote provider configuration and extractor maintenance (J4)
+
+The app reads the data-only `config/providers.json` file from the repository's
+main branch at startup and refreshes it every six hours while the process is alive.
+Requests use ETag/If-None-Match. A valid response is stored as the last-good config;
+a 304, offline state, HTTP error, oversized body, or invalid document keeps the
+previous last-good config. A first install with no last-good value uses the bundled
+`app/src/main/assets/providers.json` defaults.
+
+The schema allows a positive integer `version` and one to three ordered provider
+records with an allowlisted `id` (`newpipe`, `piped`, `invidious`) and boolean
+`enabled`. Unknown object keys are ignored for forward compatibility. Unknown
+provider IDs, duplicates, malformed fields, and a config with no enabled provider
+reject the whole document. The config cannot contain code, executable URLs,
+scripts, or arbitrary endpoint overrides.
+
+`.github/workflows/newpipe-extractor-update.yml` checks the latest upstream
+published release weekly and on manual dispatch. If the catalog version differs,
+it opens/updates a dependency PR. It does not merge the PR and does not run live
+YouTube tests; the repository's normal CI and human review remain required.
+
+J4 unit tests use MockWebServer and deterministic JSON. They do not contact GitHub,
+NewPipe, YouTube, Piped, or Invidious. The six-hour refresh cadence is process
+lifetime scoped; a new app launch always performs a fresh conditional request.
