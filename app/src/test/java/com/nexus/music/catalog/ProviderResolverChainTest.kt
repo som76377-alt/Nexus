@@ -4,11 +4,13 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
+import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
 import org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException
 import java.io.IOException
 
@@ -324,6 +326,59 @@ class ProviderResolverChainTest {
         assertEquals(listOf(StreamProvider.PIPED, StreamProvider.INVIDIOUS), calls)
         assertEquals(StreamProvider.PIPED, replacement.provider)
         assertEquals("https://media.example/piped.m4a", replacement.audioUrl)
+    }
+
+    // J7 A2: a NewPipe bot-check must move to the next provider promptly.
+    @Test
+    fun a2NewPipeBotCheckFallsBackToNextProviderWithinSixSeconds() = runBlocking {
+        val health = InMemoryHealthStore()
+        val calls = mutableListOf<StreamProvider>()
+        val chain = ProviderResolverChain(
+            adapters = listOf(
+                FakeAdapter(StreamProvider.NEWPIPE, calls) {
+                    throw ReCaptchaException("Provider returned a bot-check challenge.", "https://www.youtube.com/")
+                },
+                FakeAdapter(StreamProvider.PIPED, calls) { resolvedAudio() }
+            ),
+            healthStore = health,
+            providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
+            hedgeDelayMs = 0L
+        )
+
+        val result = withTimeout(6_000L) {
+            chain.resolveAudio("https://youtube.com/watch?v=abcdefghijk")
+        }
+
+        assertEquals(StreamProvider.PIPED, result.provider)
+        assertEquals(listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED), calls)
+        assertEquals(StreamErrorClass.RATE_LIMITED, health.get(StreamProvider.NEWPIPE).lastErrorClass)
+    }
+
+    // J7 A3: exhausting the configured providers must terminate rather than hang.
+    @Test
+    fun a3AllProviderFailuresTerminateWithinBoundAndExposeOneTerminalError() = runBlocking {
+        val calls = mutableListOf<StreamProvider>()
+        val chain = ProviderResolverChain(
+            adapters = listOf(
+                FakeAdapter(StreamProvider.NEWPIPE, calls) { throw IOException("NewPipe failed") },
+                FakeAdapter(StreamProvider.PIPED, calls) { throw IOException("Piped failed") },
+                FakeAdapter(StreamProvider.INVIDIOUS, calls) { throw IOException("Invidious failed") }
+            ),
+            healthStore = InMemoryHealthStore(),
+            providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED, StreamProvider.INVIDIOUS),
+            hedgeDelayMs = 0L
+        )
+
+        val error = org.junit.Assert.assertThrows(IOException::class.java) {
+            runBlocking {
+                withTimeout(6_000L) {
+                    chain.resolveAudio("https://youtube.com/watch?v=abcdefghijk")
+                }
+            }
+        }
+
+        assertEquals("Invidious failed", error.message)
+        assertEquals(listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED, StreamProvider.INVIDIOUS), calls)
     }
 
     private fun catalogTrack() = CatalogTrack(
