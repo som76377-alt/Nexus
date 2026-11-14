@@ -31,7 +31,7 @@ data class PlaybackSnapshot(
 )
 
 /** Activity-side bridge to the player owned by PlaybackService. */
-@OptIn(UnstableApi::class)
+@UnstableApi
 class PlaybackConnection(
     context: Context,
     private val onReady: () -> Unit,
