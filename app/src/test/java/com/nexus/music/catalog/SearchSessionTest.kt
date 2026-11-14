@@ -3,6 +3,7 @@ package com.nexus.music.catalog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -120,8 +121,8 @@ class SearchSessionTest {
                 StreamProvider.PIPED,
                 StreamProvider.INVIDIOUS
             ).mapIndexed { index, provider ->
-                val firstPage = ids.shuffled(random).take(10).map(::trackFromId)
-                val secondPage = ids.shuffled(random).take(10).map(::trackFromId)
+                val firstPage = (listOf(ids.first()) + ids.shuffled(random).take(10)).distinct().map(::trackFromId)
+                val secondPage = (listOf(ids[1]) + ids.shuffled(random).take(10)).distinct().map(::trackFromId)
                 provider to (firstPage to secondPage)
             }
             val sources = sourceDefinitions.mapIndexed { index, (provider, pages) ->
@@ -164,6 +165,28 @@ class SearchSessionTest {
         }
     }
 
+
+
+    @Test
+    fun oneValidEmptyResponseMeansSearchIsNotUnavailable() = runTest {
+        val manager = SearchSessionManager(
+            parentScope = backgroundScope,
+            sources = listOf(
+                FakeSearchSource(StreamProvider.NEWPIPE) { _, _, _ -> throw IOException("offline") },
+                FakeSearchSource(StreamProvider.PIPED) { _, _, _ ->
+                    SearchPage(emptyList(), null, hasMore = false)
+                }
+            ),
+            dispatcher = StandardTestDispatcher(testScheduler)
+        )
+
+        val session = manager.start("ambient", YoutubeSearchScope.EVERYTHING)
+        advanceUntilIdle()
+
+        assertTrue(session.state.value.items.isEmpty())
+        assertFalse(session.state.value.allSourcesFailed)
+        assertEquals(setOf(StreamProvider.NEWPIPE), session.state.value.failedSources)
+    }
 
     @Test
     fun allSourcesFailedIsTrueOnlyWhenEveryFirstPageFails() = runTest {
