@@ -215,7 +215,7 @@ class ProviderLabActivity : Activity() {
             }
             ProviderLabReportFormatter.Cell(
                 provider.key, sample.id, family.label, false,
-                error::class.java.simpleName + error.message?.let { ": ${it.take(90)}" }.orEmpty(),
+                error::class.java.simpleName + error.message?.let { ": ${it.take(240)}" }.orEmpty(),
                 httpCode, elapsedMs(started)
             )
         } finally {
