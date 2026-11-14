@@ -12,11 +12,12 @@ internal object YtDlpProviderLabFactory {
 }
 
 private object AndroidYtDlpProviderLab : YtDlpProviderLab {
-    override suspend fun initializeAndUpdate(context: Context): String = withContext(Dispatchers.IO) {
+    override suspend fun initializeRuntime(context: Context): String = withContext(Dispatchers.IO) {
         val appContext = context.applicationContext
         YoutubeDL.getInstance().init(appContext)
-        YoutubeDL.getInstance().updateYoutubeDL(appContext)
-        "success"
+        val cachedVersion = YoutubeDL.getInstance().versionName(appContext)
+        if (cachedVersion.isNullOrBlank()) "bundled runtime · network update skipped"
+        else "cached runtime $cachedVersion · network update skipped"
     }
 
     override suspend fun resolveAudio(context: Context, sourceUrl: String): YtDlpResolvedAudio =

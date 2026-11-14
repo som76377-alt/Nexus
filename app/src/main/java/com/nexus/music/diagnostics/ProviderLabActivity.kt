@@ -132,7 +132,7 @@ class ProviderLabActivity : Activity() {
         if (running) return
         running = true
         runButton.isEnabled = false
-        report.text = ""
+        report.text = "Starting Provider Lab…"
         labScope.launch {
             val rows = mutableListOf<ProviderLabReportFormatter.Cell>()
             val network = networkSummary()
@@ -148,10 +148,12 @@ class ProviderLabActivity : Activity() {
             } else 0
             val checkCount = if (isYtDlp) SAMPLES.size else SAMPLES.size * FamilyMode.entries.size
             status.text = "Running ${checkCount} checks · ${selectedProvider} · failure=${failure.name} · stream403=${forced403Seconds}s"
+            report.text = if (isYtDlp) "Initializing yt-dlp runtime…\\nNetwork update is skipped in this diagnostic run.\\n" else "Preparing provider checks…"
             try {
                 if (isYtDlp) {
+                    status.text = "yt-dlp · initializing bundled runtime…"
                     ytDlpUpdateStatus = runCatching {
-                        ytDlp?.initializeAndUpdate(applicationContext) ?: "unavailable"
+                        ytDlp?.initializeRuntime(applicationContext) ?: "unavailable"
                     }.fold(
                         onSuccess = { it },
                         onFailure = { "FAILED: ${it::class.java.simpleName}: ${it.message.orEmpty().take(120)}" }
@@ -159,7 +161,7 @@ class ProviderLabActivity : Activity() {
                 }
                 if (isYtDlp) {
                     for (sample in SAMPLES) {
-                        status.text = "yt-dlp · ${sample.label} · native network stack"
+                        status.text = "yt-dlp · ${sample.label} · resolving stream (1/2)"
                         rows += runYtDlpCell(sample, forced403Seconds)
                         report.text = formatReport(network, rows)
                     }
@@ -195,6 +197,7 @@ class ProviderLabActivity : Activity() {
             // These are fixed sample IDs, not search queries. Resolve each canonical
             // watch URL directly so search ranking cannot substitute a different video.
             val sourceUrl = "https://www.youtube.com/watch?v=${sample.id}"
+            status.text = "yt-dlp · ${sample.label} · resolving stream (1/2)"
             val coldStarted = System.nanoTime()
             val cold = engine.resolveAudio(applicationContext, sourceUrl)
             val coldMs = elapsedMs(coldStarted)
@@ -202,6 +205,7 @@ class ProviderLabActivity : Activity() {
                 throw IllegalStateException("Resolved video ID ${cold.videoId}, expected ${sample.id}.")
             }
 
+            status.text = "yt-dlp · ${sample.label} · repeat extraction (2/2)"
             val repeatStarted = System.nanoTime()
             val audio = engine.resolveAudio(applicationContext, sourceUrl)
             val repeatMs = elapsedMs(repeatStarted)
@@ -210,6 +214,7 @@ class ProviderLabActivity : Activity() {
             }
             if (audio.audioUrl.isBlank()) throw IOException("yt-dlp returned an empty audio URL.")
 
+            status.text = "yt-dlp · ${sample.label} · checking audio stream"
             val probeStarted = System.nanoTime()
             httpCode = withContext(Dispatchers.IO) {
                 client.newCall(
@@ -229,6 +234,7 @@ class ProviderLabActivity : Activity() {
                 }
             }
             val probeMs = elapsedMs(probeStarted)
+            status.text = "yt-dlp · ${sample.label} · testing playback (10 seconds)"
             val playback = playForTenSeconds(audio.audioUrl, client, audio.httpHeaders, forced403Seconds)
             ProviderLabReportFormatter.Cell(
                 YTDLP_PROVIDER, sample.id, "native-stack", true, null, httpCode,
