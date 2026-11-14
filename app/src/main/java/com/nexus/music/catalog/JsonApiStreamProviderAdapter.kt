@@ -23,6 +23,7 @@ import java.text.ParsePosition
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -214,7 +215,7 @@ abstract class JsonApiStreamProviderAdapter(
     private var endpoints: List<HttpUrl> = parseEndpoints(endpoints)
 
     /** Operation-scoped, process-local cooldowns; no strike counters or persisted health state. */
-    private val cooldownUntilByOperationAndEndpoint = mutableMapOf<Pair<Operation, String>, Long>()
+    private val cooldownUntilByOperationAndEndpoint = ConcurrentHashMap<Pair<Operation, String>, Long>()
 
     init {
         require(maxInstanceAttempts > 0) { "Maximum instance attempts must be positive." }
@@ -326,7 +327,12 @@ abstract class JsonApiStreamProviderAdapter(
         for (endpoint in candidates) {
             if (attempted >= maxInstanceAttempts) break
             val remainingMs = deadlineAt - monotonicNowMs()
-            if (remainingMs <= 0L) break
+            if (remainingMs <= 0L) {
+                lastError = SocketTimeoutException(
+                    "${provider.key} provider call exceeded its ${callDeadlineMs}ms deadline."
+                )
+                break
+            }
             attempted += 1
 
             try {
