@@ -325,6 +325,17 @@ abstract class JsonApiStreamProviderAdapter(
     }
 
     private fun recordInstanceFailure(endpoint: HttpUrl, error: IOException) {
+        if (
+            error is ProviderHttpException &&
+            error.statusCode in 400..499 &&
+            error.statusCode != 429
+        ) {
+            // The instance answered. A 4xx may be a video-specific denial, so do not cool it down.
+            instanceHealthStore.recordSuccess(provider, endpoint.toString())
+            return
+        }
+        if (error is ProviderContentException) return
+
         val now = nowEpochMs()
         val previous = instanceHealthStore.get(provider, endpoint.toString())
         val failures = previous.consecutiveFailures + 1
@@ -332,9 +343,8 @@ abstract class JsonApiStreamProviderAdapter(
             is ProviderHttpException -> when {
                 error.statusCode == 429 -> error.retryAfterMs ?: RATE_LIMIT_COOLDOWN_MS
                 error.statusCode >= 500 -> transientCooldown(failures)
-                else -> 0L // 4xx responses may be specific to this video, not the instance.
+                else -> 0L
             }
-            is ProviderContentException -> 0L
             else -> transientCooldown(failures)
         }
         if (cooldownMs > 0L) {
