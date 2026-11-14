@@ -202,7 +202,7 @@ class ProviderLabActivity : Activity() {
                         )
                     } catch (cancelled: CancellationException) {
                         throw cancelled
-                    } catch (error: Throwable) {
+                    } catch (error: Exception) {
                         records += ProviderLabSurveyReportFormatter.Record(
                             operation = "SEARCH",
                             timestampEpochMs = timestamp,
@@ -240,7 +240,7 @@ class ProviderLabActivity : Activity() {
                         )
                     } catch (cancelled: CancellationException) {
                         throw cancelled
-                    } catch (error: Throwable) {
+                    } catch (error: Exception) {
                         records += ProviderLabSurveyReportFormatter.Record(
                             operation = "RESOLVE+PROBE",
                             timestampEpochMs = timestamp,
