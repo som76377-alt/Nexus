@@ -15,6 +15,7 @@ import org.junit.Assert.assertThrows
 import org.junit.Before
 import org.junit.Test
 import java.io.IOException
+import java.net.SocketTimeoutException
 import java.util.concurrent.TimeUnit
 
 class JsonApiStreamProviderAdapterTest {
@@ -202,6 +203,123 @@ class JsonApiStreamProviderAdapterTest {
             JsonApiStreamProviderAdapter.parseRetryAfterMillis("Thu, 01 Jan 1970 00:00:01 GMT", 2_000L)
         )
         assertEquals(null, JsonApiStreamProviderAdapter.parseRetryAfterMillis("not-a-date", 0L))
+    }
+
+
+    @Test
+    fun searchClient4xxStatusesCooldownOnlyTheFailingInstance() = runBlocking {
+        listOf(400, 401, 403, 404, 405, 410).forEach { status ->
+            val first = MockWebServer()
+            val second = MockWebServer()
+            first.start()
+            second.start()
+            try {
+                first.enqueue(MockResponse().setResponseCode(status))
+                second.enqueue(MockResponse().setBody("[]"))
+                second.enqueue(MockResponse().setBody("[]"))
+                val adapter = PipedStreamProviderAdapter(
+                    listOf(first.url("/").toString(), second.url("/").toString()),
+                    nowEpochMs = { 1_000L }
+                )
+
+                adapter.search("ambient", YoutubeSearchScope.EVERYTHING)
+                adapter.search("ambient", YoutubeSearchScope.EVERYTHING)
+
+                assertEquals("status=$status first instance", 1, first.requestCount)
+                assertEquals("status=$status healthy instance", 2, second.requestCount)
+            } finally {
+                first.shutdown()
+                second.shutdown()
+            }
+        }
+    }
+
+    @Test
+    fun resolveClient4xxDoesNotReuseSearchInstanceCooldown() = runBlocking {
+        val second = MockWebServer()
+        second.start()
+        try {
+            repeat(2) {
+                server.enqueue(MockResponse().setResponseCode(403))
+                second.enqueue(
+                    MockResponse().setBody(
+                        """{"title":"Recovered","audioStreams":[{"url":"https://media.example/a.mp3","mimeType":"audio/mpeg","bitrate":96000}]}"""
+                    )
+                )
+            }
+            val adapter = PipedStreamProviderAdapter(
+                listOf(server.url("/").toString(), second.url("/").toString()),
+                nowEpochMs = { 1_000L }
+            )
+
+            repeat(2) {
+                assertEquals("Recovered", adapter.resolveAudio("https://youtube.com/watch?v=abcdefghijk").title)
+            }
+
+            assertEquals(2, server.requestCount)
+            assertEquals(2, second.requestCount)
+        } finally {
+            second.shutdown()
+        }
+    }
+
+    @Test
+    fun providerInstanceAttemptsAreBoundedByTheProvisionalLimit() = runBlocking {
+        val second = MockWebServer()
+        val third = MockWebServer()
+        second.start()
+        third.start()
+        try {
+            server.enqueue(MockResponse().setResponseCode(503))
+            second.enqueue(MockResponse().setResponseCode(503))
+            third.enqueue(MockResponse().setBody("[]"))
+            val adapter = PipedStreamProviderAdapter(
+                listOf(server.url("/").toString(), second.url("/").toString(), third.url("/").toString()),
+                maxInstanceAttempts = 2
+            )
+
+            assertThrows(IOException::class.java) {
+                runBlocking { adapter.search("ambient", YoutubeSearchScope.EVERYTHING) }
+            }
+
+            assertEquals(1, server.requestCount)
+            assertEquals(1, second.requestCount)
+            assertEquals(0, third.requestCount)
+        } finally {
+            second.shutdown()
+            third.shutdown()
+        }
+    }
+
+    @Test
+    fun providerCallDeadlineStopsStartingFurtherInstancesUsingFakeClock() = runBlocking {
+        var monotonicNow = 0L
+        server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse {
+                monotonicNow = 50L
+                return MockResponse().setResponseCode(503)
+            }
+        }
+        val second = MockWebServer()
+        second.start()
+        try {
+            second.enqueue(MockResponse().setBody("[]"))
+            val adapter = PipedStreamProviderAdapter(
+                listOf(server.url("/").toString(), second.url("/").toString()),
+                callDeadlineMs = 50L,
+                nowEpochMs = { 1_000L },
+                monotonicNowMs = { monotonicNow }
+            )
+
+            assertThrows(SocketTimeoutException::class.java) {
+                runBlocking { adapter.search("ambient", YoutubeSearchScope.EVERYTHING) }
+            }
+
+            assertEquals(1, server.requestCount)
+            assertEquals(0, second.requestCount)
+        } finally {
+            second.shutdown()
+        }
     }
 
     @Test
