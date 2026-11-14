@@ -1,6 +1,11 @@
 package com.nexus.music.catalog
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.Call
@@ -13,10 +18,13 @@ import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.net.SocketTimeoutException
 import java.text.ParsePosition
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -29,8 +37,14 @@ import kotlin.coroutines.resumeWithException
  */
 class PipedStreamProviderAdapter(
     endpoints: List<String>,
-    client: OkHttpClient = JsonApiStreamProviderAdapter.defaultApiClient()
-) : JsonApiStreamProviderAdapter(StreamProvider.PIPED, endpoints, client) {
+    client: OkHttpClient = JsonApiStreamProviderAdapter.defaultApiClient(),
+    maxInstanceAttempts: Int = JsonApiStreamProviderAdapter.DEFAULT_MAX_INSTANCE_ATTEMPTS_UNVERIFIED,
+    callDeadlineMs: Long = JsonApiStreamProviderAdapter.DEFAULT_CALL_DEADLINE_MS_UNVERIFIED,
+    nowEpochMs: () -> Long = System::currentTimeMillis,
+    monotonicNowMs: () -> Long = { TimeUnit.NANOSECONDS.toMillis(System.nanoTime()) }
+) : JsonApiStreamProviderAdapter(
+    StreamProvider.PIPED, endpoints, client, maxInstanceAttempts, callDeadlineMs, nowEpochMs, monotonicNowMs
+) {
     override fun searchUrl(base: HttpUrl, query: String, scope: YoutubeSearchScope): HttpUrl =
         base.newBuilder()
             .addPathSegments("search")
@@ -95,8 +109,14 @@ class PipedStreamProviderAdapter(
 
 class InvidiousStreamProviderAdapter(
     endpoints: List<String>,
-    client: OkHttpClient = JsonApiStreamProviderAdapter.defaultApiClient()
-) : JsonApiStreamProviderAdapter(StreamProvider.INVIDIOUS, endpoints, client) {
+    client: OkHttpClient = JsonApiStreamProviderAdapter.defaultApiClient(),
+    maxInstanceAttempts: Int = JsonApiStreamProviderAdapter.DEFAULT_MAX_INSTANCE_ATTEMPTS_UNVERIFIED,
+    callDeadlineMs: Long = JsonApiStreamProviderAdapter.DEFAULT_CALL_DEADLINE_MS_UNVERIFIED,
+    nowEpochMs: () -> Long = System::currentTimeMillis,
+    monotonicNowMs: () -> Long = { TimeUnit.NANOSECONDS.toMillis(System.nanoTime()) }
+) : JsonApiStreamProviderAdapter(
+    StreamProvider.INVIDIOUS, endpoints, client, maxInstanceAttempts, callDeadlineMs, nowEpochMs, monotonicNowMs
+) {
     override fun searchUrl(base: HttpUrl, query: String, scope: YoutubeSearchScope): HttpUrl {
         if (scope == YoutubeSearchScope.MUSIC_SONGS) {
             throw ProviderCapabilityException("Invidious does not expose a music-songs search filter.")
@@ -184,10 +204,25 @@ private fun parseSelectedStreamHeaders(stream: JSONObject): Map<String, String> 
 abstract class JsonApiStreamProviderAdapter(
     final override val provider: StreamProvider,
     endpoints: List<String>,
-    private val client: OkHttpClient
+    private val client: OkHttpClient,
+    private val maxInstanceAttempts: Int,
+    private val callDeadlineMs: Long,
+    private val nowEpochMs: () -> Long,
+    private val monotonicNowMs: () -> Long
 ) : StreamProviderAdapter {
+    private enum class Operation { SEARCH, RESOLVE }
+
     @Volatile
     private var endpoints: List<HttpUrl> = parseEndpoints(endpoints)
+
+    /** Operation-scoped, process-local cooldowns; no strike counters or persisted health state. */
+    private val cooldownUntilByOperationAndEndpoint = ConcurrentHashMap<Pair<Operation, String>, Long>()
+    private val nextStartIndexByOperation = ConcurrentHashMap<Operation, AtomicInteger>()
+
+    init {
+        require(maxInstanceAttempts > 0) { "Maximum instance attempts must be positive." }
+        require(callDeadlineMs > 0L) { "Provider call deadline must be positive." }
+    }
 
     /**
      * Replaces the current instance pool after trusted directory discovery.
@@ -213,7 +248,7 @@ abstract class JsonApiStreamProviderAdapter(
     ): List<CatalogTrack> = withContext(Dispatchers.IO) {
         val normalized = query.trim()
         require(normalized.isNotEmpty()) { "Search query must not be blank." }
-        executeAcrossInstances { base ->
+        executeAcrossInstances(Operation.SEARCH) { base ->
             parseSearch(get(searchUrl(base, normalized, scope)))
         }
     }
@@ -221,7 +256,7 @@ abstract class JsonApiStreamProviderAdapter(
     final override suspend fun resolveAudio(videoUrl: String): ResolvedAudio = withContext(Dispatchers.IO) {
         val videoId = JsonApiStreamProviderAdapter.youtubeId(videoUrl)
             ?: throw IllegalArgumentException("A supported YouTube video URL is required.")
-        executeAcrossInstances { base ->
+        executeAcrossInstances(Operation.RESOLVE) { base ->
             parseResolved(get(resolveUrl(base, videoId)), videoId)
         }
     }
@@ -271,32 +306,91 @@ abstract class JsonApiStreamProviderAdapter(
         })
     }
 
-    private suspend fun <T> executeAcrossInstances(block: suspend (HttpUrl) -> T): T {
+    private suspend fun <T> executeAcrossInstances(
+        operation: Operation,
+        block: suspend (HttpUrl) -> T
+    ): T {
         var lastError: IOException? = null
         val configuredEndpoints = endpoints
         if (configuredEndpoints.isEmpty()) {
-            throw IOException("No healthy ${provider.key} instance is configured.")
+            throw IOException("No ${provider.key} instance is configured.")
         }
-        configuredEndpoints.forEach { endpoint ->
+
+        val startCounter = nextStartIndexByOperation.computeIfAbsent(operation) { AtomicInteger(0) }
+        val startIndex = startCounter.getAndUpdate { current -> (current + 1) % configuredEndpoints.size }
+            .mod(configuredEndpoints.size)
+        val rotatedEndpoints = configuredEndpoints.drop(startIndex) + configuredEndpoints.take(startIndex)
+        val now = nowEpochMs()
+        val healthyCandidates = rotatedEndpoints.filter { endpoint ->
+            (cooldownUntilByOperationAndEndpoint[operation to endpoint.toString()] ?: 0L) <= now
+        }
+        // Prefer instances not cooling down. If every instance is cooling, they remain eligible
+        // for bounded half-open probes; round-robin start order prevents starving later endpoints.
+        val candidates = healthyCandidates.ifEmpty { rotatedEndpoints }
+        val deadlineAt = monotonicNowMs() + callDeadlineMs
+        var attempted = 0
+
+        for (endpoint in candidates) {
+            if (attempted >= maxInstanceAttempts) break
+            val remainingMs = deadlineAt - monotonicNowMs()
+            if (remainingMs <= 0L) {
+                lastError = SocketTimeoutException(
+                    "${provider.key} provider call exceeded its ${callDeadlineMs}ms deadline."
+                )
+                break
+            }
+            attempted += 1
+
             try {
-                return block(endpoint)
-            } catch (error: kotlinx.coroutines.CancellationException) {
-                throw error
+                val result = withTimeout(remainingMs) { block(endpoint) }
+                cooldownUntilByOperationAndEndpoint.remove(operation to endpoint.toString())
+                return result
+            } catch (error: CancellationException) {
+                if (error !is TimeoutCancellationException) throw error
+                // Do not swallow cancellation from the caller or an enclosing timeout.
+                currentCoroutineContext().ensureActive()
+                lastError = SocketTimeoutException(
+                    "${provider.key} provider call exceeded its ${callDeadlineMs}ms deadline."
+                )
+                break
             } catch (error: ProviderCapabilityException) {
                 throw error
+            } catch (error: ProviderHttpException) {
+                lastError = error
+                if (operation == Operation.SEARCH && shouldCooldownSearchInstance(error.statusCode)) {
+                    val duration = if (error.statusCode == 429) {
+                        error.retryAfterMs ?: DEFAULT_SEARCH_INSTANCE_COOLDOWN_MS
+                    } else {
+                        DEFAULT_SEARCH_INSTANCE_COOLDOWN_MS
+                    }
+                    cooldownUntilByOperationAndEndpoint[operation to endpoint.toString()] =
+                        nowEpochMs() + duration
+                }
             } catch (error: IOException) {
                 lastError = error
             } catch (error: org.json.JSONException) {
                 lastError = IOException("${provider.key} API returned an invalid response.", error)
             }
         }
-        throw lastError ?: IOException("No healthy ${provider.key} instance is configured.")
+
+        throw lastError ?: SocketTimeoutException(
+            "${provider.key} provider call exceeded its ${callDeadlineMs}ms deadline or attempt limit."
+        )
     }
+
+    private fun shouldCooldownSearchInstance(statusCode: Int): Boolean =
+        statusCode in SEARCH_INSTANCE_COOLDOWN_STATUSES || statusCode == 429
 
     companion object {
         private val LOOPBACK_HOSTS = setOf("localhost", "127.0.0.1", "::1")
         private const val USER_AGENT = "Nexus/0.1 (Android)"
         private const val MAX_API_RESPONSE_BYTES = 8_388_608L
+
+        // PROVISIONAL / UNVERIFIED until E1/E2 measurements justify different defaults.
+        internal const val DEFAULT_MAX_INSTANCE_ATTEMPTS_UNVERIFIED = 5
+        internal const val DEFAULT_CALL_DEADLINE_MS_UNVERIFIED = 15_000L
+        private const val DEFAULT_SEARCH_INSTANCE_COOLDOWN_MS = 5 * 60_000L
+        private val SEARCH_INSTANCE_COOLDOWN_STATUSES = setOf(400, 401, 403, 404, 405, 410)
 
         internal fun parseRetryAfterMillis(
             value: String?,
