@@ -41,6 +41,8 @@ import com.nexus.music.ui.SearchPanel
 import com.nexus.music.ui.YouView
 import com.nexus.music.catalog.ResolvedAudio
 import com.nexus.music.catalog.NexusCatalog
+import com.nexus.music.catalog.SearchSessionManager
+import com.nexus.music.catalog.RepositorySearchSource
 import com.nexus.music.catalog.YoutubeSearchScope
 import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackSnapshot
@@ -60,12 +62,19 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.withContext
 
 class MainActivity : Activity() {
     private enum class SearchSort { RELEVANCE, POPULAR, TITLE, DURATION }
     private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val repository by lazy { NexusCatalog.repository(this) }
+    private var searchSessionManager: SearchSessionManager? = null
+
+    private fun searchSessions(): SearchSessionManager = searchSessionManager
+        ?: SearchSessionManager(activityScope, listOf(RepositorySearchSource(repository))).also {
+            searchSessionManager = it
+        }
     private val libraryStore by lazy { LocalLibraryStore(this) }
     private val updateChecker by lazy { GitHubReleaseUpdater() }
     private val progressHandler = Handler(Looper.getMainLooper())
@@ -718,6 +727,7 @@ class MainActivity : Activity() {
             searchGeneration++
             searchJob?.cancel()
             searchJob = null
+            searchSessionManager?.cancelActive()
             searchPanel.queryInput.error = null
             searchPanel.statusText.text = ""
             searchPanel.statusText.visibility = View.GONE
@@ -731,30 +741,43 @@ class MainActivity : Activity() {
         searchPanel.queryInput.error = null
         val requestGeneration = ++searchGeneration
         val requestScope = selectedScope
-        searchPanel.statusText.text = ""
-        searchPanel.statusText.visibility = View.GONE
+        searchPanel.statusText.text = "Searching…"
+        searchPanel.statusText.visibility = View.VISIBLE
         searchPanel.statusText.setOnClickListener(null)
         searchPanel.resultsContainer.removeAllViews()
 
+        val session = searchSessions().start(query, requestScope)
         searchJob = activityScope.launch {
             try {
-                val results = repository.search(query, requestScope)
-                if (requestGeneration != searchGeneration) return@launch
-
-                lastSearchResults = results
-                renderSearchResults()
-                if (results.isEmpty()) {
-                    searchPanel.statusText.text = "No results"
-                    searchPanel.statusText.visibility = View.VISIBLE
+                session.state.collect { snapshot ->
+                    if (requestGeneration != searchGeneration) return@collect
+                    lastSearchResults = snapshot.items
+                    renderSearchResults()
+                    when {
+                        snapshot.isLoadingFirstPage -> {
+                            searchPanel.statusText.text = "Searching…"
+                            searchPanel.statusText.visibility = View.VISIBLE
+                            searchPanel.statusText.setOnClickListener(null)
+                        }
+                        snapshot.allSourcesFailed -> {
+                            searchPanel.statusText.text = "Search unavailable · Retry"
+                            searchPanel.statusText.visibility = View.VISIBLE
+                            searchPanel.statusText.setOnClickListener { performSearch() }
+                        }
+                        snapshot.items.isEmpty() -> {
+                            searchPanel.statusText.text = "No results"
+                            searchPanel.statusText.visibility = View.VISIBLE
+                            searchPanel.statusText.setOnClickListener(null)
+                        }
+                        else -> {
+                            searchPanel.statusText.text = ""
+                            searchPanel.statusText.visibility = View.GONE
+                            searchPanel.statusText.setOnClickListener(null)
+                        }
+                    }
                 }
             } catch (error: CancellationException) {
                 throw error
-            } catch (error: Exception) {
-                if (requestGeneration == searchGeneration) {
-                    searchPanel.statusText.text = "Search unavailable · Retry"
-                    searchPanel.statusText.visibility = View.VISIBLE
-                    searchPanel.statusText.setOnClickListener { performSearch() }
-                }
             } finally {
                 if (requestGeneration == searchGeneration && !isDestroyed) {
                     searchJob = null
@@ -1036,6 +1059,7 @@ class MainActivity : Activity() {
         searchGeneration++
         searchJob?.cancel()
         searchJob = null
+        searchSessionManager?.cancelActive()
         progressHandler.removeCallbacks(progressTicker)
         playbackConnection?.close()
         playbackConnection = null
