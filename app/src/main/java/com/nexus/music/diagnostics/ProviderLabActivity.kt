@@ -35,6 +35,7 @@ import com.nexus.music.catalog.ProviderInstanceDiscovery
 import com.nexus.music.catalog.ProviderHttpException as CatalogProviderHttpException
 import com.nexus.music.catalog.ExtractorRuntime
 import com.nexus.music.catalog.NewPipeStreamProviderAdapter
+import com.nexus.music.catalog.StreamProbe
 import com.nexus.music.catalog.YoutubeSearchScope
 import com.nexus.music.playback.AudioCacheStore
 import kotlinx.coroutines.CancellationException
@@ -59,6 +60,7 @@ class ProviderLabActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var report: TextView
     private lateinit var runButton: Button
+    private lateinit var surveyButton: Button
     private lateinit var providerSpinner: Spinner
     private lateinit var failureSpinner: Spinner
     private lateinit var stream403Seconds: EditText
@@ -118,6 +120,11 @@ class ProviderLabActivity : Activity() {
             root.addView(stream403Seconds)
         }
         root.addView(runButton)
+        surveyButton = Button(this).apply {
+            text = "Run NewPipe latency survey (100)"
+            setOnClickListener { runLatencySurvey() }
+        }
+        root.addView(surveyButton)
         root.addView(copy)
         root.addView(ScrollView(this).apply { addView(report) }, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
@@ -151,6 +158,112 @@ class ProviderLabActivity : Activity() {
                 report.text = formatReport(network, rows)
                 status.text = "Finished · ${rows.count { it.ok }}/${rows.size} checks passed. Copy the report and share it."
                 runButton.isEnabled = true
+                running = false
+            }
+        }
+    }
+
+
+    /**
+     * E1 measurement mode. It exercises NewPipe directly and never changes production health,
+     * provider order, or resolver timing. First search is marked first-in-process; force-stop the
+     * app before opening Provider Lab if that sample is intended to represent a cold start.
+     */
+    private fun runLatencySurvey() {
+        if (running) return
+        running = true
+        runButton.isEnabled = false
+        surveyButton.isEnabled = false
+        report.text = ""
+        labScope.launch {
+            val records = mutableListOf<ProviderLabSurveyReportFormatter.Record>()
+            val candidates = mutableListOf<Pair<String, com.nexus.music.catalog.CatalogTrack>>()
+            val adapter = NewPipeStreamProviderAdapter(OkHttpDownloader())
+            val network = networkSummary()
+            status.text = "E1 · measuring 100 NewPipe first-page searches · $network"
+            try {
+                repeat(SURVEY_SEARCH_COUNT) { index ->
+                    val query = SURVEY_QUERIES[index % SURVEY_QUERIES.size]
+                    val startedNs = System.nanoTime()
+                    val timestamp = System.currentTimeMillis()
+                    try {
+                        val results = adapter.search(query, YoutubeSearchScope.EVERYTHING)
+                        candidates += results.take(5).map { query to it }
+                        records += ProviderLabSurveyReportFormatter.Record(
+                            operation = "SEARCH",
+                            timestampEpochMs = timestamp,
+                            transport = network,
+                            coldWarm = if (index == 0) "first-in-process" else "warm",
+                            pageIndex = 1,
+                            elapsedMs = elapsedMs(startedNs),
+                            outcome = if (results.isEmpty()) "EMPTY" else "OK",
+                            failureClass = null,
+                            query = query
+                        )
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Throwable) {
+                        records += ProviderLabSurveyReportFormatter.Record(
+                            operation = "SEARCH",
+                            timestampEpochMs = timestamp,
+                            transport = network,
+                            coldWarm = if (index == 0) "first-in-process" else "warm",
+                            pageIndex = 1,
+                            elapsedMs = elapsedMs(startedNs),
+                            outcome = "FAIL",
+                            failureClass = error.javaClass.simpleName,
+                            query = query
+                        )
+                    }
+                    report.text = ProviderLabSurveyReportFormatter.format(records)
+                    status.text = "E1 · search ${index + 1}/$SURVEY_SEARCH_COUNT · candidates=${candidates.size}"
+                    if (index + 1 < SURVEY_SEARCH_COUNT) delay(SURVEY_SAMPLE_GAP_MS)
+                }
+
+                val resolveCandidates = candidates.take(SURVEY_RESOLVE_COUNT)
+                val probe = StreamProbe()
+                resolveCandidates.forEachIndexed { index, (query, track) ->
+                    val startedNs = System.nanoTime()
+                    val timestamp = System.currentTimeMillis()
+                    try {
+                        probe.validate(adapter.resolveAudio(track.url))
+                        records += ProviderLabSurveyReportFormatter.Record(
+                            operation = "RESOLVE+PROBE",
+                            timestampEpochMs = timestamp,
+                            transport = network,
+                            coldWarm = "warm-after-search",
+                            pageIndex = 1,
+                            elapsedMs = elapsedMs(startedNs),
+                            outcome = "OK",
+                            failureClass = null,
+                            query = query
+                        )
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Throwable) {
+                        records += ProviderLabSurveyReportFormatter.Record(
+                            operation = "RESOLVE+PROBE",
+                            timestampEpochMs = timestamp,
+                            transport = network,
+                            coldWarm = "warm-after-search",
+                            pageIndex = 1,
+                            elapsedMs = elapsedMs(startedNs),
+                            outcome = "FAIL",
+                            failureClass = error.javaClass.simpleName,
+                            query = query
+                        )
+                    }
+                    report.text = ProviderLabSurveyReportFormatter.format(records)
+                    status.text = "E1 · resolve+probe ${index + 1}/${resolveCandidates.size}"
+                    if (index + 1 < resolveCandidates.size) delay(SURVEY_SAMPLE_GAP_MS)
+                }
+            } finally {
+                report.text = ProviderLabSurveyReportFormatter.format(records)
+                val searches = records.count { it.operation == "SEARCH" }
+                val resolves = records.count { it.operation == "RESOLVE+PROBE" }
+                status.text = "E1 finished · searches=$searches · resolves=$resolves · network=$network. Copy the full report."
+                runButton.isEnabled = true
+                surveyButton.isEnabled = true
                 running = false
             }
         }
@@ -348,6 +461,18 @@ class ProviderLabActivity : Activity() {
     private class ProviderHttpException(val code: Int, message: String) : java.io.IOException(message)
 
     companion object {
+        private const val SURVEY_SEARCH_COUNT = 100
+        private const val SURVEY_RESOLVE_COUNT = 100
+        private const val SURVEY_SAMPLE_GAP_MS = 1_000L
+        private val SURVEY_QUERIES = listOf(
+            "lofi hip hop", "ambient piano", "jazz guitar instrumental", "indie acoustic songs",
+            "classical piano", "synthwave mix", "chill electronic", "acoustic covers",
+            "movie soundtrack", "nature sounds music", "indian classical instrumental",
+            "bollywood acoustic", "japanese city pop", "deep house", "soft rock classics",
+            "game music soundtrack", "female vocal jazz", "folk music", "ambient guitar",
+            "orchestral music"
+        )
+
         // Fixed IDs cover a popular upload, an obscure upload, long-form video and two live streams.
         private val SAMPLES = listOf(
             Sample("dQw4w9WgXcQ", "popular"),
