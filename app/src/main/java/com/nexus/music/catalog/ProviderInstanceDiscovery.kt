@@ -51,7 +51,7 @@ internal class ProviderInstanceDiscovery(
             try {
                 val discovered = when (provider) {
                     StreamProvider.PIPED -> parsePipedInstances(fetchDirectory(client, PIPED_DIRECTORY_URL))
-                    StreamProvider.INVIDIOUS -> parseInvidiousInstances(fetchDirectory(client, INVIDIOUS_DIRECTORY_URL))
+                    StreamProvider.INVIDIOUS -> discoverInvidiousInstances(client)
                     StreamProvider.NEWPIPE -> emptyList()
                 }
                 if (discovered.isNotEmpty()) {
@@ -85,6 +85,8 @@ internal class ProviderInstanceDiscovery(
             "https://raw.githubusercontent.com/TeamPiped/documentation/main/content/docs/public-instances/index.md"
         private const val INVIDIOUS_DIRECTORY_URL =
             "https://api.invidious.io/instances.json?sort_by=health"
+        private const val INVIDIOUS_DOCUMENTATION_URL =
+            "https://raw.githubusercontent.com/iv-org/documentation/master/docs/instances.md"
         private const val MAX_ENDPOINTS = 20
         private const val MAX_DIRECTORY_BYTES = 1_048_576L
 
@@ -136,6 +138,59 @@ internal class ProviderInstanceDiscovery(
                         normalizeEndpoint(match.value)?.let(endpoints::add)
                     }
                 }
+            return endpoints.take(MAX_ENDPOINTS)
+        }
+
+        private suspend fun discoverInvidiousInstances(client: OkHttpClient): List<String> {
+            val endpoints = LinkedHashSet<String>()
+            var lastError: Exception? = null
+
+            try {
+                endpoints.addAll(parseInvidiousInstances(fetchDirectory(client, INVIDIOUS_DIRECTORY_URL)))
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: IOException) {
+                lastError = error
+            } catch (error: org.json.JSONException) {
+                lastError = error
+            }
+
+            try {
+                endpoints.addAll(
+                    parseInvidiousDocumentation(
+                        fetchDirectory(client, INVIDIOUS_DOCUMENTATION_URL)
+                    )
+                )
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: IOException) {
+                lastError = lastError ?: error
+            }
+
+            if (endpoints.isEmpty()) {
+                throw lastError as? IOException
+                    ?: IOException("No official Invidious API instances were discovered.", lastError)
+            }
+            return endpoints.take(MAX_ENDPOINTS)
+        }
+
+        internal fun parseInvidiousDocumentation(markdown: String): List<String> {
+            val endpoints = LinkedHashSet<String>()
+            var inPublicList = false
+            markdown.lineSequence().forEach { line ->
+                if (line.startsWith("## List of public Invidious Instances")) {
+                    inPublicList = true
+                    return@forEach
+                }
+                if (inPublicList && line.trimStart().startsWith("###")) {
+                    inPublicList = false
+                }
+                if (!inPublicList) return@forEach
+
+                val url = Regex("""^\\s*\\*\\s*\\[[^\\]]+\\]\\((https://[^)]+)\\)""")
+                    .find(line)?.groupValues?.getOrNull(1) ?: return@forEach
+                normalizeEndpoint(url)?.let(endpoints::add)
+            }
             return endpoints.take(MAX_ENDPOINTS)
         }
 
