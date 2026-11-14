@@ -48,7 +48,7 @@ class ProviderHttpException(
 
 object StreamErrorClassifier {
     fun classify(error: Throwable): StreamErrorClass = when (error) {
-        is ContentNotAvailableException -> StreamErrorClass.CONTENT_UNAVAILABLE
+        is ContentNotAvailableException, is ProviderContentException -> StreamErrorClass.CONTENT_UNAVAILABLE
         is ReCaptchaException -> StreamErrorClass.RATE_LIMITED
         is ProviderCapabilityException -> StreamErrorClass.UNSUPPORTED
         is ProviderHttpException -> when (error.statusCode) {
