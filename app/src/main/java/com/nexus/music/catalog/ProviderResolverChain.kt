@@ -93,8 +93,12 @@ class ProviderResolverChain(
                     } catch (error: CancellationException) {
                         throw error
                     } catch (error: Exception) {
+                        val httpStatus = (error as? ProviderHttpException)?.statusCode
+                        val requestScopedClientError =
+                            httpStatus != null && httpStatus in 400..499 && httpStatus != 429
                         if (
                             error !is ProviderCapabilityException &&
+                            !requestScopedClientError &&
                             StreamErrorClassifier.classify(error) !in setOf(
                                 StreamErrorClass.INVALID_SOURCE,
                                 StreamErrorClass.CONTENT_UNAVAILABLE,

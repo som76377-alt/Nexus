@@ -64,6 +64,7 @@ class ProviderLabActivity : Activity() {
     private lateinit var failureSpinner: Spinner
     private lateinit var stream403Seconds: EditText
     private val healthStore by lazy { SharedPreferencesProviderHealthStore(this) }
+    private val instanceHealthStore by lazy { SharedPreferencesProviderInstanceHealthStore(this) }
     private val instanceDiscovery by lazy { ProviderInstanceDiscovery(this) }
     private val chaos by lazy { if (BuildConfig.DEBUG) ProviderLabChaosFactory.create() else null }
     private var running = false
@@ -271,12 +272,14 @@ class ProviderLabActivity : Activity() {
             StreamProvider.PIPED -> PipedStreamProviderAdapter(
                 (BuildConfig.PIPED_API_ENDPOINTS.split(',').filter(String::isNotBlank) +
                     instanceDiscovery.cachedEndpoints(StreamProvider.PIPED)).distinct(),
-                client
+                client,
+                instanceHealthStore
             )
             StreamProvider.INVIDIOUS -> InvidiousStreamProviderAdapter(
                 (BuildConfig.INVIDIOUS_API_ENDPOINTS.split(',').filter(String::isNotBlank) +
                     instanceDiscovery.cachedEndpoints(StreamProvider.INVIDIOUS)).distinct(),
-                client
+                client,
+                instanceHealthStore
             )
         }
     }
