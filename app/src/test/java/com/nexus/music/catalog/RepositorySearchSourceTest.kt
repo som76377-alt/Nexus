@@ -4,7 +4,6 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RepositorySearchSourceTest {
@@ -30,7 +29,7 @@ class RepositorySearchSourceTest {
         assertEquals(expected, page.items)
         assertNull(page.nextCursor)
         assertFalse(page.hasMore)
-        assertTrue(adapter.resolveCalls == 0)
+        assertEquals(0, adapter.resolveCalls)
     }
 
     private class FakeAdapter(
