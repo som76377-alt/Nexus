@@ -16,7 +16,10 @@ internal class StreamProbe(
     private val client: OkHttpClient = defaultClient(),
     private val allowHttpForTests: Boolean = false
 ) {
-    suspend fun validate(audio: ResolvedAudio): ResolvedAudio = withContext(Dispatchers.IO) {
+    suspend fun validate(
+        audio: ResolvedAudio,
+        onHttpResponse: (Int) -> Unit = {}
+    ): ResolvedAudio = withContext(Dispatchers.IO) {
         if (!CatalogUrlValidator.isValidHttpsUrl(audio.audioUrl) &&
             !(allowHttpForTests && isLoopbackHttpUrl(audio.audioUrl))
         ) {
@@ -39,6 +42,7 @@ internal class StreamProbe(
             .build()
 
         client.newCall(request).execute().use { response ->
+            onHttpResponse(response.code)
             if (!response.request.url.isHttps &&
                 !(allowHttpForTests && isLoopbackHost(response.request.url.host))
             ) {
