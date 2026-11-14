@@ -241,16 +241,29 @@ class ProviderLabActivity : Activity() {
             player.prepare()
             player.play()
             val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(25)
-            var beganAt: Long? = null
+            var firstPlayingPositionMs: Long? = null
+            var furthestPositionMs = 0L
             while (System.nanoTime() < deadline) {
                 player.playerError?.let { throw IllegalStateException(it.errorCodeName + ": " + it.message) }
                 if (player.isPlaying) {
-                    if (beganAt == null) beganAt = System.nanoTime()
-                    if (System.nanoTime() - beganAt >= TimeUnit.SECONDS.toNanos(10)) return
+                    if (firstPlayingPositionMs == null) {
+                        firstPlayingPositionMs = player.currentPosition
+                        furthestPositionMs = player.currentPosition
+                    } else {
+                        furthestPositionMs = maxOf(furthestPositionMs, player.currentPosition)
+                    }
+                    // Measure media-position progress, not uninterrupted isPlaying wall time.
+                    // Brief network rebuffering must not turn a progressing stream into a false failure.
+                    if (furthestPositionMs - firstPlayingPositionMs >= 10_000L) return
                 }
                 delay(100)
             }
-            throw IllegalStateException("Media3 did not sustain 10 seconds of playback")
+            throw IllegalStateException(
+                "Media3 progress timeout: state=${player.playbackState}, " +
+                    "playWhenReady=${player.playWhenReady}, isPlaying=${player.isPlaying}, " +
+                    "positionMs=${player.currentPosition}, bufferedMs=${player.bufferedPosition}, " +
+                    "durationMs=${player.duration}, loading=${player.isLoading}"
+            )
         } finally {
             player.release()
         }
