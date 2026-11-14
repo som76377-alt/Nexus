@@ -29,11 +29,14 @@ object NexusCatalog {
         val configuredPiped = parseEndpoints(BuildConfig.PIPED_API_ENDPOINTS)
         val configuredInvidious = parseEndpoints(BuildConfig.INVIDIOUS_API_ENDPOINTS)
 
+        val instanceHealthStore = SharedPreferencesProviderInstanceHealthStore(context)
         val piped = PipedStreamProviderAdapter(
-            (configuredPiped + discovery.cachedEndpoints(StreamProvider.PIPED)).distinct()
+            (configuredPiped + discovery.cachedEndpoints(StreamProvider.PIPED)).distinct(),
+            instanceHealthStore = instanceHealthStore
         )
         val invidious = InvidiousStreamProviderAdapter(
-            (configuredInvidious + discovery.cachedEndpoints(StreamProvider.INVIDIOUS)).distinct()
+            (configuredInvidious + discovery.cachedEndpoints(StreamProvider.INVIDIOUS)).distinct(),
+            instanceHealthStore = instanceHealthStore
         )
         val adapters = listOf(
             NewPipeStreamProviderAdapter(),
