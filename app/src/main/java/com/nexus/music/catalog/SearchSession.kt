@@ -56,7 +56,8 @@ data class SearchSnapshot(
     val sourceCount: Int = 0
 ) {
     val allSourcesFailed: Boolean
-        get() = sourceCount > 0 &&
+        get() = items.isEmpty() &&
+            sourceCount > 0 &&
             completedSources.size == sourceCount &&
             failedSources.size == sourceCount
 }
@@ -83,7 +84,6 @@ class SearchSession internal constructor(
         val hasMore: Boolean = false,
         val pagesLoaded: Int = 0,
         val consecutiveNoNewPages: Int = 0,
-        val exhausted: Boolean = false
     )
 
     private val sourceList = sources.toList()
@@ -123,9 +123,11 @@ class SearchSession internal constructor(
     }
 
     suspend fun loadMore() {
+        if (!sessionJob.isActive) return
         val initialJob = firstPageJob ?: return
         initialJob.join()
         currentCoroutineContext().ensureActive()
+        if (!sessionJob.isActive) return
 
         loadMoreMutex.withLock {
             val candidates = stateMutex.withLock {
@@ -236,7 +238,8 @@ class SearchSession internal constructor(
         }
 
         stateMutex.withLock {
-            val previous = sourceProgress[source.provider] ?: SourceProgress(exhausted = true)
+            if (!sessionJob.isActive) return@withLock
+            val previous = sourceProgress[source.provider] ?: SourceProgress()
             val pageNumber = previous.pagesLoaded + 1
             val current = mutableState.value
             val newItems = mutableListOf<CatalogTrack>()
@@ -267,7 +270,6 @@ class SearchSession internal constructor(
                 hasMore = canContinue,
                 pagesLoaded = pageNumber,
                 consecutiveNoNewPages = noNewPages,
-                exhausted = !canContinue
             )
             mutableState.value = current.copy(
                 items = current.items + newItems,
@@ -280,8 +282,9 @@ class SearchSession internal constructor(
 
     private suspend fun markSourceFailed(provider: StreamProvider) {
         stateMutex.withLock {
+            if (!sessionJob.isActive) return@withLock
             val previous = sourceProgress[provider] ?: SourceProgress()
-            sourceProgress[provider] = previous.copy(cursor = null, hasMore = false, exhausted = true)
+            sourceProgress[provider] = previous.copy(cursor = null, hasMore = false)
             val current = mutableState.value
             mutableState.value = current.copy(
                 hasMore = sourceProgress.values.any { it.hasMore },
@@ -308,6 +311,7 @@ class SearchSessionManager(
 
     @Synchronized
     fun start(query: String, scope: YoutubeSearchScope): SearchSession {
+        require(query.isNotBlank()) { "Search query must not be blank." }
         activeSession?.cancel()
         return SearchSession(
             query = query.trim(),
