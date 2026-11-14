@@ -374,7 +374,7 @@ class ProviderResolverChainTest {
             ),
             healthStore = InMemoryHealthStore(),
             providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
-            hedgeDelayMs = 0L
+            hedgeDelayMs = 100L
         )
         val repository = YoutubeCatalogRepository(
             adapter = ResolverChainStreamProviderAdapter(chain)
