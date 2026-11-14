@@ -24,6 +24,7 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -216,6 +217,7 @@ abstract class JsonApiStreamProviderAdapter(
 
     /** Operation-scoped, process-local cooldowns; no strike counters or persisted health state. */
     private val cooldownUntilByOperationAndEndpoint = ConcurrentHashMap<Pair<Operation, String>, Long>()
+    private val nextStartIndexByOperation = ConcurrentHashMap<Operation, AtomicInteger>()
 
     init {
         require(maxInstanceAttempts > 0) { "Maximum instance attempts must be positive." }
@@ -314,13 +316,17 @@ abstract class JsonApiStreamProviderAdapter(
             throw IOException("No ${provider.key} instance is configured.")
         }
 
+        val startCounter = nextStartIndexByOperation.computeIfAbsent(operation) { AtomicInteger(0) }
+        val startIndex = startCounter.getAndUpdate { current -> (current + 1) % configuredEndpoints.size }
+            .mod(configuredEndpoints.size)
+        val rotatedEndpoints = configuredEndpoints.drop(startIndex) + configuredEndpoints.take(startIndex)
         val now = nowEpochMs()
-        val healthyCandidates = configuredEndpoints.filter { endpoint ->
+        val healthyCandidates = rotatedEndpoints.filter { endpoint ->
             (cooldownUntilByOperationAndEndpoint[operation to endpoint.toString()] ?: 0L) <= now
         }
-        // If every endpoint is cooling, allow exactly one half-open probe rather than deadlocking
-        // the provider forever. A successful response clears that operation's cooldown.
-        val candidates = healthyCandidates.ifEmpty { configuredEndpoints.take(1) }
+        // Prefer instances not cooling down. If every instance is cooling, they remain eligible
+        // for bounded half-open probes; round-robin start order prevents starving later endpoints.
+        val candidates = healthyCandidates.ifEmpty { rotatedEndpoints }
         val deadlineAt = monotonicNowMs() + callDeadlineMs
         var attempted = 0
 
