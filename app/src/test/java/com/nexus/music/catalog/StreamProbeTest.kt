@@ -34,7 +34,9 @@ class StreamProbeTest {
                     .setHeader("Content-Range", "bytes 0-0/1024")
                     .setBody("x")
             )
-            val audio = resolvedAudio(server.url("/audio").toString())
+            val audio = resolvedAudio(server.url("/audio").toString()).copy(
+                requestHeaders = mapOf("Referer" to "https://www.youtube.com/")
+            )
 
             val result = StreamProbe(allowHttpForTests = true).validate(audio)
             val request = server.takeRequest()
@@ -42,18 +44,21 @@ class StreamProbeTest {
             assertEquals(audio, result)
             assertEquals("GET", request.method)
             assertEquals("bytes=0-0", request.getHeader("Range"))
+            assertEquals("https://www.youtube.com/", request.getHeader("Referer"))
         }
     }
 
     @Test
-    fun rejectsProviderHttpFailureSoResolverCanFailOver() {
-        assertThrows(IOException::class.java) {
+    fun preservesRejectedStreamHttpStatusForProviderCooldown() {
+        val error = assertThrows(ProviderHttpException::class.java) {
             runBlocking {
                 server.enqueue(MockResponse().setResponseCode(403))
                 StreamProbe(allowHttpForTests = true)
                     .validate(resolvedAudio(server.url("/audio").toString()))
             }
         }
+        assertEquals(403, error.statusCode)
+        assertEquals(StreamErrorClass.ACCESS_BLOCKED, StreamErrorClassifier.classify(error))
     }
 
     @Test
