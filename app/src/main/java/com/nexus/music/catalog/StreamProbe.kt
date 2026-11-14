@@ -20,7 +20,7 @@ internal class StreamProbe(
         if (!CatalogUrlValidator.isValidHttpsUrl(audio.audioUrl) &&
             !(allowHttpForTests && isLoopbackHttpUrl(audio.audioUrl))
         ) {
-            throw IOException("The provider returned an invalid HTTPS audio URL.")
+            throw ProviderResponseException("The provider returned an invalid HTTPS audio URL.")
         }
 
         URI(audio.audioUrl).host?.let(StreamAddressFamily::clear)
@@ -42,10 +42,10 @@ internal class StreamProbe(
             if (!response.request.url.isHttps &&
                 !(allowHttpForTests && isLoopbackHost(response.request.url.host))
             ) {
-                throw IOException("The stream probe was redirected to an insecure URL.")
+                throw ProviderResponseException("The stream probe was redirected to an insecure URL.")
             }
             if (response.code != 200 && response.code != 206) {
-                throw IOException("The resolved stream is not reachable (HTTP ${response.code}).")
+                throw ProviderStreamProbeException(response.code)
             }
 
             val contentType = response.header("Content-Type")
@@ -58,10 +58,10 @@ internal class StreamProbe(
                 contentType != "application/octet-stream" &&
                 contentType != "binary/octet-stream"
             ) {
-                throw IOException("The provider URL did not return an audio stream.")
+                throw ProviderResponseException("The provider URL did not return an audio stream.")
             }
             if (response.body?.contentLength() == 0L) {
-                throw IOException("The provider returned an empty audio stream.")
+                throw ProviderContentException("The provider returned an empty audio stream.")
             }
         }
         audio
