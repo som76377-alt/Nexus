@@ -23,7 +23,7 @@ class SearchSessionTest {
     fun firstSuccessfulSourcePublishesWithoutWaitingForSlowSecondary() = runTest {
         val primaryTrack = track(1)
         val manager = SearchSessionManager(
-            parentScope = backgroundScope,
+            parentScope = this,
             sources = listOf(
                 FakeSearchSource(StreamProvider.NEWPIPE) { _, _, _ ->
                     delay(100L)
@@ -51,7 +51,7 @@ class SearchSessionTest {
     fun failedSourceDoesNotBlockAnotherSourceFromPublishing() = runTest {
         val result = track(2)
         val manager = SearchSessionManager(
-            parentScope = backgroundScope,
+            parentScope = this,
             sources = listOf(
                 FakeSearchSource(StreamProvider.NEWPIPE) { _, _, _ ->
                     throw IOException("primary unavailable")
@@ -77,7 +77,7 @@ class SearchSessionTest {
     fun startingANewQueryCancelsOldSessionAndPreventsStaleEmission() = runTest {
         var oldCancelled = false
         val manager = SearchSessionManager(
-            parentScope = backgroundScope,
+            parentScope = this,
             sources = listOf(
                 FakeSearchSource(StreamProvider.NEWPIPE) { query, _, _ ->
                     if (query == "old") {
@@ -140,7 +140,7 @@ class SearchSessionTest {
                 }
             }
             val manager = SearchSessionManager(
-                parentScope = backgroundScope,
+                parentScope = this,
                 sources = sources,
                 dispatcher = StandardTestDispatcher(testScheduler)
             )
@@ -170,7 +170,7 @@ class SearchSessionTest {
     @Test
     fun oneValidEmptyResponseMeansSearchIsNotUnavailable() = runTest {
         val manager = SearchSessionManager(
-            parentScope = backgroundScope,
+            parentScope = this,
             sources = listOf(
                 FakeSearchSource(StreamProvider.NEWPIPE) { _, _, _ -> throw IOException("offline") },
                 FakeSearchSource(StreamProvider.PIPED) { _, _, _ ->
@@ -191,7 +191,7 @@ class SearchSessionTest {
     @Test
     fun allSourcesFailedIsTrueOnlyWhenEveryFirstPageFails() = runTest {
         val manager = SearchSessionManager(
-            parentScope = backgroundScope,
+            parentScope = this,
             sources = listOf(
                 FakeSearchSource(StreamProvider.NEWPIPE) { _, _, _ -> throw IOException("offline") },
                 FakeSearchSource(StreamProvider.PIPED) { _, _, _ -> throw IOException("offline") }
@@ -218,7 +218,7 @@ class SearchSessionTest {
             )
         }
         val manager = SearchSessionManager(
-            parentScope = backgroundScope,
+            parentScope = this,
             sources = listOf(source),
             dispatcher = StandardTestDispatcher(testScheduler)
         )
@@ -250,7 +250,7 @@ class SearchSessionTest {
             }
         }
         val manager = SearchSessionManager(
-            parentScope = backgroundScope,
+            parentScope = this,
             sources = sources,
             dispatcher = StandardTestDispatcher(testScheduler),
             maxConcurrentRequests = 2
@@ -276,7 +276,7 @@ class SearchSessionTest {
             }
         }
         val manager = SearchSessionManager(
-            parentScope = backgroundScope,
+            parentScope = this,
             sources = listOf(source),
             dispatcher = StandardTestDispatcher(testScheduler)
         )
@@ -321,7 +321,7 @@ class SearchSessionTest {
             }
         }
         val manager = SearchSessionManager(
-            parentScope = backgroundScope,
+            parentScope = this,
             sources = listOf(source),
             dispatcher = StandardTestDispatcher(testScheduler)
         )
@@ -350,7 +350,7 @@ class SearchSessionTest {
             }
         }
         val manager = SearchSessionManager(
-            parentScope = backgroundScope,
+            parentScope = this,
             sources = listOf(source),
             dispatcher = StandardTestDispatcher(testScheduler),
             roundDeadlineMs = 100L,
