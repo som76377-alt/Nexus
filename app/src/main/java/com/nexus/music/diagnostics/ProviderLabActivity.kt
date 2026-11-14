@@ -148,7 +148,7 @@ class ProviderLabActivity : Activity() {
             } else 0
             val checkCount = if (isYtDlp) SAMPLES.size else SAMPLES.size * FamilyMode.entries.size
             status.text = "Running ${checkCount} checks · ${selectedProvider} · failure=${failure.name} · stream403=${forced403Seconds}s"
-            report.text = if (isYtDlp) "Initializing yt-dlp runtime…\\nNetwork update is skipped in this diagnostic run.\\n" else "Preparing provider checks…"
+            report.text = if (isYtDlp) "Initializing yt-dlp runtime…\nNetwork update is skipped in this diagnostic run.\n" else "Preparing provider checks…"
             try {
                 if (isYtDlp) {
                     status.text = "yt-dlp · initializing bundled runtime…"
