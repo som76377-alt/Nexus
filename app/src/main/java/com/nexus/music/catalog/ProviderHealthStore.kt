@@ -94,7 +94,7 @@ class SharedPreferencesProviderHealthStore(context: Context) : ProviderHealthSto
     }
 
     @Synchronized
-    override fun recordSuccess(provider: StreamProvider, operation: ProviderOperation, atEpochMs: Long) {
+    override fun recordSuccess(provider: StreamProvider, atEpochMs: Long, operation: ProviderOperation) {
         val key = prefix(provider, operation)
         preferences.edit()
             .putInt("$key.failures", 0)
