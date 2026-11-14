@@ -284,7 +284,7 @@ class ProviderLabActivity : Activity() {
             .map(String::trim).filter(String::isNotEmpty).distinct().size
         val invidiousInstances = (BuildConfig.INVIDIOUS_API_ENDPOINTS.split(',') + instanceDiscovery.cachedEndpoints(StreamProvider.INVIDIOUS))
             .map(String::trim).filter(String::isNotEmpty).distinct().size
-        val config = "local-v0 · order=${BuildConfig.STREAM_PROVIDER_ORDER} · piped-instances=$pipedInstances · invidious-instances=$invidiousInstances"
+        val config = "local-v0 · order=${BuildConfig.STREAM_PROVIDER_ORDER} · piped-instances=$pipedInstances · invidious-instances=$invidiousInstances · piped-discovery=${instanceDiscovery.lastDiscoveryStatus(StreamProvider.PIPED)} · invidious-discovery=${instanceDiscovery.lastDiscoveryStatus(StreamProvider.INVIDIOUS)}"
         return ProviderLabReportFormatter.format(
             appVersion = BuildConfig.VERSION_NAME,
             flavor = if (BuildConfig.DEBUG) "debug" else "release",
