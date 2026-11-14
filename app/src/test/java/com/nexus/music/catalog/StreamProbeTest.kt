@@ -38,10 +38,12 @@ class StreamProbeTest {
                 requestHeaders = mapOf("Referer" to "https://www.youtube.com/")
             )
 
-            val result = StreamProbe(allowHttpForTests = true).validate(audio)
+            var responseCode: Int? = null
+            val result = StreamProbe(allowHttpForTests = true).validate(audio) { responseCode = it }
             val request = server.takeRequest()
 
             assertEquals(audio, result)
+            assertEquals(206, responseCode)
             assertEquals("GET", request.method)
             assertEquals("bytes=0-0", request.getHeader("Range"))
             assertEquals("https://www.youtube.com/", request.getHeader("Referer"))
