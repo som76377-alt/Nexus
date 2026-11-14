@@ -28,6 +28,13 @@ class StreamProviderTest {
         assertEquals(StreamProvider.DEFAULT_ORDER, StreamProvider.parseOrder(" , "))
     }
 
+
+    @Test
+    fun healthOperationsHaveStableIndependentKeys() {
+        assertEquals("search", ProviderOperation.SEARCH.key)
+        assertEquals("resolve", ProviderOperation.RESOLVE.key)
+    }
+
     @Test
     fun classifiesKnownExtractorFailures() {
         assertEquals(StreamErrorClass.RATE_LIMITED,
@@ -48,6 +55,14 @@ class StreamProviderTest {
             StreamErrorClassifier.classify(ProviderHttpException(404, "piped")))
         assertEquals(StreamErrorClass.TRANSIENT,
             StreamErrorClassifier.classify(ProviderHttpException(503, "piped")))
+        assertEquals(StreamErrorClass.UNKNOWN,
+            StreamErrorClassifier.classify(ProviderResponseException("malformed JSON")))
+        assertEquals(StreamErrorClass.CONTENT_UNAVAILABLE,
+            StreamErrorClassifier.classify(ProviderContentException("no audio stream")))
+        assertEquals(StreamErrorClass.ACCESS_BLOCKED,
+            StreamErrorClassifier.classify(ProviderStreamProbeException(403)))
+        assertEquals(StreamErrorClass.UNSUPPORTED,
+            StreamErrorClassifier.classify(ProviderStreamProbeException(410)))
         assertEquals(StreamErrorClass.UNKNOWN,
             StreamErrorClassifier.classify(IllegalStateException("unexpected")))
     }
