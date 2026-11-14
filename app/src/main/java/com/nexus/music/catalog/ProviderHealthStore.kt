@@ -18,8 +18,8 @@ interface ProviderHealthStore {
 
     fun recordSuccess(
         provider: StreamProvider,
-        operation: ProviderOperation = ProviderOperation.RESOLVE,
-        atEpochMs: Long
+        atEpochMs: Long,
+        operation: ProviderOperation = ProviderOperation.RESOLVE
     )
 
     fun recordFailure(
@@ -45,7 +45,7 @@ class InMemoryProviderHealthStore : ProviderHealthStore {
         values[provider to operation] ?: ProviderHealth()
 
     @Synchronized
-    override fun recordSuccess(provider: StreamProvider, operation: ProviderOperation, atEpochMs: Long) {
+    override fun recordSuccess(provider: StreamProvider, atEpochMs: Long, operation: ProviderOperation) {
         values[provider to operation] = ProviderHealth(lastSuccessEpochMs = atEpochMs.coerceAtLeast(0L))
     }
 
