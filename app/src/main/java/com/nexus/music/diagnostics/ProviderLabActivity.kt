@@ -314,9 +314,9 @@ class ProviderLabActivity : Activity() {
         }
     }
 
-    @OptIn(UnstableApi::class)
     private data class PlaybackTiming(val startupMs: Long, val sustainedMs: Long)
 
+    @OptIn(UnstableApi::class)
     private suspend fun playForTenSeconds(
         url: String,
         client: OkHttpClient,
