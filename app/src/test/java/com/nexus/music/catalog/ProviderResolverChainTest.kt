@@ -326,6 +326,92 @@ class ProviderResolverChainTest {
         assertEquals("https://media.example/piped.m4a", replacement.audioUrl)
     }
 
+
+    @Test
+    fun streamProbeValidationFailureFallsThroughToNextProvider() = runBlocking {
+        val calls = mutableListOf<StreamProvider>()
+        var validations = 0
+        val chain = ProviderResolverChain(
+            adapters = listOf(
+                FakeAdapter(StreamProvider.NEWPIPE, calls) { resolvedAudio() },
+                FakeAdapter(StreamProvider.PIPED, calls) {
+                    resolvedAudio().copy(audioUrl = "https://media.example/piped.m4a")
+                }
+            ),
+            healthStore = InMemoryHealthStore(),
+            providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
+            hedgeDelayMs = 0L,
+            validateResolvedAudio = { audio ->
+                validations += 1
+                if (validations == 1) throw IOException("stream probe rejected the first URL")
+                audio
+            }
+        )
+
+        val result = chain.resolveAudio("https://youtube.com/watch?v=abcdefghijk")
+
+        assertEquals(listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED), calls)
+        assertEquals(2, validations)
+        assertEquals(StreamProvider.PIPED, result.provider)
+        assertEquals("https://media.example/piped.m4a", result.audioUrl)
+    }
+
+    @Test
+    fun repositoryCanSearchWithOneProviderAndResolveSameVideoWithAnother() = runBlocking {
+        val track = catalogTrack()
+        val calls = mutableListOf<StreamProvider>()
+        val chain = ProviderResolverChain(
+            adapters = listOf(
+                FakeAdapter(StreamProvider.NEWPIPE, calls, search = { listOf(track) }) {
+                    throw IOException("NewPipe resolve unavailable")
+                },
+                FakeAdapter(StreamProvider.PIPED, calls, search = { emptyList() }) {
+                    resolvedAudio().copy(
+                        sourceUrl = track.url,
+                        audioUrl = "https://media.example/piped.m4a"
+                    )
+                }
+            ),
+            healthStore = InMemoryHealthStore(),
+            providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
+            hedgeDelayMs = 100L
+        )
+        val repository = YoutubeCatalogRepository(
+            adapter = ResolverChainStreamProviderAdapter(chain)
+        )
+
+        val found = repository.search("ambient")
+        val resolved = repository.resolveAudio(found.single().url)
+
+        assertEquals(track, found.single())
+        assertEquals(track.url, resolved.sourceUrl)
+        assertEquals(StreamProvider.PIPED, resolved.provider)
+        assertEquals(
+            listOf(StreamProvider.NEWPIPE, StreamProvider.NEWPIPE, StreamProvider.PIPED),
+            calls
+        )
+    }
+
+    @Test
+    fun excludingEveryProviderPreservesIllegalArgumentExceptionContract() {
+        val chain = ProviderResolverChain(
+            adapters = listOf(
+                FakeAdapter(StreamProvider.NEWPIPE, mutableListOf()) { resolvedAudio() }
+            ),
+            healthStore = InMemoryHealthStore(),
+            providerOrder = listOf(StreamProvider.NEWPIPE)
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            runBlocking {
+                chain.resolveAudio(
+                    "https://youtube.com/watch?v=abcdefghijk",
+                    excludingProviders = setOf(StreamProvider.NEWPIPE)
+                )
+            }
+        }
+    }
+
     private fun catalogTrack() = CatalogTrack(
         url = "https://youtube.com/watch?v=abcdefghijk",
         title = "Track",
