@@ -33,8 +33,24 @@ enum class StreamErrorClass {
     TRANSIENT, RATE_LIMITED, ACCESS_BLOCKED, INVALID_SOURCE, UNSUPPORTED, CONTENT_UNAVAILABLE, NETWORK, UNKNOWN
 }
 
+/** Health is isolated by operation so search load cannot suppress playback resolution. */
+enum class ProviderOperation(val key: String) {
+    SEARCH("search"),
+    RESOLVE("resolve")
+}
+
 /** A provider cannot faithfully perform a requested operation or filter. */
 class ProviderCapabilityException(message: String) : IOException(message)
+
+/** The provider returned malformed data or a response that violates its API contract. */
+class ProviderResponseException(message: String, cause: Throwable? = null) : IOException(message, cause)
+
+/** The requested item has no usable content; this does not imply provider-wide failure. */
+class ProviderContentException(message: String, cause: Throwable? = null) : IOException(message, cause)
+
+/** HTTP failure from the resolved media URL during the provider-attributed stream probe. */
+class ProviderStreamProbeException(val statusCode: Int) :
+    IOException("The resolved stream is not reachable (HTTP $statusCode).")
 
 /** HTTP response failure retaining status so provider health uses the correct cooldown class. */
 class ProviderHttpException(
@@ -45,9 +61,16 @@ class ProviderHttpException(
 
 object StreamErrorClassifier {
     fun classify(error: Throwable): StreamErrorClass = when (error) {
-        is ContentNotAvailableException -> StreamErrorClass.CONTENT_UNAVAILABLE
+        is ContentNotAvailableException, is ProviderContentException -> StreamErrorClass.CONTENT_UNAVAILABLE
         is ReCaptchaException -> StreamErrorClass.RATE_LIMITED
         is ProviderCapabilityException -> StreamErrorClass.UNSUPPORTED
+        is ProviderResponseException -> StreamErrorClass.UNKNOWN
+        is ProviderStreamProbeException -> when (error.statusCode) {
+            429 -> StreamErrorClass.RATE_LIMITED
+            401, 403 -> StreamErrorClass.ACCESS_BLOCKED
+            400, 404, 410, 422 -> StreamErrorClass.UNSUPPORTED
+            else -> StreamErrorClass.TRANSIENT
+        }
         is ProviderHttpException -> when (error.statusCode) {
             429 -> StreamErrorClass.RATE_LIMITED
             401, 403 -> StreamErrorClass.ACCESS_BLOCKED
