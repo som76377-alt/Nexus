@@ -79,7 +79,7 @@ internal class ProviderInstanceDiscovery(
     }
 
     internal companion object {
-        private const val PREFERENCES_NAME = "nexus_provider_instance_directory"
+        private const val PREFERENCES_NAME = "nexus_provider_instance_directory_v2"
         private const val REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000L
         private const val PIPED_DIRECTORY_URL =
             "https://raw.githubusercontent.com/TeamPiped/documentation/main/content/docs/public-instances/index.md"
