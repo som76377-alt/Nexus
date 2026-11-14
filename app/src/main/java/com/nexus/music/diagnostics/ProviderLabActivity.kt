@@ -197,7 +197,6 @@ class ProviderLabActivity : Activity() {
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Throwable) {
-            if (error is ProviderHttpException) httpCode = error.code
             if (error is CatalogProviderHttpException) httpCode = error.statusCode
             if (generateSequence(error) { it.cause }.any { it.message?.contains("forced HTTP 403") == true }) {
                 httpCode = 403
