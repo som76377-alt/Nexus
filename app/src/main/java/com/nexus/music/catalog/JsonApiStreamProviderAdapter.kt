@@ -342,6 +342,7 @@ abstract class JsonApiStreamProviderAdapter(
         val cooldownMs = when (error) {
             is ProviderHttpException -> when {
                 error.statusCode == 429 -> error.retryAfterMs ?: RATE_LIMIT_COOLDOWN_MS
+                error.statusCode == 408 || error.statusCode == 425 -> transientCooldown(failures)
                 error.statusCode >= 500 -> transientCooldown(failures)
                 else -> 0L
             }
