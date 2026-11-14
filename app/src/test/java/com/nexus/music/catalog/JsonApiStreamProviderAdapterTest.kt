@@ -68,6 +68,31 @@ class JsonApiStreamProviderAdapterTest {
         assertEquals("/api/v1/search?q=ambient%20music", server.takeRequest().path)
     }
 
+
+    @Test
+    fun malformedSearchJsonBecomesProviderResponseFailure() = runBlocking {
+        server.enqueue(MockResponse().setBody("{"))
+
+        val adapter = PipedStreamProviderAdapter(listOf(server.url("/").toString()))
+
+        assertThrows(ProviderResponseException::class.java) {
+            runBlocking { adapter.search("ambient", YoutubeSearchScope.EVERYTHING) }
+        }
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test
+    fun missingDirectAudioIsContentSpecificNotProviderFailure() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"title":"Unavailable","audioStreams":[]}"""))
+
+        val adapter = PipedStreamProviderAdapter(listOf(server.url("/").toString()))
+
+        assertThrows(ProviderContentException::class.java) {
+            runBlocking { adapter.resolveAudio("https://youtube.com/watch?v=abcdefghijk") }
+        }
+        assertEquals(1, server.requestCount)
+    }
+
     @Test
     fun pipedSearchPassesMusicSongsFilter() = runBlocking {
         server.enqueue(MockResponse().setBody("[]"))
