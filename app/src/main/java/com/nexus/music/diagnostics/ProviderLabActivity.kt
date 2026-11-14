@@ -28,7 +28,8 @@ import com.nexus.music.catalog.OkHttpDownloader
 import com.nexus.music.catalog.InvidiousStreamProviderAdapter
 import com.nexus.music.catalog.PipedStreamProviderAdapter
 import com.nexus.music.catalog.ProviderResolverChain
-import com.nexus.music.catalog.SharedPreferencesProviderHealthStore
+import com.nexus.music.catalog.InMemoryProviderHealthStore
+import com.nexus.music.catalog.ProviderOperation
 import com.nexus.music.catalog.StreamProvider
 import com.nexus.music.catalog.StreamProviderAdapter
 import com.nexus.music.catalog.ProviderInstanceDiscovery
@@ -62,7 +63,7 @@ class ProviderLabActivity : Activity() {
     private lateinit var providerSpinner: Spinner
     private lateinit var failureSpinner: Spinner
     private lateinit var stream403Seconds: EditText
-    private val healthStore by lazy { SharedPreferencesProviderHealthStore(this) }
+    private val healthStore by lazy { InMemoryProviderHealthStore() }
     private val chaos by lazy { if (BuildConfig.DEBUG) ProviderLabChaosFactory.create() else null }
     private var running = false
     private val labScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -267,15 +268,18 @@ class ProviderLabActivity : Activity() {
         cells: List<ProviderLabReportFormatter.Cell>
     ): String {
         val now = System.currentTimeMillis()
-        val health = StreamProvider.entries.map { provider ->
-            val value = healthStore.get(provider)
-            ProviderLabReportFormatter.ProviderHealthRow(
-                provider = provider.key,
-                consecutiveFailures = value.consecutiveFailures,
-                lastSuccessEpochMs = value.lastSuccessEpochMs,
-                lastError = value.lastErrorClass?.name,
-                cooldownRemainingMs = (value.cooldownUntilEpochMs - now).coerceAtLeast(0L)
-            )
+        val health = StreamProvider.entries.flatMap { provider ->
+            ProviderOperation.entries.map { operation ->
+                val value = healthStore.get(provider, operation)
+                ProviderLabReportFormatter.ProviderHealthRow(
+                    provider = provider.key,
+                    operation = operation.key,
+                    consecutiveFailures = value.consecutiveFailures,
+                    lastSuccessEpochMs = value.lastSuccessEpochMs,
+                    lastError = value.lastErrorClass?.name,
+                    cooldownRemainingMs = (value.cooldownUntilEpochMs - now).coerceAtLeast(0L)
+                )
+            }
         }
         val cacheBytes = runCatching { AudioCacheStore.usedBytes(this) }.getOrDefault(0L)
         val config = "local-v0 · order=${BuildConfig.STREAM_PROVIDER_ORDER}"
