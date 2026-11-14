@@ -81,6 +81,24 @@ class ProviderInstanceDiscoveryTest {
     }
 
     @Test
+    fun invidiousDocumentationAddsOnlyOfficialClearnetInstances() {
+        val markdown = """
+            ## List of public Invidious Instances (sorted from oldest to newest):
+            * [inv-one.example](https://inv-one.example) - details
+            * [inv-two.example](https://inv-two.example/) - details
+            ### Tor Onion Services:
+            * [hidden.onion](http://hidden.onion)
+            ### I2P Eepsites:
+            * [hidden.i2p](http://hidden.i2p)
+        """.trimIndent()
+
+        assertEquals(
+            listOf("https://inv-one.example", "https://inv-two.example"),
+            ProviderInstanceDiscovery.parseInvidiousDocumentation(markdown)
+        )
+    }
+
+    @Test
     fun invidiousDirectoryRequiresApiCapabilityAndHttps() {
         val json = """
             [
