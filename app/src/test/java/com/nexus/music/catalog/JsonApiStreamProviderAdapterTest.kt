@@ -239,7 +239,7 @@ class JsonApiStreamProviderAdapterTest {
         val second = MockWebServer()
         second.start()
         try {
-            repeat(2) {
+            repeat(3) {
                 server.enqueue(MockResponse().setResponseCode(403))
                 second.enqueue(
                     MockResponse().setBody(
