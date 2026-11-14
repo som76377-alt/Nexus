@@ -168,8 +168,8 @@ internal class ProviderInstanceDiscovery(
             }
 
             if (endpoints.isEmpty()) {
-                throw lastError as? IOException
-                    ?: IOException("No official Invidious API instances were discovered.", lastError)
+                throw (lastError as? IOException
+                    ?: IOException("No official Invidious API instances were discovered.", lastError))
             }
             return endpoints.take(MAX_ENDPOINTS)
         }
@@ -187,7 +187,7 @@ internal class ProviderInstanceDiscovery(
                 }
                 if (!inPublicList) return@forEach
 
-                val url = Regex("""^\\s*\\*\\s*\\[[^\\]]+\\]\\((https://[^)]+)\\)""")
+                val url = Regex("""^\s*\*\s*\[[^\]]+\]\((https://[^)]+)\)""")
                     .find(line)?.groupValues?.getOrNull(1) ?: return@forEach
                 normalizeEndpoint(url)?.let(endpoints::add)
             }
