@@ -144,9 +144,9 @@ internal class ProviderInstanceDiscovery(
             val endpoints = LinkedHashSet<String>()
             for (index in 0 until instances.length()) {
                 val entry = instances.optJSONArray(index) ?: continue
-                val url = entry.optString(0).takeIf(String::isNotBlank) ?: continue
                 val metadata = entry.optJSONObject(1) ?: continue
                 if (!metadata.optBoolean("api", false)) continue
+                val url = metadata.optString("uri").takeIf(String::isNotBlank) ?: continue
                 normalizeEndpoint(url)?.let(endpoints::add)
                 if (endpoints.size >= MAX_ENDPOINTS) break
             }
