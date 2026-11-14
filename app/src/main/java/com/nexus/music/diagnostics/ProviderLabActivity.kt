@@ -77,7 +77,7 @@ class ProviderLabActivity : Activity() {
             setPadding(24, 24, 24, 24)
         }
         status = TextView(this).apply {
-            text = "Tests five fixed YouTube samples against one selected provider across default, IPv4-only and IPv6-only networking. Successful cells play audio for 10 seconds."
+            text = "Tests five fixed YouTube samples across default, IPv4-only and IPv6-only networking. Stream probes and playback use provider-supplied request headers; successful cells play audio for 10 seconds."
         }
         providerSpinner = Spinner(this).apply {
             adapter = ArrayAdapter(
