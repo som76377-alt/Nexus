@@ -91,7 +91,7 @@ class PipedStreamProviderAdapter(
             .filter { CatalogUrlValidator.isValidHttpsUrl(it.optString("url")) }
             .filter { it.optString("mimeType").startsWith("audio/", ignoreCase = true) }
             .maxByOrNull { it.optInt("bitrate", 0) }
-            ?: throw IOException("Piped returned no directly playable audio stream.")
+            ?: throw ProviderContentException("Piped returned no directly playable audio stream.")
 
         return ResolvedAudio(
             sourceUrl = JsonApiStreamProviderAdapter.youtubeUrl(videoId),
@@ -165,7 +165,7 @@ class InvidiousStreamProviderAdapter(
             .filter { it.optString("type").substringBefore(';').startsWith("audio/", ignoreCase = true) }
             .filter { CatalogUrlValidator.isValidHttpsUrl(it.optString("url")) }
             .maxByOrNull { it.optInt("bitrate", 0) }
-            ?: throw IOException("Invidious returned no directly playable audio stream.")
+            ?: throw ProviderContentException("Invidious returned no directly playable audio stream.")
 
         val thumbnails = json.optJSONArray("videoThumbnails") ?: JSONArray()
         val thumbnail = (0 until thumbnails.length())
@@ -369,7 +369,7 @@ abstract class JsonApiStreamProviderAdapter(
             } catch (error: IOException) {
                 lastError = error
             } catch (error: org.json.JSONException) {
-                lastError = IOException("${provider.key} API returned an invalid response.", error)
+                lastError = ProviderResponseException("${provider.key} API returned an invalid response.", error)
             }
         }
 

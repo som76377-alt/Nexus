@@ -14,7 +14,7 @@ class ProviderLabReportFormatterTest {
             cacheBytes = 1234L,
             configVersion = "local-v0 · order=newpipe,piped,invidious",
             providerHealth = listOf(
-                ProviderLabReportFormatter.ProviderHealthRow("newpipe", 2, 1000L, "RATE_LIMITED", 30000L)
+                ProviderLabReportFormatter.ProviderHealthRow("newpipe", "resolve", 2, 1000L, "RATE_LIMITED", 30000L)
             ),
             cells = listOf(
                 ProviderLabReportFormatter.Cell("newpipe", "dQw4w9WgXcQ", "default", true, null, 206, 1234),
@@ -26,7 +26,7 @@ class ProviderLabReportFormatterTest {
         assertTrue(report.contains("Wi-Fi"))
         assertTrue(report.contains("Cache: 1234 bytes"))
         assertTrue(report.contains("Config: local-v0"))
-        assertTrue(report.contains("HEALTH newpipe failures=2"))
+        assertTrue(report.contains("HEALTH newpipe resolve failures=2"))
         assertTrue(report.contains("OK newpipe dQw4w9WgXcQ default"))
         assertTrue(report.contains("FAIL piped jfKfPfyJRdk IPv6-only"))
         assertTrue(report.contains("HTTP=206"))
@@ -41,9 +41,9 @@ class ProviderLabReportFormatterTest {
         val lines = ProviderLabReportFormatter.format(
             "test", "main", "offline", 0L, "local-v0",
             listOf(
-                ProviderLabReportFormatter.ProviderHealthRow("newpipe", 0, 0L, null, 0L),
-                ProviderLabReportFormatter.ProviderHealthRow("piped", 0, 0L, null, 0L),
-                ProviderLabReportFormatter.ProviderHealthRow("invidious", 0, 0L, null, 0L)
+                ProviderLabReportFormatter.ProviderHealthRow("newpipe", "search", 0, 0L, null, 0L),
+                ProviderLabReportFormatter.ProviderHealthRow("piped", "resolve", 0, 0L, null, 0L),
+                ProviderLabReportFormatter.ProviderHealthRow("invidious", "search", 0, 0L, null, 0L)
             ),
             cells
         ).lines()
