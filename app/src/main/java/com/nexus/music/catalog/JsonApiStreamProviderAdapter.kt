@@ -421,23 +421,9 @@ abstract class JsonApiStreamProviderAdapter(
                 .followSslRedirects(false)
                 .build()
 
-        internal fun youtubeId(value: String): String? {
-            val parsed = runCatching { value.toHttpUrl() }.getOrNull() ?: return null
-            val host = parsed.host.lowercase()
-            val id = when {
-                host == "youtu.be" -> parsed.encodedPathSegments.lastOrNull()
-                host == "youtube.com" || host.endsWith(".youtube.com") ->
-                    if (parsed.encodedPath == "/watch") parsed.queryParameter("v")
-                    else parsed.pathSegments.getOrNull(1)?.takeIf {
-                        parsed.pathSegments.firstOrNull() in setOf("shorts", "embed", "live")
-                    }
-                else -> null
-            }
-            return id?.takeIf(::isValidVideoId)
-        }
+        internal fun youtubeId(value: String): String? = YoutubeVideoId.fromUrl(value)
 
-        internal fun isValidVideoId(value: String): Boolean =
-            value.matches(Regex("^[A-Za-z0-9_-]{11}$"))
+        internal fun isValidVideoId(value: String): Boolean = YoutubeVideoId.isValid(value)
 
         internal fun youtubeUrl(videoId: String): String =
             "https://www.youtube.com/watch?v=$videoId"
