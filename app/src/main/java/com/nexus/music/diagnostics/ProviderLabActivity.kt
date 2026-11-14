@@ -124,7 +124,7 @@ class ProviderLabActivity : Activity() {
             text = "Run NewPipe latency survey (100)"
             setOnClickListener { runLatencySurvey() }
         }
-        root.addView(surveyButton)
+        if (BuildConfig.DEBUG) root.addView(surveyButton)
         root.addView(copy)
         root.addView(ScrollView(this).apply { addView(report) }, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
