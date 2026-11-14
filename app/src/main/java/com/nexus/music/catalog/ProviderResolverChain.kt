@@ -238,8 +238,7 @@ class ProviderResolverChain(
         const val DEFAULT_HEDGE_DELAY_MS = 350L
         const val RELATIVE_COOLDOWN_MS = 15_000L
         const val TRANSIENT_COOLDOWN_MS = 30_000L
-        const val RATE_COOLDOWN_MS = 5 * 60_000L
-        const val RATE_LIMIT_COOLDOWN_MS = RATE_COOLDOWN_MS
+        const val RATE_LIMIT_COOLDOWN_MS = 5 * 60_000L
         const val ACCESS_BLOCK_COOLDOWN_MS = 15 * 60_000L
         const val UNSUPPORTED_COOLDOWN_MS = 60 * 60_000L
         const val UNKNOWN_COOLDOWN_MS = 60_000L
