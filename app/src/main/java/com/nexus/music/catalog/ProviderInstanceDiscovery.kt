@@ -130,7 +130,7 @@ internal class ProviderInstanceDiscovery(
             markdown.lineSequence()
                 .filter { it.contains('|') }
                 .forEach { line ->
-                    val cells = line.split('|').map(String::trim)
+                    val cells = line.trim().trim('|').split('|').map(String::trim)
                     val apiCell = cells.getOrNull(1).orEmpty()
                     ENDPOINT_PATTERN.findAll(apiCell).forEach { match ->
                         normalizeEndpoint(match.value)?.let(endpoints::add)
