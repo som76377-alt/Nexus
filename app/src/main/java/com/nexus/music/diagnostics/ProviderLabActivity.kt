@@ -55,6 +55,9 @@ import java.net.Inet6Address
 import java.net.InetAddress
 import java.util.concurrent.TimeUnit
 
+/** Each Lab run receives disposable health state, never the production preferences store. */
+internal fun createProviderLabHealthStore(): InMemoryProviderHealthStore = InMemoryProviderHealthStore()
+
 /** Hidden, opt-in diagnostic. It deliberately performs real network and audible playback tests. */
 class ProviderLabActivity : Activity() {
     private lateinit var status: TextView
@@ -63,7 +66,7 @@ class ProviderLabActivity : Activity() {
     private lateinit var providerSpinner: Spinner
     private lateinit var failureSpinner: Spinner
     private lateinit var stream403Seconds: EditText
-    private val healthStore by lazy { InMemoryProviderHealthStore() }
+    private val healthStore by lazy { createProviderLabHealthStore() }
     private val chaos by lazy { if (BuildConfig.DEBUG) ProviderLabChaosFactory.create() else null }
     private var running = false
     private val labScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
