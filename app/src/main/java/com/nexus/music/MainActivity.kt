@@ -69,9 +69,12 @@ class MainActivity : Activity() {
     private enum class SearchSort { RELEVANCE, POPULAR, TITLE, DURATION }
     private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val repository by lazy { NexusCatalog.repository(this) }
-    private val searchSessionManager by lazy {
-        SearchSessionManager(activityScope, listOf(RepositorySearchSource(repository)))
-    }
+    private var searchSessionManager: SearchSessionManager? = null
+
+    private fun searchSessions(): SearchSessionManager = searchSessionManager
+        ?: SearchSessionManager(activityScope, listOf(RepositorySearchSource(repository))).also {
+            searchSessionManager = it
+        }
     private val libraryStore by lazy { LocalLibraryStore(this) }
     private val updateChecker by lazy { GitHubReleaseUpdater() }
     private val progressHandler = Handler(Looper.getMainLooper())
@@ -724,7 +727,7 @@ class MainActivity : Activity() {
             searchGeneration++
             searchJob?.cancel()
             searchJob = null
-            searchSessionManager.cancelActive()
+            searchSessionManager?.cancelActive()
             searchPanel.queryInput.error = null
             searchPanel.statusText.text = ""
             searchPanel.statusText.visibility = View.GONE
@@ -743,7 +746,7 @@ class MainActivity : Activity() {
         searchPanel.statusText.setOnClickListener(null)
         searchPanel.resultsContainer.removeAllViews()
 
-        val session = searchSessionManager.start(query, requestScope)
+        val session = searchSessions().start(query, requestScope)
         searchJob = activityScope.launch {
             try {
                 session.state.collect { snapshot ->
@@ -1056,7 +1059,7 @@ class MainActivity : Activity() {
         searchGeneration++
         searchJob?.cancel()
         searchJob = null
-        searchSessionManager.cancelActive()
+        searchSessionManager?.cancelActive()
         progressHandler.removeCallbacks(progressTicker)
         playbackConnection?.close()
         playbackConnection = null
