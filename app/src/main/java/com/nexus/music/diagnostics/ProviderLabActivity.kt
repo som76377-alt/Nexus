@@ -31,6 +31,7 @@ import com.nexus.music.catalog.ProviderResolverChain
 import com.nexus.music.catalog.SharedPreferencesProviderHealthStore
 import com.nexus.music.catalog.StreamProvider
 import com.nexus.music.catalog.StreamProviderAdapter
+import com.nexus.music.catalog.sanitizeStreamRequestHeaders
 import com.nexus.music.catalog.ProviderInstanceDiscovery
 import com.nexus.music.catalog.ProviderHttpException as CatalogProviderHttpException
 import com.nexus.music.catalog.ExtractorRuntime
@@ -187,7 +188,11 @@ class ProviderLabActivity : Activity() {
 
             httpCode = withContext(Dispatchers.IO) {
                 client.newCall(
-                    Request.Builder().url(audio.audioUrl).header("Range", "bytes=0-1023").build()
+                    Request.Builder().url(audio.audioUrl).header("Range", "bytes=0-1023").apply {
+                        sanitizeStreamRequestHeaders(audio.requestHeaders).forEach { (name, value) ->
+                            header(name, value)
+                        }
+                    }.build()
                 ).execute().use { response ->
                     val code = response.code
                     if (!response.isSuccessful) throw ProviderHttpException(code, "Audio probe rejected")
@@ -200,7 +205,7 @@ class ProviderLabActivity : Activity() {
                     code
                 }
             }
-            playForTenSeconds(audio.audioUrl, client, forced403Seconds)
+            playForTenSeconds(audio.audioUrl, client, audio.requestHeaders, forced403Seconds)
             ProviderLabReportFormatter.Cell(
                 provider.key, sample.id, family.label, true, null, httpCode,
                 elapsedMs(started), searchWarning
@@ -227,9 +232,17 @@ class ProviderLabActivity : Activity() {
     }
 
     @OptIn(UnstableApi::class)
-    private suspend fun playForTenSeconds(url: String, client: OkHttpClient, forced403Seconds: Int) {
+    private suspend fun playForTenSeconds(
+        url: String,
+        client: OkHttpClient,
+        requestHeaders: Map<String, String>,
+        forced403Seconds: Int
+    ) {
+        val dataSourceFactory = OkHttpDataSource.Factory(client).apply {
+            setDefaultRequestProperties(sanitizeStreamRequestHeaders(requestHeaders))
+        }
         val player = ExoPlayer.Builder(this)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(chaos?.wrapMediaDataSource(OkHttpDataSource.Factory(client), forced403Seconds) ?: OkHttpDataSource.Factory(client)))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(chaos?.wrapMediaDataSource(dataSourceFactory, forced403Seconds) ?: dataSourceFactory))
             .build()
         try {
             player.setAudioAttributes(
