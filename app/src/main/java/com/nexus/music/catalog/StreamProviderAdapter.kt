@@ -7,7 +7,6 @@ import org.schabi.newpipe.extractor.search.SearchInfo
 import org.schabi.newpipe.extractor.stream.StreamInfo
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 import org.schabi.newpipe.extractor.exceptions.ParsingException
-import java.io.IOException
 
 /**
  * Provider boundary shared by catalogue search and playback resolution.
