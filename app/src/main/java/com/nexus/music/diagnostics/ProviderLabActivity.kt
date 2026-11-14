@@ -202,14 +202,15 @@ class ProviderLabActivity : Activity() {
                 throw IllegalStateException("Resolved video ID ${cold.videoId}, expected ${sample.id}.")
             }
 
-            val warmStarted = System.nanoTime()
+            val repeatStarted = System.nanoTime()
             val audio = engine.resolveAudio(applicationContext, sourceUrl)
-            val warmMs = elapsedMs(warmStarted)
+            val repeatMs = elapsedMs(repeatStarted)
             if (audio.videoId != sample.id) {
                 throw IllegalStateException("Resolved video ID ${audio.videoId}, expected ${sample.id}.")
             }
             if (audio.audioUrl.isBlank()) throw IOException("yt-dlp returned an empty audio URL.")
 
+            val probeStarted = System.nanoTime()
             httpCode = withContext(Dispatchers.IO) {
                 client.newCall(
                     Request.Builder().url(audio.audioUrl).apply {
@@ -227,10 +228,12 @@ class ProviderLabActivity : Activity() {
                     code
                 }
             }
-            playForTenSeconds(audio.audioUrl, client, audio.httpHeaders, forced403Seconds)
+            val probeMs = elapsedMs(probeStarted)
+            val playback = playForTenSeconds(audio.audioUrl, client, audio.httpHeaders, forced403Seconds)
             ProviderLabReportFormatter.Cell(
                 YTDLP_PROVIDER, sample.id, "native-stack", true, null, httpCode,
-                elapsedMs(started), "cold=${coldMs}ms,warm=${warmMs}ms"
+                elapsedMs(started),
+                "e=${coldMs},r=${repeatMs},p=${probeMs},s=${playback.startupMs},t=${playback.sustainedMs}"
             )
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -312,12 +315,14 @@ class ProviderLabActivity : Activity() {
     }
 
     @OptIn(UnstableApi::class)
+    private data class PlaybackTiming(val startupMs: Long, val sustainedMs: Long)
+
     private suspend fun playForTenSeconds(
         url: String,
         client: OkHttpClient,
         headers: Map<String, String>,
         forced403Seconds: Int
-    ) {
+    ): PlaybackTiming {
         val sourceFactory = OkHttpDataSource.Factory(client).setDefaultRequestProperties(headers)
         val mediaSourceFactory = chaos?.wrapMediaDataSource(sourceFactory, forced403Seconds) ?: sourceFactory
         val player = ExoPlayer.Builder(this)
@@ -330,6 +335,7 @@ class ProviderLabActivity : Activity() {
                 true
             )
             player.setMediaItem(MediaItem.fromUri(url))
+            val playbackRequestedAt = System.nanoTime()
             player.prepare()
             player.play()
             val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(25)
@@ -349,7 +355,12 @@ class ProviderLabActivity : Activity() {
                 }
                 if (player.isPlaying) {
                     if (beganAt == null) beganAt = System.nanoTime()
-                    if (System.nanoTime() - beganAt >= TimeUnit.SECONDS.toNanos(10)) return
+                    if (System.nanoTime() - beganAt >= TimeUnit.SECONDS.toNanos(10)) {
+                        return PlaybackTiming(
+                            startupMs = TimeUnit.NANOSECONDS.toMillis(beganAt - playbackRequestedAt),
+                            sustainedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - beganAt)
+                        )
+                    }
                 }
                 delay(100)
             }
@@ -400,12 +411,12 @@ class ProviderLabActivity : Activity() {
         }
         val cacheBytes = runCatching { AudioCacheStore.usedBytes(this) }.getOrDefault(0L)
         val ytCells = cells.filter { it.provider == YTDLP_PROVIDER }
-        val cold = ytCells.mapNotNull { it.detail?.let { value -> Regex("cold=(\\d+)ms").find(value)?.groupValues?.get(1)?.toLongOrNull() } }
-        val warm = ytCells.mapNotNull { it.detail?.let { value -> Regex("warm=(\\d+)ms").find(value)?.groupValues?.get(1)?.toLongOrNull() } }
-        val latency = if (cold.isEmpty() || warm.isEmpty()) {
-            "latency=n/a"
+        val extraction = ytCells.mapNotNull { it.detail?.let { value -> Regex("e=(\\d+)").find(value)?.groupValues?.get(1)?.toLongOrNull() } }
+        val repeat = ytCells.mapNotNull { it.detail?.let { value -> Regex("r=(\\d+)").find(value)?.groupValues?.get(1)?.toLongOrNull() } }
+        val latency = if (extraction.isEmpty() || repeat.isEmpty()) {
+            "extraction=n/a"
         } else {
-            "cold-med=${median(cold)}ms,warm-med=${median(warm)}ms"
+            "extract-med=${median(extraction)}ms,repeat-med=${median(repeat)}ms"
         }
         val config = "local-v0 · order=${BuildConfig.STREAM_PROVIDER_ORDER} · yt-dlp-update=${ytDlpUpdateStatus.take(96)} · $latency"
         return ProviderLabReportFormatter.format(
