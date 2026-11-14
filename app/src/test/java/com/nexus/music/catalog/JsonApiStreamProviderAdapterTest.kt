@@ -189,6 +189,29 @@ class JsonApiStreamProviderAdapterTest {
     }
 
     @Test
+    fun missingAudioFormatOnOneInstanceFallsBackToAnotherInstance() = runBlocking {
+        val second = MockWebServer()
+        second.start()
+        try {
+            server.enqueue(MockResponse().setBody("""{"title":"No audio here","audioStreams":[]}"""))
+            second.enqueue(
+                MockResponse().setBody(
+                    """{"title":"Audio recovered","audioStreams":[{"url":"https://media.example/a.mp3","mimeType":"audio/mpeg","bitrate":96000}]}"""
+                )
+            )
+            val result = PipedStreamProviderAdapter(
+                listOf(server.url("/").toString(), second.url("/").toString())
+            ).resolveAudio("https://youtube.com/watch?v=abcdefghijk")
+
+            assertEquals("Audio recovered", result.title)
+            assertEquals(1, server.requestCount)
+            assertEquals(1, second.requestCount)
+        } finally {
+            second.shutdown()
+        }
+    }
+
+    @Test
     fun transientlyFailingInstanceIsSkippedUntilItsCooldownExpires() = runBlocking {
         val second = MockWebServer()
         second.start()
