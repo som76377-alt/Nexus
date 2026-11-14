@@ -63,6 +63,7 @@ class ProviderLabActivity : Activity() {
     private lateinit var failureSpinner: Spinner
     private lateinit var stream403Seconds: EditText
     private val healthStore by lazy { SharedPreferencesProviderHealthStore(this) }
+    private val instanceDiscovery by lazy { ProviderInstanceDiscovery(this) }
     private val chaos by lazy { if (BuildConfig.DEBUG) ProviderLabChaosFactory.create() else null }
     private var running = false
     private val labScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -138,8 +139,10 @@ class ProviderLabActivity : Activity() {
             val forced403Seconds = if (BuildConfig.DEBUG) {
                 stream403Seconds.text.toString().toIntOrNull()?.coerceIn(0, 300) ?: 0
             } else 0
-            status.text = "Running 15 checks · ${provider.key} · failure=${failure.name} · stream403=${forced403Seconds}s"
+            status.text = "Refreshing Piped and Invidious instance directories..."
             try {
+                instanceDiscovery.refreshIfStale { _, _ -> }
+                status.text = "Running 15 checks · ${provider.key} · failure=${failure.name} · stream403=${forced403Seconds}s"
                 for (sample in SAMPLES) {
                     for (family in FamilyMode.entries) {
                         status.text = "${provider.key} · ${sample.label} · ${family.label}"
@@ -246,17 +249,16 @@ class ProviderLabActivity : Activity() {
     }
 
     private fun adapterFor(provider: StreamProvider, client: OkHttpClient): StreamProviderAdapter {
-        val discovery = ProviderInstanceDiscovery(this)
         return when (provider) {
             StreamProvider.NEWPIPE -> NewPipeStreamProviderAdapter(OkHttpDownloader(client))
             StreamProvider.PIPED -> PipedStreamProviderAdapter(
                 (BuildConfig.PIPED_API_ENDPOINTS.split(',').filter(String::isNotBlank) +
-                    discovery.cachedEndpoints(StreamProvider.PIPED)).distinct(),
+                    instanceDiscovery.cachedEndpoints(StreamProvider.PIPED)).distinct(),
                 client
             )
             StreamProvider.INVIDIOUS -> InvidiousStreamProviderAdapter(
                 (BuildConfig.INVIDIOUS_API_ENDPOINTS.split(',').filter(String::isNotBlank) +
-                    discovery.cachedEndpoints(StreamProvider.INVIDIOUS)).distinct(),
+                    instanceDiscovery.cachedEndpoints(StreamProvider.INVIDIOUS)).distinct(),
                 client
             )
         }
@@ -278,7 +280,11 @@ class ProviderLabActivity : Activity() {
             )
         }
         val cacheBytes = runCatching { AudioCacheStore.usedBytes(this) }.getOrDefault(0L)
-        val config = "local-v0 · order=${BuildConfig.STREAM_PROVIDER_ORDER}"
+        val pipedInstances = (BuildConfig.PIPED_API_ENDPOINTS.split(',') + instanceDiscovery.cachedEndpoints(StreamProvider.PIPED))
+            .map(String::trim).filter(String::isNotEmpty).distinct().size
+        val invidiousInstances = (BuildConfig.INVIDIOUS_API_ENDPOINTS.split(',') + instanceDiscovery.cachedEndpoints(StreamProvider.INVIDIOUS))
+            .map(String::trim).filter(String::isNotEmpty).distinct().size
+        val config = "local-v0 · order=${BuildConfig.STREAM_PROVIDER_ORDER} · piped-instances=$pipedInstances · invidious-instances=$invidiousInstances"
         return ProviderLabReportFormatter.format(
             appVersion = BuildConfig.VERSION_NAME,
             flavor = if (BuildConfig.DEBUG) "debug" else "release",
