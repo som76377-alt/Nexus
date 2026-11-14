@@ -172,10 +172,11 @@ class JsonApiStreamProviderAdapterTest {
             )
             val health = InMemoryProviderInstanceHealthStore()
             val firstEndpoint = server.url("/").toString()
+            health.recordFailure(StreamProvider.INVIDIOUS, firstEndpoint, 500L, 1_500L)
             val result = InvidiousStreamProviderAdapter(
                 listOf(firstEndpoint, second.url("/").toString()),
                 instanceHealthStore = health,
-                nowEpochMs = { 1_000L }
+                nowEpochMs = { 2_000L }
             ).resolveAudio("https://www.youtube.com/watch?v=abcdefghijk")
 
             assertEquals("Recovered", result.title)
