@@ -45,6 +45,7 @@ class SearchSessionTest {
 
         assertEquals(listOf(primaryTrack), session.state.value.items)
         assertTrue(session.state.value.isLoadingFirstPage)
+        manager.cancelActive()
     }
 
     @Test
@@ -71,6 +72,7 @@ class SearchSessionTest {
         assertEquals(listOf(result), session.state.value.items)
         assertTrue(StreamProvider.NEWPIPE in session.state.value.failedSources)
         assertFalse(session.state.value.allSourcesFailed)
+        manager.cancelActive()
     }
 
     @Test
@@ -109,6 +111,7 @@ class SearchSessionTest {
         assertTrue(oldCancelled)
         assertTrue(oldSession.state.value.items.isEmpty())
         assertEquals(listOf(track(2)), newSession.state.value.items)
+        manager.cancelActive()
     }
 
     @Test
@@ -162,6 +165,7 @@ class SearchSessionTest {
             snapshots.zipWithNext().forEach { (before, after) ->
                 assertEquals("seed=$seed", before, after.take(before.size))
             }
+            manager.cancelActive()
         }
     }
 
@@ -186,6 +190,7 @@ class SearchSessionTest {
         assertTrue(session.state.value.items.isEmpty())
         assertFalse(session.state.value.allSourcesFailed)
         assertEquals(setOf(StreamProvider.NEWPIPE), session.state.value.failedSources)
+        manager.cancelActive()
     }
 
     @Test
@@ -204,6 +209,7 @@ class SearchSessionTest {
 
         assertTrue(session.state.value.allSourcesFailed)
         assertEquals(2, session.state.value.failedSources.size)
+        manager.cancelActive()
     }
 
     @Test
@@ -231,6 +237,7 @@ class SearchSessionTest {
         assertTrue(session.state.value.allSourcesFailed)
         assertTrue(session.state.value.items.isEmpty())
         assertEquals(listOf(null), calls)
+        manager.cancelActive()
     }
 
     @Test
@@ -260,6 +267,7 @@ class SearchSessionTest {
         advanceUntilIdle()
 
         assertEquals(2, maximumActive)
+        manager.cancelActive()
     }
 
     @Test
@@ -294,6 +302,7 @@ class SearchSessionTest {
         assertEquals(listOf(track(1), track(2)), session.state.value.items)
         assertFalse(session.state.value.hasMore)
         assertEquals(listOf(null, "page-2", "page-3"), cursors)
+        manager.cancelActive()
     }
 
     @Test
@@ -337,6 +346,7 @@ class SearchSessionTest {
         assertEquals(1, maximumActive)
         assertEquals(listOf(track(1), track(2), track(3)), session.state.value.items)
         assertFalse(session.state.value.hasMore)
+        manager.cancelActive()
     }
 
     @Test
@@ -369,6 +379,7 @@ class SearchSessionTest {
         assertEquals(listOf(track(1)), session.state.value.items)
         assertFalse(session.state.value.hasMore)
         assertTrue(StreamProvider.PIPED in session.state.value.failedSources)
+        manager.cancelActive()
     }
 
     private class FakeSearchSource(
