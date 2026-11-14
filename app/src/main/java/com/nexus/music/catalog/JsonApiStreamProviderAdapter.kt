@@ -350,16 +350,13 @@ abstract class JsonApiStreamProviderAdapter(
     private fun transientCooldown(failures: Int): Long =
         TRANSIENT_INSTANCE_COOLDOWN_MS * (1L shl (failures - 1).coerceIn(0, 4))
 
-    private companion object InstancePolicy {
-        const val TRANSIENT_INSTANCE_COOLDOWN_MS = 30_000L
-        const val RATE_LIMIT_COOLDOWN_MS = 5 * 60_000L
-        const val MAX_INSTANCE_COOLDOWN_MS = 10 * 60_000L
-    }
-
     companion object {
         private val LOOPBACK_HOSTS = setOf("localhost", "127.0.0.1", "::1")
         private const val USER_AGENT = "Nexus/0.1 (Android)"
         private const val MAX_API_RESPONSE_BYTES = 8_388_608L
+        private const val TRANSIENT_INSTANCE_COOLDOWN_MS = 30_000L
+        private const val RATE_LIMIT_COOLDOWN_MS = 5 * 60_000L
+        private const val MAX_INSTANCE_COOLDOWN_MS = 10 * 60_000L
 
         internal fun parseRetryAfterMillis(
             value: String?,
