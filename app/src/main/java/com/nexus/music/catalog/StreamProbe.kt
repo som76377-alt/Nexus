@@ -45,7 +45,13 @@ internal class StreamProbe(
                 throw IOException("The stream probe was redirected to an insecure URL.")
             }
             if (response.code != 200 && response.code != 206) {
-                throw IOException("The resolved stream is not reachable (HTTP ${response.code}).")
+                throw ProviderHttpException(
+                    statusCode = response.code,
+                    provider = "${audio.provider.key} audio stream",
+                    retryAfterMs = JsonApiStreamProviderAdapter.parseRetryAfterMillis(
+                        response.header("Retry-After")
+                    )
+                )
             }
 
             val contentType = response.header("Content-Type")
