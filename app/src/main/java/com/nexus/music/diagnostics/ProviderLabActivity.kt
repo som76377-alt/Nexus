@@ -169,6 +169,16 @@ class ProviderLabActivity : Activity() {
      * provider order, or resolver timing. First search is marked first-in-process; force-stop the
      * app before opening Provider Lab if that sample is intended to represent a cold start.
      */
+
+    private fun formatSurveyReport(
+        records: List<ProviderLabSurveyReportFormatter.Record>
+    ): String = ProviderLabSurveyReportFormatter.format(
+        records = records,
+        appVersion = BuildConfig.VERSION_NAME,
+        deviceModel = android.os.Build.MODEL,
+        apiLevel = android.os.Build.VERSION.SDK_INT
+    )
+
     private fun runLatencySurvey() {
         if (running) return
         running = true
@@ -180,7 +190,7 @@ class ProviderLabActivity : Activity() {
             val candidates = mutableListOf<Pair<String, com.nexus.music.catalog.CatalogTrack>>()
             val adapter = NewPipeStreamProviderAdapter(OkHttpDownloader())
             val network = networkSummary()
-            status.text = "E1 · measuring 100 NewPipe first-page searches · $network"
+            status.text = "E1 · measuring 50 NewPipe first-page searches · $network"
             try {
                 repeat(SURVEY_SEARCH_COUNT) { index ->
                     val query = SURVEY_QUERIES[index % SURVEY_QUERIES.size]
@@ -215,7 +225,7 @@ class ProviderLabActivity : Activity() {
                             query = query
                         )
                     }
-                    report.text = ProviderLabSurveyReportFormatter.format(records)
+                    report.text = formatSurveyReport(records)
                     status.text = "E1 · search ${index + 1}/$SURVEY_SEARCH_COUNT · candidates=${candidates.size}"
                     if (index + 1 < SURVEY_SEARCH_COUNT) delay(SURVEY_SAMPLE_GAP_MS)
                 }
@@ -461,9 +471,9 @@ class ProviderLabActivity : Activity() {
     private class ProviderHttpException(val code: Int, message: String) : java.io.IOException(message)
 
     companion object {
-        private const val SURVEY_SEARCH_COUNT = 100
-        private const val SURVEY_RESOLVE_COUNT = 100
-        private const val SURVEY_SAMPLE_GAP_MS = 1_000L
+        private const val SURVEY_SEARCH_COUNT = 50
+        private const val SURVEY_RESOLVE_COUNT = 50
+        private const val SURVEY_SAMPLE_GAP_MS = 1_500L
         private val SURVEY_QUERIES = listOf(
             "lofi hip hop", "ambient piano", "jazz guitar instrumental", "indie acoustic songs",
             "classical piano", "synthwave mix", "chill electronic", "acoustic covers",
