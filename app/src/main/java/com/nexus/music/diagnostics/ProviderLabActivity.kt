@@ -241,7 +241,7 @@ class ProviderLabActivity : Activity() {
                             operation = "RESOLVE+PROBE",
                             timestampEpochMs = timestamp,
                             transport = network,
-                            coldWarm = "warm-after-search",
+                            coldWarm = if (index == 0) "first-resolve-after-search" else "warm-resolve",
                             pageIndex = 1,
                             elapsedMs = elapsedMs(startedNs),
                             outcome = "OK",
