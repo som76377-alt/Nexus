@@ -189,6 +189,41 @@ class JsonApiStreamProviderAdapterTest {
     }
 
     @Test
+    fun requestTimeoutStatusCoolsDownInstanceAndSkipsItOnNextCall() = runBlocking {
+        val second = MockWebServer()
+        second.start()
+        try {
+            server.enqueue(MockResponse().setResponseCode(408))
+            second.enqueue(
+                MockResponse().setBody(
+                    """{"title":"Recovered","audioStreams":[{"url":"https://media.example/a.mp3","mimeType":"audio/mpeg","bitrate":96000}]}"""
+                )
+            )
+            second.enqueue(
+                MockResponse().setBody(
+                    """{"title":"Still healthy","audioStreams":[{"url":"https://media.example/b.mp3","mimeType":"audio/mpeg","bitrate":128000}]}"""
+                )
+            )
+            val health = InMemoryProviderInstanceHealthStore()
+            val firstEndpoint = server.url("/").toString()
+            val adapter = PipedStreamProviderAdapter(
+                listOf(firstEndpoint, second.url("/").toString()),
+                instanceHealthStore = health,
+                nowEpochMs = { 1_000L }
+            )
+
+            assertEquals("Recovered", adapter.resolveAudio("https://youtube.com/watch?v=abcdefghijk").title)
+            assertEquals(31_000L, health.get(StreamProvider.PIPED, firstEndpoint).cooldownUntilEpochMs)
+
+            assertEquals("Still healthy", adapter.resolveAudio("https://youtube.com/watch?v=abcdefghijk").title)
+            assertEquals(1, server.requestCount)
+            assertEquals(2, second.requestCount)
+        } finally {
+            second.shutdown()
+        }
+    }
+
+    @Test
     fun missingAudioFormatOnOneInstanceFallsBackToAnotherInstance() = runBlocking {
         val second = MockWebServer()
         second.start()
