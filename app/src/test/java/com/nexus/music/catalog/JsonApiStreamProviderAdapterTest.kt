@@ -264,6 +264,35 @@ class JsonApiStreamProviderAdapterTest {
     }
 
 
+
+    @Test
+    fun search429HonorsRetryAfterBeforeRetryingTheInstance() = runBlocking {
+        var now = 1_000L
+        val second = MockWebServer()
+        second.start()
+        try {
+            server.enqueue(MockResponse().setResponseCode(429).setHeader("Retry-After", "60"))
+            server.enqueue(MockResponse().setBody("[]"))
+            repeat(3) { second.enqueue(MockResponse().setBody("[]")) }
+            val adapter = PipedStreamProviderAdapter(
+                listOf(server.url("/").toString(), second.url("/").toString()),
+                nowEpochMs = { now }
+            )
+
+            adapter.search("ambient", YoutubeSearchScope.EVERYTHING)
+            now = 60_000L
+            adapter.search("ambient", YoutubeSearchScope.EVERYTHING)
+            assertEquals(1, server.requestCount)
+            now = 61_000L
+            adapter.search("ambient", YoutubeSearchScope.EVERYTHING)
+
+            assertEquals(2, server.requestCount)
+            assertEquals(2, second.requestCount)
+        } finally {
+            second.shutdown()
+        }
+    }
+
     @Test
     fun healthyInstancesRotateAcrossCallsWithoutChangingProviderOrder() = runBlocking {
         val second = MockWebServer()
