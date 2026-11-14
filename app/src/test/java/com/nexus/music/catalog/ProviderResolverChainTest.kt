@@ -10,6 +10,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
 import org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException
+import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
+import org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException
 import java.io.IOException
 
 class ProviderResolverChainTest {
@@ -615,6 +617,32 @@ class ProviderResolverChainTest {
         }
         assertEquals(1, health.get(StreamProvider.INVIDIOUS, ProviderOperation.RESOLVE).consecutiveFailures)
         assertEquals(StreamErrorClass.UNKNOWN, health.get(StreamProvider.INVIDIOUS, ProviderOperation.RESOLVE).lastErrorClass)
+    }
+
+
+    @Test
+    fun typedNewPipeBotAndCaptchaFailuresAreRecordedImmediately() = runBlocking {
+        val failures: List<Exception> = listOf(
+            ReCaptchaException("limited", "https://youtube.com"),
+            SignInConfirmNotBotException("verify")
+        )
+        failures.forEach { failure ->
+            val health = InMemoryProviderHealthStore()
+            val chain = ProviderResolverChain(
+                adapters = listOf(
+                    FakeAdapter(StreamProvider.NEWPIPE, mutableListOf()) { throw failure }
+                ),
+                healthStore = health,
+                providerOrder = listOf(StreamProvider.NEWPIPE),
+                hedgeDelayMs = 0L,
+                nowEpochMs = { 1_000L }
+            )
+
+            assertThrows(Exception::class.java) {
+                runBlocking { chain.resolveAudio("https://youtube.com/watch?v=abcdefghijk") }
+            }
+            assertEquals(1, health.get(StreamProvider.NEWPIPE, ProviderOperation.RESOLVE).consecutiveFailures)
+        }
     }
 
     @Test
