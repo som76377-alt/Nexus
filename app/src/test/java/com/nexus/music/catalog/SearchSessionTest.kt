@@ -164,6 +164,52 @@ class SearchSessionTest {
         }
     }
 
+
+    @Test
+    fun allSourcesFailedIsTrueOnlyWhenEveryFirstPageFails() = runTest {
+        val manager = SearchSessionManager(
+            parentScope = backgroundScope,
+            sources = listOf(
+                FakeSearchSource(StreamProvider.NEWPIPE) { _, _, _ -> throw IOException("offline") },
+                FakeSearchSource(StreamProvider.PIPED) { _, _, _ -> throw IOException("offline") }
+            ),
+            dispatcher = StandardTestDispatcher(testScheduler)
+        )
+
+        val session = manager.start("ambient", YoutubeSearchScope.EVERYTHING)
+        advanceUntilIdle()
+
+        assertTrue(session.state.value.allSourcesFailed)
+        assertEquals(2, session.state.value.failedSources.size)
+    }
+
+    @Test
+    fun cursorFromAnotherProviderIsRejectedAndNeverReused() = runTest {
+        val calls = mutableListOf<SearchCursor?>()
+        val source = FakeSearchSource(StreamProvider.NEWPIPE) { _, _, cursor ->
+            calls += cursor
+            SearchPage(
+                listOf(track(1)),
+                SearchCursor(StreamProvider.PIPED, "foreign-page"),
+                hasMore = true
+            )
+        }
+        val manager = SearchSessionManager(
+            parentScope = backgroundScope,
+            sources = listOf(source),
+            dispatcher = StandardTestDispatcher(testScheduler)
+        )
+
+        val session = manager.start("ambient", YoutubeSearchScope.EVERYTHING)
+        advanceUntilIdle()
+        session.loadMore()
+        advanceUntilIdle()
+
+        assertTrue(session.state.value.allSourcesFailed)
+        assertTrue(session.state.value.items.isEmpty())
+        assertEquals(listOf(null), calls)
+    }
+
     @Test
     fun concurrencyNeverExceedsConfiguredLimit() = runTest {
         var active = 0
