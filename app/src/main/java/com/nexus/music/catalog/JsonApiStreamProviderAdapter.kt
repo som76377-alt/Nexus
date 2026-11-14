@@ -311,8 +311,8 @@ abstract class JsonApiStreamProviderAdapter(
             } catch (error: ProviderCapabilityException) {
                 throw error
             } catch (error: ProviderContentException) {
-                // A valid instance can lack an audio format for one particular video.
-                throw error
+                // Try the next instance: format availability can differ between instances.
+                lastError = error
             } catch (error: IOException) {
                 lastError = error
                 recordInstanceFailure(endpoint, error)
