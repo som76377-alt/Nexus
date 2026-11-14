@@ -31,6 +31,7 @@ import com.nexus.music.catalog.ProviderResolverChain
 import com.nexus.music.catalog.SharedPreferencesProviderHealthStore
 import com.nexus.music.catalog.StreamProvider
 import com.nexus.music.catalog.StreamProviderAdapter
+import com.nexus.music.catalog.StreamProbe
 import com.nexus.music.catalog.sanitizeStreamRequestHeaders
 import com.nexus.music.catalog.ProviderInstanceDiscovery
 import com.nexus.music.catalog.ProviderHttpException as CatalogProviderHttpException
@@ -49,7 +50,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.Dns
 import okhttp3.OkHttpClient
-import okhttp3.Request
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
@@ -186,24 +186,8 @@ class ProviderLabActivity : Activity() {
             // known sample URL so a search miss cannot hide a working resolver/stream path.
             val audio = resolver.resolveAudio("https://www.youtube.com/watch?v=${sample.id}")
 
-            httpCode = withContext(Dispatchers.IO) {
-                client.newCall(
-                    Request.Builder().url(audio.audioUrl).header("Range", "bytes=0-1023").apply {
-                        sanitizeStreamRequestHeaders(audio.requestHeaders).forEach { (name, value) ->
-                            header(name, value)
-                        }
-                    }.build()
-                ).execute().use { response ->
-                    val code = response.code
-                    if (!response.isSuccessful) throw ProviderHttpException(code, "Audio probe rejected")
-                    val bytes = response.body?.byteStream()?.use { stream ->
-                        val buffer = ByteArray(1024)
-                        val count = stream.read(buffer)
-                        if (count > 0) buffer.copyOf(count) else byteArrayOf()
-                    } ?: byteArrayOf()
-                    if (bytes.isEmpty()) throw ProviderHttpException(code, "Audio probe returned no bytes")
-                    code
-                }
+            StreamProbe(client).validate(audio) { responseCode ->
+                httpCode = responseCode
             }
             playForTenSeconds(audio.audioUrl, client, audio.requestHeaders, forced403Seconds)
             ProviderLabReportFormatter.Cell(
@@ -385,7 +369,6 @@ class ProviderLabActivity : Activity() {
 
     private data class Sample(val id: String, val label: String)
     private enum class FamilyMode(val label: String) { DEFAULT("default"), IPV4("IPv4-only"), IPV6("IPv6-only") }
-    private class ProviderHttpException(val code: Int, message: String) : java.io.IOException(message)
 
     companion object {
         // Fixed IDs cover a popular upload, an obscure upload, long-form video and two live streams.
