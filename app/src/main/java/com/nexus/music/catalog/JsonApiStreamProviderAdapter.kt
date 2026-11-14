@@ -328,7 +328,7 @@ abstract class JsonApiStreamProviderAdapter(
         if (
             error is ProviderHttpException &&
             error.statusCode in 400..499 &&
-            error.statusCode != 429
+            error.statusCode !in setOf(408, 425, 429)
         ) {
             // The instance answered. A 4xx may be a video-specific denial, so do not cool it down.
             instanceHealthStore.recordSuccess(provider, endpoint.toString())
