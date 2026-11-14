@@ -65,7 +65,8 @@ class ProviderLabActivity : Activity() {
     private lateinit var failureSpinner: Spinner
     private lateinit var stream403Seconds: EditText
     private val healthStore by lazy { SharedPreferencesProviderHealthStore(this) }
-    private val instanceHealthStore by lazy { SharedPreferencesProviderInstanceHealthStore(this) }
+    private val diagnosticHealthStore by lazy { InMemoryProviderHealthStore() }
+    private val instanceHealthStore by lazy { InMemoryProviderInstanceHealthStore() }
     private val instanceDiscovery by lazy { ProviderInstanceDiscovery(this) }
     private val chaos by lazy { if (BuildConfig.DEBUG) ProviderLabChaosFactory.create() else null }
     private var running = false
@@ -171,7 +172,7 @@ class ProviderLabActivity : Activity() {
             val testAdapter = chaos?.wrap(baseAdapter, provider, failure) ?: baseAdapter
             val resolver = ProviderResolverChain(
                 adapters = listOf(testAdapter),
-                healthStore = healthStore,
+                healthStore = diagnosticHealthStore,
                 providerOrder = listOf(provider),
                 hedgeDelayMs = 0L
             )
