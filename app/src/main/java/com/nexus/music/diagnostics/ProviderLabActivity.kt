@@ -172,10 +172,18 @@ class ProviderLabActivity : Activity() {
                 providerOrder = listOf(provider),
                 hedgeDelayMs = 0L
             )
-            val found = resolver.search(sample.id, YoutubeSearchScope.EVERYTHING)
-                .firstOrNull { videoId(it.url) == sample.id }
-                ?: throw IllegalStateException("Search did not return the fixed sample ID")
-            val audio = resolver.resolveAudio(found.url)
+            val searchWarning = try {
+                val found = resolver.search(sample.id, YoutubeSearchScope.EVERYTHING)
+                    .any { videoId(it.url) == sample.id }
+                if (found) null else "Search did not return the fixed sample ID"
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                "Search failed: ${error.message.orEmpty().take(60)}"
+            }
+            // Search indexing is independent of direct stream resolution. Always probe the
+            // known sample URL so a search miss cannot hide a working resolver/stream path.
+            val audio = resolver.resolveAudio("https://www.youtube.com/watch?v=${sample.id}")
 
             httpCode = withContext(Dispatchers.IO) {
                 client.newCall(
@@ -195,7 +203,7 @@ class ProviderLabActivity : Activity() {
             playForTenSeconds(audio.audioUrl, client, forced403Seconds)
             ProviderLabReportFormatter.Cell(
                 provider.key, sample.id, family.label, true, null, httpCode,
-                elapsedMs(started)
+                elapsedMs(started), searchWarning
             )
         } catch (cancelled: CancellationException) {
             throw cancelled
