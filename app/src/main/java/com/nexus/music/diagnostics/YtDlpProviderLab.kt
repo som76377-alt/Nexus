@@ -4,7 +4,7 @@ import android.content.Context
 
 /** Debug-only yt-dlp experiment boundary. No production catalogue or playback wiring. */
 internal interface YtDlpProviderLab {
-    suspend fun initializeAndUpdate(context: Context): String
+    suspend fun initializeRuntime(context: Context): String
     suspend fun resolveAudio(context: Context, sourceUrl: String): YtDlpResolvedAudio
 }
 
