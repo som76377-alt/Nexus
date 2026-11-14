@@ -14,8 +14,8 @@ import java.io.IOException
 
 class ProviderResolverChainTest {
     @Test
-    fun resolveFallsBackWithoutOpeningCircuitForNetworkFailure() = runBlocking {
-        val health = InMemoryHealthStore()
+    fun resolveNetworkFailureIsPenalizedAfterAnotherProviderSucceeds() = runBlocking {
+        val health = InMemoryProviderHealthStore()
         val calls = mutableListOf<StreamProvider>()
         val chain = ProviderResolverChain(
             adapters = listOf(
@@ -32,9 +32,11 @@ class ProviderResolverChainTest {
 
         assertEquals("https://media.example/audio.m4a", result.audioUrl)
         assertEquals(listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED), calls)
-        assertEquals(0, health.get(StreamProvider.NEWPIPE).consecutiveFailures)
-        assertEquals(null, health.get(StreamProvider.NEWPIPE).lastErrorClass)
-        assertEquals(0, health.get(StreamProvider.PIPED).consecutiveFailures)
+        val failed = health.get(StreamProvider.NEWPIPE, ProviderOperation.RESOLVE)
+        assertEquals(1, failed.consecutiveFailures)
+        assertEquals(StreamErrorClass.NETWORK, failed.lastErrorClass)
+        assertEquals(true, failed.cooldownUntilEpochMs > 1_000L)
+        assertEquals(0, health.get(StreamProvider.PIPED, ProviderOperation.RESOLVE).consecutiveFailures)
     }
 
     @Test
@@ -45,7 +47,7 @@ class ProviderResolverChainTest {
                 FakeAdapter(StreamProvider.NEWPIPE, calls, search = { emptyList() }) { resolvedAudio() },
                 FakeAdapter(StreamProvider.PIPED, calls, search = { listOf(catalogTrack()) }) { resolvedAudio() }
             ),
-            healthStore = InMemoryHealthStore(),
+            healthStore = InMemoryProviderHealthStore(),
             providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
             hedgeDelayMs = 0L
         )
@@ -57,8 +59,8 @@ class ProviderResolverChainTest {
     }
 
     @Test
-    fun searchFallsBackWithoutOpeningCircuitForNetworkFailure() = runBlocking {
-        val health = InMemoryHealthStore()
+    fun searchNetworkFailureIsPenalizedAfterAnotherProviderSucceeds() = runBlocking {
+        val health = InMemoryProviderHealthStore()
         val calls = mutableListOf<StreamProvider>()
         val chain = ProviderResolverChain(
             adapters = listOf(
@@ -75,9 +77,11 @@ class ProviderResolverChainTest {
 
         assertEquals(listOf(catalogTrack()), results)
         assertEquals(listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED), calls)
-        assertEquals(0, health.get(StreamProvider.NEWPIPE).consecutiveFailures)
-        assertEquals(null, health.get(StreamProvider.NEWPIPE).lastErrorClass)
-        assertEquals(0, health.get(StreamProvider.PIPED).consecutiveFailures)
+        val failed = health.get(StreamProvider.NEWPIPE, ProviderOperation.SEARCH)
+        assertEquals(1, failed.consecutiveFailures)
+        assertEquals(StreamErrorClass.NETWORK, failed.lastErrorClass)
+        assertEquals(true, failed.cooldownUntilEpochMs > 1_000L)
+        assertEquals(0, health.get(StreamProvider.PIPED, ProviderOperation.SEARCH).consecutiveFailures)
     }
 
     @Test
@@ -88,7 +92,7 @@ class ProviderResolverChainTest {
                 FakeAdapter(StreamProvider.NEWPIPE, calls, search = { emptyList() }) { resolvedAudio() },
                 FakeAdapter(StreamProvider.PIPED, calls, search = { emptyList() }) { resolvedAudio() }
             ),
-            healthStore = InMemoryHealthStore(),
+            healthStore = InMemoryProviderHealthStore(),
             providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
             hedgeDelayMs = 0L
         )
@@ -99,7 +103,7 @@ class ProviderResolverChainTest {
 
     @Test
     fun unsupportedCapabilityFallsBackWithoutPoisoningProviderHealth() = runBlocking {
-        val health = InMemoryHealthStore()
+        val health = InMemoryProviderHealthStore()
         val calls = mutableListOf<StreamProvider>()
         val chain = ProviderResolverChain(
             adapters = listOf(
@@ -124,7 +128,7 @@ class ProviderResolverChainTest {
 
     @Test
     fun contentUnavailableFallsBackWithoutOpeningProviderCircuit() = runBlocking {
-        val health = InMemoryHealthStore()
+        val health = InMemoryProviderHealthStore()
         val calls = mutableListOf<StreamProvider>()
         val chain = ProviderResolverChain(
             adapters = listOf(
@@ -148,8 +152,8 @@ class ProviderResolverChainTest {
     }
 
     @Test
-    fun networkFailureAloneDoesNotOpenProviderCircuit() = runBlocking {
-        val health = InMemoryHealthStore()
+    fun networkFailureIsPenalizedOnlyWhenPeerSucceeds() = runBlocking {
+        val health = InMemoryProviderHealthStore()
         val calls = mutableListOf<StreamProvider>()
         val chain = ProviderResolverChain(
             adapters = listOf(
@@ -166,13 +170,16 @@ class ProviderResolverChainTest {
 
         assertEquals("https://media.example/audio.m4a", result.audioUrl)
         assertEquals(listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED), calls)
-        assertEquals(0, health.get(StreamProvider.NEWPIPE).consecutiveFailures)
-        assertEquals(0L, health.get(StreamProvider.NEWPIPE).cooldownUntilEpochMs)
+        val failed = health.get(StreamProvider.NEWPIPE, ProviderOperation.RESOLVE)
+        assertEquals(1, failed.consecutiveFailures)
+        assertEquals(StreamErrorClass.NETWORK, failed.lastErrorClass)
+        assertEquals(true, failed.cooldownUntilEpochMs > 1_000L)
+        assertEquals(0, health.get(StreamProvider.PIPED, ProviderOperation.RESOLVE).consecutiveFailures)
     }
 
     @Test
     fun healthyProviderIsTriedBeforeProviderInCooldown() = runBlocking {
-        val health = InMemoryHealthStore().apply {
+        val health = InMemoryProviderHealthStore().apply {
             recordFailure(StreamProvider.NEWPIPE, StreamErrorClass.TRANSIENT, 900L, 5_000L)
         }
         val calls = mutableListOf<StreamProvider>()
@@ -194,7 +201,7 @@ class ProviderResolverChainTest {
 
     @Test
     fun invalidSourceIsNotRetriedOnOtherProviders() = runBlocking {
-        val health = InMemoryHealthStore()
+        val health = InMemoryProviderHealthStore()
         val calls = mutableListOf<StreamProvider>()
         val chain = ProviderResolverChain(
             adapters = listOf(
@@ -215,7 +222,7 @@ class ProviderResolverChainTest {
 
     @Test
     fun attemptLimitBoundsProviderCalls() = runBlocking {
-        val health = InMemoryHealthStore()
+        val health = InMemoryProviderHealthStore()
         val calls = mutableListOf<StreamProvider>()
         val chain = ProviderResolverChain(
             adapters = listOf(
@@ -237,7 +244,7 @@ class ProviderResolverChainTest {
 
     @Test
     fun callerCancellationStopsProviderWorkWithoutRecordingFailure() = runBlocking {
-        val health = InMemoryHealthStore()
+        val health = InMemoryProviderHealthStore()
         val calls = mutableListOf<StreamProvider>()
         val started = CompletableDeferred<Unit>()
         val cancelled = CompletableDeferred<Unit>()
@@ -269,7 +276,7 @@ class ProviderResolverChainTest {
 
     @Test
     fun slowPreferredProviderIsHedgedAndLosingRequestIsCancelled() = runBlocking {
-        val health = InMemoryHealthStore()
+        val health = InMemoryProviderHealthStore()
         val calls = mutableListOf<StreamProvider>()
         val firstStarted = CompletableDeferred<Unit>()
         val firstCancelled = CompletableDeferred<Unit>()
@@ -311,7 +318,7 @@ class ProviderResolverChainTest {
                 FakeAdapter(StreamProvider.PIPED, calls) { resolvedAudio().copy(audioUrl = "https://media.example/piped.m4a") },
                 FakeAdapter(StreamProvider.INVIDIOUS, calls) { resolvedAudio() }
             ),
-            healthStore = InMemoryHealthStore(),
+            healthStore = InMemoryProviderHealthStore(),
             providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED, StreamProvider.INVIDIOUS),
             hedgeDelayMs = 0L
         )
@@ -338,7 +345,7 @@ class ProviderResolverChainTest {
                     resolvedAudio().copy(audioUrl = "https://media.example/piped.m4a")
                 }
             ),
-            healthStore = InMemoryHealthStore(),
+            healthStore = InMemoryProviderHealthStore(),
             providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
             hedgeDelayMs = 0L,
             validateResolvedAudio = { audio ->
@@ -372,7 +379,7 @@ class ProviderResolverChainTest {
                     )
                 }
             ),
-            healthStore = InMemoryHealthStore(),
+            healthStore = InMemoryProviderHealthStore(),
             providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
             hedgeDelayMs = 100L
         )
@@ -398,7 +405,7 @@ class ProviderResolverChainTest {
             adapters = listOf(
                 FakeAdapter(StreamProvider.NEWPIPE, mutableListOf()) { resolvedAudio() }
             ),
-            healthStore = InMemoryHealthStore(),
+            healthStore = InMemoryProviderHealthStore(),
             providerOrder = listOf(StreamProvider.NEWPIPE)
         )
 
@@ -449,31 +456,4 @@ class ProviderResolverChainTest {
         }
     }
 
-    private class InMemoryHealthStore : ProviderHealthStore {
-        private val values = mutableMapOf<StreamProvider, ProviderHealth>()
-
-        override fun get(provider: StreamProvider): ProviderHealth = values[provider] ?: ProviderHealth()
-
-        override fun recordSuccess(provider: StreamProvider, atEpochMs: Long) {
-            values[provider] = ProviderHealth(lastSuccessEpochMs = atEpochMs)
-        }
-
-        override fun recordFailure(
-            provider: StreamProvider,
-            errorClass: StreamErrorClass,
-            atEpochMs: Long,
-            cooldownUntilEpochMs: Long
-        ) {
-            val current = get(provider)
-            values[provider] = current.copy(
-                consecutiveFailures = current.consecutiveFailures + 1,
-                cooldownUntilEpochMs = cooldownUntilEpochMs,
-                lastErrorClass = errorClass
-            )
-        }
-
-        override fun clear(provider: StreamProvider) {
-            values.remove(provider)
-        }
-    }
 }
