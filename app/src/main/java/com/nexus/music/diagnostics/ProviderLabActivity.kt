@@ -66,7 +66,7 @@ class ProviderLabActivity : Activity() {
     private lateinit var providerSpinner: Spinner
     private lateinit var failureSpinner: Spinner
     private lateinit var stream403Seconds: EditText
-    private val healthStore by lazy { createProviderLabHealthStore() }
+    private lateinit var healthStore: InMemoryProviderHealthStore
     private val chaos by lazy { if (BuildConfig.DEBUG) ProviderLabChaosFactory.create() else null }
     private var running = false
     private val labScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -130,6 +130,7 @@ class ProviderLabActivity : Activity() {
     private fun runLab() {
         if (running) return
         running = true
+        healthStore = createProviderLabHealthStore()
         runButton.isEnabled = false
         report.text = ""
         labScope.launch {
