@@ -17,6 +17,39 @@ interface ProviderHealthStore {
     fun clear(provider: StreamProvider)
 }
 
+/** Isolated health state for diagnostics; Provider Lab must never mutate production circuits. */
+class InMemoryProviderHealthStore : ProviderHealthStore {
+    private val values = mutableMapOf<StreamProvider, ProviderHealth>()
+
+    @Synchronized
+    override fun get(provider: StreamProvider): ProviderHealth = values[provider] ?: ProviderHealth()
+
+    @Synchronized
+    override fun recordSuccess(provider: StreamProvider, atEpochMs: Long) {
+        values[provider] = ProviderHealth(lastSuccessEpochMs = atEpochMs)
+    }
+
+    @Synchronized
+    override fun recordFailure(
+        provider: StreamProvider,
+        errorClass: StreamErrorClass,
+        atEpochMs: Long,
+        cooldownUntilEpochMs: Long
+    ) {
+        val current = get(provider)
+        values[provider] = current.copy(
+            consecutiveFailures = current.consecutiveFailures + 1,
+            cooldownUntilEpochMs = cooldownUntilEpochMs.coerceAtLeast(atEpochMs),
+            lastErrorClass = errorClass
+        )
+    }
+
+    @Synchronized
+    override fun clear(provider: StreamProvider) {
+        values.remove(provider)
+    }
+}
+
 /** SharedPreferences-backed health history survives process death and app restarts. */
 class SharedPreferencesProviderHealthStore(context: Context) : ProviderHealthStore {
     private val preferences: SharedPreferences =
