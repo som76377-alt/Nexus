@@ -53,14 +53,9 @@ data class SearchSnapshot(
     val hasMore: Boolean = false,
     val completedSources: Set<StreamProvider> = emptySet(),
     val failedSources: Set<StreamProvider> = emptySet(),
-    val sourceCount: Int = 0
-) {
-    val allSourcesFailed: Boolean
-        get() = items.isEmpty() &&
-            sourceCount > 0 &&
-            completedSources.size == sourceCount &&
-            failedSources.size == sourceCount
-}
+    val sourceCount: Int = 0,
+    val allSourcesFailed: Boolean = false
+)
 
 /**
  * Isolated state and work for one query. Results publish as each source finishes, append-only,
@@ -222,9 +217,12 @@ class SearchSession internal constructor(
                 }.joinAll()
             }
             stateMutex.withLock {
-                mutableState.value = mutableState.value.copy(
+                val current = mutableState.value
+                mutableState.value = current.copy(
                     isLoadingFirstPage = false,
-                    hasMore = sourceProgress.values.any { it.hasMore }
+                    hasMore = sourceProgress.values.any { it.hasMore },
+                    allSourcesFailed = current.items.isEmpty() &&
+                        current.failedSources.size == sourceList.size
                 )
             }
         } catch (error: CancellationException) {
