@@ -29,7 +29,8 @@ import com.nexus.music.catalog.InvidiousStreamProviderAdapter
 import com.nexus.music.catalog.PipedStreamProviderAdapter
 import com.nexus.music.catalog.ProviderResolverChain
 import com.nexus.music.catalog.SharedPreferencesProviderHealthStore
-import com.nexus.music.catalog.SharedPreferencesProviderInstanceHealthStore
+import com.nexus.music.catalog.InMemoryProviderHealthStore
+import com.nexus.music.catalog.InMemoryProviderInstanceHealthStore
 import com.nexus.music.catalog.StreamProvider
 import com.nexus.music.catalog.StreamProviderAdapter
 import com.nexus.music.catalog.StreamProbe
