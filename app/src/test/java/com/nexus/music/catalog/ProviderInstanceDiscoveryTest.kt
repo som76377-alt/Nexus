@@ -84,10 +84,10 @@ class ProviderInstanceDiscoveryTest {
     fun invidiousDirectoryRequiresApiCapabilityAndHttps() {
         val json = """
             [
-              ["https://inv-one.example", {"api": true, "type": "https"}],
-              ["https://web-only.example", {"api": false, "type": "https"}],
-              ["http://insecure.example", {"api": true, "type": "http"}],
-              ["https://inv-two.example/", {"api": true, "type": "https"}]
+              ["inv-one.example", {"uri": "https://inv-one.example", "api": true, "type": "https"}],
+              ["web-only.example", {"uri": "https://web-only.example", "api": false, "type": "https"}],
+              ["insecure.example", {"uri": "http://insecure.example", "api": true, "type": "http"}],
+              ["inv-two.example", {"uri": "https://inv-two.example/", "api": true, "type": "https"}]
             ]
         """.trimIndent()
 
