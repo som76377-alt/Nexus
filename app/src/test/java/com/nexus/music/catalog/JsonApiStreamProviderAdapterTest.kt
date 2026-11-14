@@ -252,12 +252,35 @@ class JsonApiStreamProviderAdapterTest {
                 nowEpochMs = { 1_000L }
             )
 
-            repeat(2) {
+            repeat(3) {
                 assertEquals("Recovered", adapter.resolveAudio("https://youtube.com/watch?v=abcdefghijk").title)
             }
 
             assertEquals(2, server.requestCount)
-            assertEquals(2, second.requestCount)
+            assertEquals(3, second.requestCount)
+        } finally {
+            second.shutdown()
+        }
+    }
+
+
+    @Test
+    fun healthyInstancesRotateAcrossCallsWithoutChangingProviderOrder() = runBlocking {
+        val second = MockWebServer()
+        second.start()
+        try {
+            repeat(2) {
+                server.enqueue(MockResponse().setBody("[]"))
+                second.enqueue(MockResponse().setBody("[]"))
+            }
+            val adapter = PipedStreamProviderAdapter(
+                listOf(server.url("/").toString(), second.url("/").toString())
+            )
+
+            repeat(3) { adapter.search("ambient", YoutubeSearchScope.EVERYTHING) }
+
+            assertEquals(2, server.requestCount)
+            assertEquals(1, second.requestCount)
         } finally {
             second.shutdown()
         }
