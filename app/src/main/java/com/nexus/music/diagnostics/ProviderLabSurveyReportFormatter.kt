@@ -16,8 +16,16 @@ internal object ProviderLabSurveyReportFormatter {
         val query: String
     )
 
-    fun format(records: List<Record>): String = buildString {
+    fun format(
+        records: List<Record>,
+        appVersion: String = "unknown",
+        deviceModel: String = "unknown",
+        apiLevel: Int = 0
+    ): String = buildString {
         appendLine("Nexus Provider Lab · E1 latency survey")
+        appendLine("App: ${appVersion.take(40)}")
+        appendLine("Device: ${deviceModel.take(60)} · API $apiLevel")
+        appendLine("Provider: NewPipe")
         appendLine("Samples: ${records.size}")
         listOf("SEARCH", "RESOLVE+PROBE").forEach { operation ->
             val samples = records.filter { it.operation == operation }
