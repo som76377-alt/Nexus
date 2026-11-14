@@ -9,7 +9,8 @@ internal object ProviderLabReportFormatter {
         val ok: Boolean,
         val error: String?,
         val httpCode: Int?,
-        val elapsedMs: Long
+        val elapsedMs: Long,
+        val warning: String? = null
     )
 
     data class ProviderHealthRow(
@@ -49,7 +50,8 @@ internal object ProviderLabReportFormatter {
             appendLine(
                 "$state ${cell.provider} ${cell.videoId} ${cell.networkMode} · " +
                     "exception=${error.ifBlank { "none" }} · " +
-                    "HTTP=${cell.httpCode?.toString() ?: "n/a"} · ${cell.elapsedMs}ms"
+                    "HTTP=${cell.httpCode?.toString() ?: "n/a"} · ${cell.elapsedMs}ms" +
+                    (cell.warning?.let { " · warning=${it.replace(Regex("[\\r\\n|]"), " ").take(70)}" } ?: "")
             )
         }
         if (cells.size < 15) appendLine("Pending: ${15 - cells.size} checks")

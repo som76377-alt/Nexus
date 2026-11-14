@@ -34,6 +34,19 @@ class ProviderLabReportFormatterTest {
     }
 
     @Test
+    fun successfulCellCanReportSearchMissWithoutFailingStreamProbe() {
+        val report = ProviderLabReportFormatter.format(
+            "test", "debug", "cellular", 0L, "local-v0", emptyList(),
+            listOf(ProviderLabReportFormatter.Cell(
+                "invidious", "jfKfPfyJRdk", "default", true, null, 206, 1200,
+                "Search did not return the fixed sample ID"
+            ))
+        )
+        assertTrue(report.contains("OK invidious jfKfPfyJRdk"))
+        assertTrue(report.contains("warning=Search did not return the fixed sample ID"))
+    }
+
+    @Test
     fun reportIsBoundedToFortyLinesAndFifteenCells() {
         val cells = (1..20).map {
             ProviderLabReportFormatter.Cell("newpipe", "dQw4w9WgXcQ", "default", false, "failure", null, it.toLong())

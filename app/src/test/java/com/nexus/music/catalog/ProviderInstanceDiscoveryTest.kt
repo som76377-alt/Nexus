@@ -81,13 +81,31 @@ class ProviderInstanceDiscoveryTest {
     }
 
     @Test
+    fun invidiousDocumentationAddsOnlyOfficialClearnetInstances() {
+        val markdown = """
+            ## List of public Invidious Instances (sorted from oldest to newest):
+            * [inv-one.example](https://inv-one.example) - details
+            * [inv-two.example](https://inv-two.example/) - details
+            ### Tor Onion Services:
+            * [hidden.onion](http://hidden.onion)
+            ### I2P Eepsites:
+            * [hidden.i2p](http://hidden.i2p)
+        """.trimIndent()
+
+        assertEquals(
+            listOf("https://inv-one.example", "https://inv-two.example"),
+            ProviderInstanceDiscovery.parseInvidiousDocumentation(markdown)
+        )
+    }
+
+    @Test
     fun invidiousDirectoryRequiresApiCapabilityAndHttps() {
         val json = """
             [
-              ["https://inv-one.example", {"api": true, "type": "https"}],
-              ["https://web-only.example", {"api": false, "type": "https"}],
-              ["http://insecure.example", {"api": true, "type": "http"}],
-              ["https://inv-two.example/", {"api": true, "type": "https"}]
+              ["inv-one.example", {"uri": "https://inv-one.example", "api": true, "type": "https"}],
+              ["web-only.example", {"uri": "https://web-only.example", "api": false, "type": "https"}],
+              ["insecure.example", {"uri": "http://insecure.example", "api": true, "type": "http"}],
+              ["inv-two.example", {"uri": "https://inv-two.example/", "api": true, "type": "https"}]
             ]
         """.trimIndent()
 

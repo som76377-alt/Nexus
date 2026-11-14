@@ -38,6 +38,9 @@ internal class ProviderInstanceDiscovery(
             ?.toList()
             .orEmpty()
 
+    fun lastDiscoveryStatus(provider: StreamProvider): String =
+        preferences.getString(statusKey(provider), "not-run") ?: "not-run"
+
     suspend fun refreshIfStale(
         onUpdated: (StreamProvider, List<String>) -> Unit
     ) = withContext(Dispatchers.IO) {
@@ -48,31 +51,42 @@ internal class ProviderInstanceDiscovery(
             try {
                 val discovered = when (provider) {
                     StreamProvider.PIPED -> parsePipedInstances(fetchDirectory(client, PIPED_DIRECTORY_URL))
-                    StreamProvider.INVIDIOUS -> parseInvidiousInstances(fetchDirectory(client, INVIDIOUS_DIRECTORY_URL))
+                    StreamProvider.INVIDIOUS -> discoverInvidiousInstances(client)
                     StreamProvider.NEWPIPE -> emptyList()
                 }
                 if (discovered.isNotEmpty()) {
                     preferences.edit()
                         .putString(endpointKey(provider), discovered.joinToString("\n"))
                         .putLong(refreshKey(provider), nowEpochMs())
+                        .putString(statusKey(provider), "ok:" + discovered.size)
                         .apply()
                     onUpdated(provider, discovered)
+                } else {
+                    preferences.edit()
+                        .putString(statusKey(provider), "empty-directory")
+                        .apply()
                 }
-            } catch (_: IOException) {
-                // Keep the last known-good list and retry discovery on a later app start.
-            } catch (_: org.json.JSONException) {
-                // A malformed directory must not replace a working cached endpoint list.
+            } catch (error: IOException) {
+                preferences.edit()
+                    .putString(statusKey(provider), "error:" + error.message.orEmpty().take(100))
+                    .apply()
+            } catch (error: org.json.JSONException) {
+                preferences.edit()
+                    .putString(statusKey(provider), "invalid-json:" + error.message.orEmpty().take(100))
+                    .apply()
             }
         }
     }
 
     internal companion object {
-        private const val PREFERENCES_NAME = "nexus_provider_instance_directory"
+        private const val PREFERENCES_NAME = "nexus_provider_instance_directory_v2"
         private const val REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000L
         private const val PIPED_DIRECTORY_URL =
-            "https://raw.githubusercontent.com/wiki/TeamPiped/Piped/Instances.md"
+            "https://raw.githubusercontent.com/TeamPiped/documentation/main/content/docs/public-instances/index.md"
         private const val INVIDIOUS_DIRECTORY_URL =
             "https://api.invidious.io/instances.json?sort_by=health"
+        private const val INVIDIOUS_DOCUMENTATION_URL =
+            "https://raw.githubusercontent.com/iv-org/documentation/master/docs/instances.md"
         private const val MAX_ENDPOINTS = 20
         private const val MAX_DIRECTORY_BYTES = 1_048_576L
 
@@ -118,12 +132,65 @@ internal class ProviderInstanceDiscovery(
             markdown.lineSequence()
                 .filter { it.contains('|') }
                 .forEach { line ->
-                    val cells = line.split('|').map(String::trim)
-                    val apiCell = cells.getOrNull(2).orEmpty()
+                    val cells = line.trim().trim('|').split('|').map(String::trim)
+                    val apiCell = cells.getOrNull(1).orEmpty()
                     ENDPOINT_PATTERN.findAll(apiCell).forEach { match ->
                         normalizeEndpoint(match.value)?.let(endpoints::add)
                     }
                 }
+            return endpoints.take(MAX_ENDPOINTS)
+        }
+
+        private suspend fun discoverInvidiousInstances(client: OkHttpClient): List<String> {
+            val endpoints = LinkedHashSet<String>()
+            var lastError: Exception? = null
+
+            try {
+                endpoints.addAll(parseInvidiousInstances(fetchDirectory(client, INVIDIOUS_DIRECTORY_URL)))
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: IOException) {
+                lastError = error
+            } catch (error: org.json.JSONException) {
+                lastError = error
+            }
+
+            try {
+                endpoints.addAll(
+                    parseInvidiousDocumentation(
+                        fetchDirectory(client, INVIDIOUS_DOCUMENTATION_URL)
+                    )
+                )
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: IOException) {
+                lastError = lastError ?: error
+            }
+
+            if (endpoints.isEmpty()) {
+                throw (lastError as? IOException
+                    ?: IOException("No official Invidious API instances were discovered.", lastError))
+            }
+            return endpoints.take(MAX_ENDPOINTS)
+        }
+
+        internal fun parseInvidiousDocumentation(markdown: String): List<String> {
+            val endpoints = LinkedHashSet<String>()
+            var inPublicList = false
+            markdown.lineSequence().forEach { line ->
+                if (line.startsWith("## List of public Invidious Instances")) {
+                    inPublicList = true
+                    return@forEach
+                }
+                if (inPublicList && line.trimStart().startsWith("###")) {
+                    inPublicList = false
+                }
+                if (!inPublicList) return@forEach
+
+                val url = Regex("""^\s*\*\s*\[[^\]]+\]\((https://[^)]+)\)""")
+                    .find(line)?.groupValues?.getOrNull(1) ?: return@forEach
+                normalizeEndpoint(url)?.let(endpoints::add)
+            }
             return endpoints.take(MAX_ENDPOINTS)
         }
 
@@ -132,9 +199,9 @@ internal class ProviderInstanceDiscovery(
             val endpoints = LinkedHashSet<String>()
             for (index in 0 until instances.length()) {
                 val entry = instances.optJSONArray(index) ?: continue
-                val url = entry.optString(0).takeIf(String::isNotBlank) ?: continue
                 val metadata = entry.optJSONObject(1) ?: continue
                 if (!metadata.optBoolean("api", false)) continue
+                val url = metadata.optString("uri").takeIf(String::isNotBlank) ?: continue
                 normalizeEndpoint(url)?.let(endpoints::add)
                 if (endpoints.size >= MAX_ENDPOINTS) break
             }
@@ -156,6 +223,7 @@ internal class ProviderInstanceDiscovery(
 
         private fun endpointKey(provider: StreamProvider) = "${provider.key}.endpoints"
         private fun refreshKey(provider: StreamProvider) = "${provider.key}.refreshed"
+        private fun statusKey(provider: StreamProvider) = "${provider.key}.discovery_status"
 
         private fun defaultClient(): OkHttpClient =
             OkHttpClient.Builder()
@@ -169,4 +237,5 @@ internal class ProviderInstanceDiscovery(
 
     private fun endpointKey(provider: StreamProvider) = "${provider.key}.endpoints"
     private fun refreshKey(provider: StreamProvider) = "${provider.key}.refreshed"
+    private fun statusKey(provider: StreamProvider) = "${provider.key}.discovery_status"
 }

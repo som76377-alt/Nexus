@@ -29,8 +29,12 @@ import com.nexus.music.catalog.InvidiousStreamProviderAdapter
 import com.nexus.music.catalog.PipedStreamProviderAdapter
 import com.nexus.music.catalog.ProviderResolverChain
 import com.nexus.music.catalog.SharedPreferencesProviderHealthStore
+import com.nexus.music.catalog.InMemoryProviderHealthStore
+import com.nexus.music.catalog.InMemoryProviderInstanceHealthStore
 import com.nexus.music.catalog.StreamProvider
 import com.nexus.music.catalog.StreamProviderAdapter
+import com.nexus.music.catalog.StreamProbe
+import com.nexus.music.catalog.sanitizeStreamRequestHeaders
 import com.nexus.music.catalog.ProviderInstanceDiscovery
 import com.nexus.music.catalog.ProviderHttpException as CatalogProviderHttpException
 import com.nexus.music.catalog.ExtractorRuntime
@@ -48,7 +52,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.Dns
 import okhttp3.OkHttpClient
-import okhttp3.Request
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
@@ -63,6 +66,9 @@ class ProviderLabActivity : Activity() {
     private lateinit var failureSpinner: Spinner
     private lateinit var stream403Seconds: EditText
     private val healthStore by lazy { SharedPreferencesProviderHealthStore(this) }
+    private val diagnosticHealthStore by lazy { InMemoryProviderHealthStore() }
+    private val instanceHealthStore by lazy { InMemoryProviderInstanceHealthStore() }
+    private val instanceDiscovery by lazy { ProviderInstanceDiscovery(this) }
     private val chaos by lazy { if (BuildConfig.DEBUG) ProviderLabChaosFactory.create() else null }
     private var running = false
     private val labScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -75,7 +81,7 @@ class ProviderLabActivity : Activity() {
             setPadding(24, 24, 24, 24)
         }
         status = TextView(this).apply {
-            text = "Tests five fixed YouTube samples against one selected provider across default, IPv4-only and IPv6-only networking. Successful cells play audio for 10 seconds."
+            text = "Tests five fixed YouTube samples across default, IPv4-only and IPv6-only networking. Stream probes and playback use provider-supplied request headers; successful cells play audio for 10 seconds."
         }
         providerSpinner = Spinner(this).apply {
             adapter = ArrayAdapter(
@@ -138,8 +144,10 @@ class ProviderLabActivity : Activity() {
             val forced403Seconds = if (BuildConfig.DEBUG) {
                 stream403Seconds.text.toString().toIntOrNull()?.coerceIn(0, 300) ?: 0
             } else 0
-            status.text = "Running 15 checks · ${provider.key} · failure=${failure.name} · stream403=${forced403Seconds}s"
+            status.text = "Refreshing Piped and Invidious instance directories..."
             try {
+                instanceDiscovery.refreshIfStale { _, _ -> }
+                status.text = "Running 15 checks · ${provider.key} · failure=${failure.name} · stream403=${forced403Seconds}s"
                 for (sample in SAMPLES) {
                     for (family in FamilyMode.entries) {
                         status.text = "${provider.key} · ${sample.label} · ${family.label}"
@@ -165,46 +173,41 @@ class ProviderLabActivity : Activity() {
             val testAdapter = chaos?.wrap(baseAdapter, provider, failure) ?: baseAdapter
             val resolver = ProviderResolverChain(
                 adapters = listOf(testAdapter),
-                healthStore = healthStore,
+                healthStore = diagnosticHealthStore,
                 providerOrder = listOf(provider),
                 hedgeDelayMs = 0L
             )
-            val found = resolver.search(sample.id, YoutubeSearchScope.EVERYTHING)
-                .firstOrNull { videoId(it.url) == sample.id }
-                ?: throw IllegalStateException("Search did not return the fixed sample ID")
-            val audio = resolver.resolveAudio(found.url)
-
-            httpCode = withContext(Dispatchers.IO) {
-                client.newCall(
-                    Request.Builder().url(audio.audioUrl).header("Range", "bytes=0-1023").build()
-                ).execute().use { response ->
-                    val code = response.code
-                    if (!response.isSuccessful) throw ProviderHttpException(code, "Audio probe rejected")
-                    val bytes = response.body?.byteStream()?.use { stream ->
-                        val buffer = ByteArray(1024)
-                        val count = stream.read(buffer)
-                        if (count > 0) buffer.copyOf(count) else byteArrayOf()
-                    } ?: byteArrayOf()
-                    if (bytes.isEmpty()) throw ProviderHttpException(code, "Audio probe returned no bytes")
-                    code
-                }
+            val searchWarning = try {
+                val found = resolver.search(sample.id, YoutubeSearchScope.EVERYTHING)
+                    .any { videoId(it.url) == sample.id }
+                if (found) null else "Search did not return the fixed sample ID"
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                "Search failed: ${error.message.orEmpty().take(60)}"
             }
-            playForTenSeconds(audio.audioUrl, client, forced403Seconds)
+            // Search indexing is independent of direct stream resolution. Always probe the
+            // known sample URL so a search miss cannot hide a working resolver/stream path.
+            val audio = resolver.resolveAudio("https://www.youtube.com/watch?v=${sample.id}")
+
+            StreamProbe(client).validate(audio) { responseCode ->
+                httpCode = responseCode
+            }
+            playForTenSeconds(audio.audioUrl, client, audio.requestHeaders, forced403Seconds)
             ProviderLabReportFormatter.Cell(
                 provider.key, sample.id, family.label, true, null, httpCode,
-                elapsedMs(started)
+                elapsedMs(started), searchWarning
             )
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Throwable) {
-            if (error is ProviderHttpException) httpCode = error.code
             if (error is CatalogProviderHttpException) httpCode = error.statusCode
             if (generateSequence(error) { it.cause }.any { it.message?.contains("forced HTTP 403") == true }) {
                 httpCode = 403
             }
             ProviderLabReportFormatter.Cell(
                 provider.key, sample.id, family.label, false,
-                error::class.java.simpleName + error.message?.let { ": ${it.take(90)}" }.orEmpty(),
+                error::class.java.simpleName + error.message?.let { ": ${it.take(240)}" }.orEmpty(),
                 httpCode, elapsedMs(started)
             )
         } finally {
@@ -216,9 +219,17 @@ class ProviderLabActivity : Activity() {
     }
 
     @OptIn(UnstableApi::class)
-    private suspend fun playForTenSeconds(url: String, client: OkHttpClient, forced403Seconds: Int) {
+    private suspend fun playForTenSeconds(
+        url: String,
+        client: OkHttpClient,
+        requestHeaders: Map<String, String>,
+        forced403Seconds: Int
+    ) {
+        val dataSourceFactory = OkHttpDataSource.Factory(client).apply {
+            setDefaultRequestProperties(sanitizeStreamRequestHeaders(requestHeaders))
+        }
         val player = ExoPlayer.Builder(this)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(chaos?.wrapMediaDataSource(OkHttpDataSource.Factory(client), forced403Seconds) ?: OkHttpDataSource.Factory(client)))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(chaos?.wrapMediaDataSource(dataSourceFactory, forced403Seconds) ?: dataSourceFactory))
             .build()
         try {
             player.setAudioAttributes(
@@ -230,34 +241,48 @@ class ProviderLabActivity : Activity() {
             player.prepare()
             player.play()
             val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(25)
-            var beganAt: Long? = null
+            var firstPlayingPositionMs: Long? = null
+            var furthestPositionMs = 0L
             while (System.nanoTime() < deadline) {
                 player.playerError?.let { throw IllegalStateException(it.errorCodeName + ": " + it.message) }
                 if (player.isPlaying) {
-                    if (beganAt == null) beganAt = System.nanoTime()
-                    if (System.nanoTime() - beganAt >= TimeUnit.SECONDS.toNanos(10)) return
+                    if (firstPlayingPositionMs == null) {
+                        firstPlayingPositionMs = player.currentPosition
+                        furthestPositionMs = player.currentPosition
+                    } else {
+                        furthestPositionMs = maxOf(furthestPositionMs, player.currentPosition)
+                    }
+                    // Measure media-position progress, not uninterrupted isPlaying wall time.
+                    // Brief network rebuffering must not turn a progressing stream into a false failure.
+                    if (furthestPositionMs - firstPlayingPositionMs >= 10_000L) return
                 }
                 delay(100)
             }
-            throw IllegalStateException("Media3 did not sustain 10 seconds of playback")
+            throw IllegalStateException(
+                "Media3 progress timeout: state=${player.playbackState}, " +
+                    "playWhenReady=${player.playWhenReady}, isPlaying=${player.isPlaying}, " +
+                    "positionMs=${player.currentPosition}, bufferedMs=${player.bufferedPosition}, " +
+                    "durationMs=${player.duration}, loading=${player.isLoading}"
+            )
         } finally {
             player.release()
         }
     }
 
     private fun adapterFor(provider: StreamProvider, client: OkHttpClient): StreamProviderAdapter {
-        val discovery = ProviderInstanceDiscovery(this)
         return when (provider) {
             StreamProvider.NEWPIPE -> NewPipeStreamProviderAdapter(OkHttpDownloader(client))
             StreamProvider.PIPED -> PipedStreamProviderAdapter(
                 (BuildConfig.PIPED_API_ENDPOINTS.split(',').filter(String::isNotBlank) +
-                    discovery.cachedEndpoints(StreamProvider.PIPED)).distinct(),
-                client
+                    instanceDiscovery.cachedEndpoints(StreamProvider.PIPED)).distinct(),
+                client,
+                instanceHealthStore
             )
             StreamProvider.INVIDIOUS -> InvidiousStreamProviderAdapter(
                 (BuildConfig.INVIDIOUS_API_ENDPOINTS.split(',').filter(String::isNotBlank) +
-                    discovery.cachedEndpoints(StreamProvider.INVIDIOUS)).distinct(),
-                client
+                    instanceDiscovery.cachedEndpoints(StreamProvider.INVIDIOUS)).distinct(),
+                client,
+                instanceHealthStore
             )
         }
     }
@@ -278,7 +303,11 @@ class ProviderLabActivity : Activity() {
             )
         }
         val cacheBytes = runCatching { AudioCacheStore.usedBytes(this) }.getOrDefault(0L)
-        val config = "local-v0 · order=${BuildConfig.STREAM_PROVIDER_ORDER}"
+        val pipedInstances = (BuildConfig.PIPED_API_ENDPOINTS.split(',') + instanceDiscovery.cachedEndpoints(StreamProvider.PIPED))
+            .map(String::trim).filter(String::isNotEmpty).distinct().size
+        val invidiousInstances = (BuildConfig.INVIDIOUS_API_ENDPOINTS.split(',') + instanceDiscovery.cachedEndpoints(StreamProvider.INVIDIOUS))
+            .map(String::trim).filter(String::isNotEmpty).distinct().size
+        val config = "local-v0 · order=${BuildConfig.STREAM_PROVIDER_ORDER} · piped-instances=$pipedInstances · invidious-instances=$invidiousInstances · piped-discovery=${instanceDiscovery.lastDiscoveryStatus(StreamProvider.PIPED)} · invidious-discovery=${instanceDiscovery.lastDiscoveryStatus(StreamProvider.INVIDIOUS)}"
         return ProviderLabReportFormatter.format(
             appVersion = BuildConfig.VERSION_NAME,
             flavor = if (BuildConfig.DEBUG) "debug" else "release",
@@ -345,7 +374,6 @@ class ProviderLabActivity : Activity() {
 
     private data class Sample(val id: String, val label: String)
     private enum class FamilyMode(val label: String) { DEFAULT("default"), IPV4("IPv4-only"), IPV6("IPv6-only") }
-    private class ProviderHttpException(val code: Int, message: String) : java.io.IOException(message)
 
     companion object {
         // Fixed IDs cover a popular upload, an obscure upload, long-form video and two live streams.

@@ -36,6 +36,9 @@ enum class StreamErrorClass {
 /** A provider cannot faithfully perform a requested operation or filter. */
 class ProviderCapabilityException(message: String) : IOException(message)
 
+/** A valid provider may not expose a playable audio format for one particular video. */
+class ProviderContentException(message: String) : IOException(message)
+
 /** HTTP response failure retaining status so provider health uses the correct cooldown class. */
 class ProviderHttpException(
     val statusCode: Int,
@@ -45,7 +48,7 @@ class ProviderHttpException(
 
 object StreamErrorClassifier {
     fun classify(error: Throwable): StreamErrorClass = when (error) {
-        is ContentNotAvailableException -> StreamErrorClass.CONTENT_UNAVAILABLE
+        is ContentNotAvailableException, is ProviderContentException -> StreamErrorClass.CONTENT_UNAVAILABLE
         is ReCaptchaException -> StreamErrorClass.RATE_LIMITED
         is ProviderCapabilityException -> StreamErrorClass.UNSUPPORTED
         is ProviderHttpException -> when (error.statusCode) {

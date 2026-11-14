@@ -29,8 +29,10 @@ import kotlin.coroutines.resumeWithException
  */
 class PipedStreamProviderAdapter(
     endpoints: List<String>,
-    client: OkHttpClient = JsonApiStreamProviderAdapter.defaultApiClient()
-) : JsonApiStreamProviderAdapter(StreamProvider.PIPED, endpoints, client) {
+    client: OkHttpClient = JsonApiStreamProviderAdapter.defaultApiClient(),
+    instanceHealthStore: ProviderInstanceHealthStore = InMemoryProviderInstanceHealthStore(),
+    nowEpochMs: () -> Long = System::currentTimeMillis
+) : JsonApiStreamProviderAdapter(StreamProvider.PIPED, endpoints, client, instanceHealthStore, nowEpochMs) {
     override fun searchUrl(base: HttpUrl, query: String, scope: YoutubeSearchScope): HttpUrl =
         base.newBuilder()
             .addPathSegments("search")
@@ -77,7 +79,7 @@ class PipedStreamProviderAdapter(
             .filter { CatalogUrlValidator.isValidHttpsUrl(it.optString("url")) }
             .filter { it.optString("mimeType").startsWith("audio/", ignoreCase = true) }
             .maxByOrNull { it.optInt("bitrate", 0) }
-            ?: throw IOException("Piped returned no directly playable audio stream.")
+            ?: throw ProviderContentException("Piped returned no directly playable audio stream.")
 
         return ResolvedAudio(
             sourceUrl = JsonApiStreamProviderAdapter.youtubeUrl(videoId),
@@ -95,8 +97,10 @@ class PipedStreamProviderAdapter(
 
 class InvidiousStreamProviderAdapter(
     endpoints: List<String>,
-    client: OkHttpClient = JsonApiStreamProviderAdapter.defaultApiClient()
-) : JsonApiStreamProviderAdapter(StreamProvider.INVIDIOUS, endpoints, client) {
+    client: OkHttpClient = JsonApiStreamProviderAdapter.defaultApiClient(),
+    instanceHealthStore: ProviderInstanceHealthStore = InMemoryProviderInstanceHealthStore(),
+    nowEpochMs: () -> Long = System::currentTimeMillis
+) : JsonApiStreamProviderAdapter(StreamProvider.INVIDIOUS, endpoints, client, instanceHealthStore, nowEpochMs) {
     override fun searchUrl(base: HttpUrl, query: String, scope: YoutubeSearchScope): HttpUrl {
         if (scope == YoutubeSearchScope.MUSIC_SONGS) {
             throw ProviderCapabilityException("Invidious does not expose a music-songs search filter.")
@@ -145,7 +149,7 @@ class InvidiousStreamProviderAdapter(
             .filter { it.optString("type").substringBefore(';').startsWith("audio/", ignoreCase = true) }
             .filter { CatalogUrlValidator.isValidHttpsUrl(it.optString("url")) }
             .maxByOrNull { it.optInt("bitrate", 0) }
-            ?: throw IOException("Invidious returned no directly playable audio stream.")
+            ?: throw ProviderContentException("Invidious returned no directly playable audio stream.")
 
         val thumbnails = json.optJSONArray("videoThumbnails") ?: JSONArray()
         val thumbnail = (0 until thumbnails.length())
@@ -184,10 +188,13 @@ private fun parseSelectedStreamHeaders(stream: JSONObject): Map<String, String> 
 abstract class JsonApiStreamProviderAdapter(
     final override val provider: StreamProvider,
     endpoints: List<String>,
-    private val client: OkHttpClient
+    private val client: OkHttpClient,
+    private val instanceHealthStore: ProviderInstanceHealthStore,
+    private val nowEpochMs: () -> Long
 ) : StreamProviderAdapter {
     @Volatile
     private var endpoints: List<HttpUrl> = parseEndpoints(endpoints)
+    private val endpointCursor = java.util.concurrent.atomic.AtomicInteger()
 
     /**
      * Replaces the current instance pool after trusted directory discovery.
@@ -277,26 +284,90 @@ abstract class JsonApiStreamProviderAdapter(
         if (configuredEndpoints.isEmpty()) {
             throw IOException("No healthy ${provider.key} instance is configured.")
         }
-        configuredEndpoints.forEach { endpoint ->
+
+        val now = nowEpochMs()
+        val healthy = configuredEndpoints.filter { endpoint ->
+            instanceHealthStore.get(provider, endpoint.toString()).cooldownUntilEpochMs <= now
+        }
+        // When every endpoint is cooling down, probe only the earliest-expiring one. This is a
+        // half-open recovery attempt, not a burst against every known-bad public instance.
+        val candidates = if (healthy.isNotEmpty()) {
+            healthy
+        } else {
+            listOf(configuredEndpoints.minBy { endpoint ->
+                instanceHealthStore.get(provider, endpoint.toString()).cooldownUntilEpochMs
+            })
+        }
+        val start = Math.floorMod(endpointCursor.getAndIncrement(), candidates.size)
+        val ordered = candidates.drop(start) + candidates.take(start)
+
+        ordered.forEach { endpoint ->
             try {
-                return block(endpoint)
+                val result = block(endpoint)
+                instanceHealthStore.recordSuccess(provider, endpoint.toString())
+                return result
             } catch (error: kotlinx.coroutines.CancellationException) {
                 throw error
             } catch (error: ProviderCapabilityException) {
                 throw error
+            } catch (error: ProviderContentException) {
+                // Try the next instance: format availability can differ between instances.
+                lastError = error
             } catch (error: IOException) {
                 lastError = error
+                recordInstanceFailure(endpoint, error)
             } catch (error: org.json.JSONException) {
                 lastError = IOException("${provider.key} API returned an invalid response.", error)
+                recordInstanceFailure(endpoint, lastError)
             }
         }
         throw lastError ?: IOException("No healthy ${provider.key} instance is configured.")
     }
 
+    private fun recordInstanceFailure(endpoint: HttpUrl, error: IOException) {
+        if (
+            error is ProviderHttpException &&
+            error.statusCode in 400..499 &&
+            error.statusCode != 429
+        ) {
+            // The instance answered. A 4xx may be a video-specific denial, so do not cool it down.
+            instanceHealthStore.recordSuccess(provider, endpoint.toString())
+            return
+        }
+        if (error is ProviderContentException) return
+
+        val now = nowEpochMs()
+        val previous = instanceHealthStore.get(provider, endpoint.toString())
+        val failures = previous.consecutiveFailures + 1
+        val cooldownMs = when (error) {
+            is ProviderHttpException -> when {
+                error.statusCode == 429 -> error.retryAfterMs ?: RATE_LIMIT_COOLDOWN_MS
+                error.statusCode == 408 || error.statusCode == 425 -> transientCooldown(failures)
+                error.statusCode >= 500 -> transientCooldown(failures)
+                else -> 0L
+            }
+            else -> transientCooldown(failures)
+        }
+        if (cooldownMs > 0L) {
+            instanceHealthStore.recordFailure(
+                provider,
+                endpoint.toString(),
+                now,
+                now + cooldownMs.coerceAtMost(MAX_INSTANCE_COOLDOWN_MS)
+            )
+        }
+    }
+
+    private fun transientCooldown(failures: Int): Long =
+        TRANSIENT_INSTANCE_COOLDOWN_MS * (1L shl (failures - 1).coerceIn(0, 4))
+
     companion object {
         private val LOOPBACK_HOSTS = setOf("localhost", "127.0.0.1", "::1")
         private const val USER_AGENT = "Nexus/0.1 (Android)"
         private const val MAX_API_RESPONSE_BYTES = 8_388_608L
+        private const val TRANSIENT_INSTANCE_COOLDOWN_MS = 30_000L
+        private const val RATE_LIMIT_COOLDOWN_MS = 5 * 60_000L
+        private const val MAX_INSTANCE_COOLDOWN_MS = 10 * 60_000L
 
         internal fun parseRetryAfterMillis(
             value: String?,

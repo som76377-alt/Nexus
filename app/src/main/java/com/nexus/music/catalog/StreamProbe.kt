@@ -16,7 +16,10 @@ internal class StreamProbe(
     private val client: OkHttpClient = defaultClient(),
     private val allowHttpForTests: Boolean = false
 ) {
-    suspend fun validate(audio: ResolvedAudio): ResolvedAudio = withContext(Dispatchers.IO) {
+    suspend fun validate(
+        audio: ResolvedAudio,
+        onHttpResponse: (Int) -> Unit = {}
+    ): ResolvedAudio = withContext(Dispatchers.IO) {
         if (!CatalogUrlValidator.isValidHttpsUrl(audio.audioUrl) &&
             !(allowHttpForTests && isLoopbackHttpUrl(audio.audioUrl))
         ) {
@@ -39,13 +42,20 @@ internal class StreamProbe(
             .build()
 
         client.newCall(request).execute().use { response ->
+            onHttpResponse(response.code)
             if (!response.request.url.isHttps &&
                 !(allowHttpForTests && isLoopbackHost(response.request.url.host))
             ) {
                 throw IOException("The stream probe was redirected to an insecure URL.")
             }
             if (response.code != 200 && response.code != 206) {
-                throw IOException("The resolved stream is not reachable (HTTP ${response.code}).")
+                throw ProviderHttpException(
+                    statusCode = response.code,
+                    provider = "${audio.provider.key} audio stream",
+                    retryAfterMs = JsonApiStreamProviderAdapter.parseRetryAfterMillis(
+                        response.header("Retry-After")
+                    )
+                )
             }
 
             val contentType = response.header("Content-Type")
