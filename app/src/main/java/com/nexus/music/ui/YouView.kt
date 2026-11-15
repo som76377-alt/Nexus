@@ -10,8 +10,6 @@ import android.widget.TextView
 /** Purpose-only account, room, effects and version settings. */
 class YouView(
     context: Context,
-    savedCount: Int,
-    historyCount: Int,
     partnerStatus: String,
     roomStatus: String,
     reduceEffects: Boolean,
