@@ -41,6 +41,7 @@ import com.nexus.music.ui.SearchPanel
 import com.nexus.music.ui.YouView
 import com.nexus.music.ui.PlaylistHubView
 import com.nexus.music.ui.NexusExperienceSettings
+import com.nexus.music.ui.NexusHaptics
 import com.nexus.music.recommendations.GenreBucket
 import com.nexus.music.recommendations.RecommendationMixer
 import com.nexus.music.recommendations.RecommendationHistoryStore
@@ -420,23 +421,7 @@ class MainActivity : Activity() {
         )
     }
 
-    private fun createPlaylist() {
-        val input = android.widget.EditText(this).apply {
-            hint = "Playlist name"
-            isSingleLine = true
-            setPadding(dp(16), dp(12), dp(16), dp(12))
-        }
-        AlertDialog.Builder(this)
-            .setTitle("New playlist")
-            .setView(input)
-            .setNegativeButton("Cancel", null)
-            .setPositiveButton("Create") { _, _ ->
-                val name = input.text.toString().trim()
-                if (libraryStore.createPlaylist(name)) showPlaylists()
-                else Toast.makeText(this, "Enter a new playlist name.", Toast.LENGTH_SHORT).show()
-            }
-            .show()
-    }
+    private fun createPlaylist() = promptCreatePlaylist(null)
 
     private fun showBlend() {
         Toast.makeText(this, "Blend appears when a partner is connected.", Toast.LENGTH_SHORT).show()
@@ -1098,7 +1083,6 @@ class MainActivity : Activity() {
             setPadding(0, dp(5), 0, 0)
         })
         card.addView(details, LinearLayout.LayoutParams(0, -2, 1f))
-        val saved = libraryStore.isSaved(track)
         card.addView(TextView(this).apply {
             text = "⋮"
             textSize = 22f
@@ -1106,19 +1090,80 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
             minWidth = dp(48)
             minHeight = dp(48)
-            contentDescription = "More actions for ${track.title}"
-            setOnClickListener {
-                if (libraryStore.isSaved(track)) {
-                    libraryStore.remove(track)
-                    Toast.makeText(this@MainActivity, "Removed from Library", Toast.LENGTH_SHORT).show()
-                } else {
-                    libraryStore.save(track)
-                    Toast.makeText(this@MainActivity, "Saved to Library", Toast.LENGTH_SHORT).show()
-                }
-                renderSearchResults()
-            }
+            contentDescription = "More actions for " + track.title
+            setOnClickListener { showTrackMenu(this, track) }
         }, LinearLayout.LayoutParams(dp(48), dp(48)))
         return card
+    }
+
+    private fun showTrackMenu(anchor: View, track: CatalogTrack) {
+        PopupMenu(this, anchor).apply {
+            menu.add(if (libraryStore.isSaved(track)) "Remove from Saved" else "Save")
+            menu.add(if (libraryStore.isWatchLater(track)) "Remove from Watch later" else "Watch later")
+            menu.add("Add to playlist")
+            setOnMenuItemClickListener { item ->
+                when (item.title.toString()) {
+                    "Save" -> {
+                        libraryStore.save(track)
+                        NexusHaptics.confirm(anchor, experienceSettings)
+                        renderSearchResults()
+                    }
+                    "Remove from Saved" -> {
+                        libraryStore.remove(track)
+                        renderSearchResults()
+                    }
+                    "Watch later" -> {
+                        libraryStore.addToWatchLater(track)
+                        NexusHaptics.confirm(anchor, experienceSettings)
+                    }
+                    "Remove from Watch later" -> libraryStore.removeFromWatchLater(track)
+                    "Add to playlist" -> showPlaylistChooser(track)
+                }
+                true
+            }
+            show()
+        }
+    }
+
+    private fun showPlaylistChooser(track: CatalogTrack) {
+        val playlists = listOf("Watch later") + libraryStore.playlistNames() + "New playlist…"
+        AlertDialog.Builder(this)
+            .setTitle("Add to playlist")
+            .setItems(playlists.toTypedArray()) { _, index ->
+                when (index) {
+                    0 -> libraryStore.addToWatchLater(track)
+                    playlists.lastIndex -> promptCreatePlaylist(track)
+                    else -> libraryStore.addToPlaylist(track, playlists[index])
+                }
+                if (index < playlists.lastIndex) {
+                    NexusHaptics.confirm(mainScroll, experienceSettings)
+                    Toast.makeText(this, "Added to " + playlists[index], Toast.LENGTH_SHORT).show()
+                }
+            }
+            .show()
+    }
+
+    private fun promptCreatePlaylist(track: CatalogTrack?) {
+        val input = android.widget.EditText(this).apply {
+            hint = "Playlist name"
+            isSingleLine = true
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+        }
+        AlertDialog.Builder(this)
+            .setTitle("New playlist")
+            .setView(input)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Create") { _, _ ->
+                val name = input.text.toString().trim()
+                if (libraryStore.createPlaylist(name)) {
+                    track?.let { libraryStore.addToPlaylist(it, name) }
+                    Toast.makeText(this, "Playlist created", Toast.LENGTH_SHORT).show()
+                    if (activeContentKey == "playlists") showPlaylists()
+                } else {
+                    Toast.makeText(this, "Enter a new playlist name.", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .show()
     }
 
     private fun startResolvingTrack(track: CatalogTrack) {
