@@ -7,3 +7,6 @@
 - **Visual LOOK CHECK — Phases 1, 3, 5 and 8:** Once CI produces the debug artifact, owner must install it and judge the four-tab navigation plus Home/Player/Rooms. Visual result is UNVERIFIED on device until then.
 - **Weak-device/performance evidence — Phase 10:** Owner needs to run DEVICE_TEST.md on the weaker phone and iQOO. Jank, memory and battery-saver behavior are not proven by code or CI.
 - **Final merge/release:** AGENTS.md forbids merges/releases by the implementing agent. A PR may be prepared for owner review; integration/main merge and any public release remain owner actions.
+
+- **Roadmap logic-test policy conflict:** AGENTS.md requires every test to name a genuine S1–S8 requirement. The blueprint's recommendation-diversity and Blend-ordering tests have no matching room-playback requirement, so those tests are deferred instead of falsely tagged. Owner/repository policy resolution is required before adding tests outside S1–S8.
+- **Single-Activity navigation conflict:** The Rooms Activity owns active-room restoration and lifecycle observation. Moving it into MainActivity requires a reviewed lifecycle/navigation design; current branch keeps a separate Activity and a stable visible bottom bar, but does not claim the single-root-host task is complete.
