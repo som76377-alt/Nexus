@@ -1,7 +1,6 @@
 package com.nexus.music.ui
 
 import android.content.Context
-import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.widget.HorizontalScrollView
@@ -31,14 +30,6 @@ class HomeDiscoveryView(
             textSize = 32f
             setTextColor(ink)
             typeface = NexusDesignSystem.Type.display(context)
-        }, LayoutParams(-1, -2))
-
-        addView(TextView(context).apply {
-            text = "Recommendations"
-            textSize = 19f
-            setTextColor(ink)
-            typeface = Typeface.create(NexusDesignSystem.Type.interfaceText(context), Typeface.BOLD)
-            setPadding(0, dp(24), 0, dp(12))
         }, LayoutParams(-1, -2))
 
         val scroll = HorizontalScrollView(context).apply {
