@@ -929,6 +929,11 @@ class MainActivity : Activity() {
 
                 lastSearchResults = results
                 renderSearchResults()
+                if (results.isNotEmpty()) {
+                    // Warm the first visible Search results while the user browses.
+                    // This is bounded and never delays the search UI or the tap handler.
+                    prefetchRecommendationAudio(results.take(4))
+                }
                 if (results.isEmpty()) {
                     searchPanel.statusText.text = "No results"
                     searchPanel.statusText.visibility = View.VISIBLE
@@ -1272,12 +1277,19 @@ class MainActivity : Activity() {
                 async {
                     audioPrefetchInFlight.add(track.url)
                     try {
+                        val prefetchStartedAtMs = SystemClock.elapsedRealtime()
                         semaphore.withPermit {
                             val resolved = withContext(Dispatchers.IO) {
                                 CachedAudioResolver(
                                     PersistentAudioCacheLookup(this@MainActivity),
                                     catalog::resolveAudio
                                 ).resolve(track.url)
+                            }
+                            if (BuildConfig.DEBUG) {
+                                android.util.Log.d(
+                                    "NexusPerformance",
+                                    "audio_prefetch_track_ms=${SystemClock.elapsedRealtime() - prefetchStartedAtMs}"
+                                )
                             }
                             prefetchedAudio[track.url] = resolved
                             while (prefetchedAudio.size > 12) {

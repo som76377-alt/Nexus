@@ -93,3 +93,5 @@
 
 Follow-up in the same Home responsiveness task: Search and Now Playing view trees are now initialized on first open, Home category labels reuse one resolved typeface, legacy WorkManager cleanup is dispatched to IO, and individual recommendation rails are capped at eight thumbnails while the For You mix remains 20 tracks.
 CI correction: lint's Kotlin compilation found the Home category callback still used the internal DiscoveryBucket parameter type while the view exposes HomeDiscoveryCategory. The handler now accepts the public view model with the same id/query/scope fields. The failed run was stopped at compileDebugKotlin before unit tests or APK assembly; rerun on the corrected head is required.
+
+Search-result playback warm-up follow-up: after the Search results have rendered, the same bounded prefetch path now warms up to the first four visible results in the background (it never gates the search UI). Debug builds also record per-track prefetch resolution time. If a prefetch is already running, the existing two-track concurrency bound is preserved and the current job is not duplicated.
