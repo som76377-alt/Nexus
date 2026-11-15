@@ -387,7 +387,8 @@ class MainActivity : Activity() {
                 tracks = tracks,
                 onPlay = ::startResolvingTrack,
                 onRemove = removeAction,
-                onBack = onBack
+                onBack = onBack,
+                onMore = { anchor, track -> showTrackMenu(anchor, track) }
             ),
             "library"
         )
@@ -1062,8 +1063,8 @@ class MainActivity : Activity() {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = rounded(surface, NexusDesignSystem.Shape.large)
-            setPadding(dp(10), dp(10), dp(12), dp(10))
+            setBackgroundColor(Color.TRANSPARENT)
+            setPadding(0, dp(8), 0, dp(8))
             isClickable = true
             isFocusable = true
             setOnClickListener { startResolvingTrack(track) }
@@ -1072,10 +1073,11 @@ class MainActivity : Activity() {
         val thumbnail = ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             background = rounded(surfaceRaised, NexusDesignSystem.Shape.media)
+            clipToOutline = true
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
         track.thumbnailUrl?.let { thumbnail.load(it) }
-        card.addView(thumbnail, LinearLayout.LayoutParams(dp(112), dp(72)))
+        card.addView(thumbnail, LinearLayout.LayoutParams(dp(72), dp(72)))
 
         val details = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1242,7 +1244,12 @@ class MainActivity : Activity() {
 
     private fun rounded(color: Int, radiusDp: Int) = GradientDrawable().apply {
         setColor(color)
-        cornerRadius = dp(radiusDp).toFloat()
+        val token = when {
+            radiusDp <= 6 -> NexusDesignSystem.Shape.media
+            radiusDp <= 12 -> NexusDesignSystem.Shape.control
+            else -> NexusDesignSystem.Shape.large
+        }
+        cornerRadius = dp(token).toFloat()
     }
 
     private fun verticalParams(top: Int) =
