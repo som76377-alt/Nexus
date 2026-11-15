@@ -1125,7 +1125,7 @@ class MainActivity : Activity() {
                     }
                     "Remove from Saved" -> {
                         libraryStore.remove(track)
-                        renderSearchResults()
+                        if (activeContentKey == "search") renderSearchResults()
                     }
                     "Watch later" -> {
                         libraryStore.addToWatchLater(track)
