@@ -1,0 +1,42 @@
+[
+  {
+    "label": "Pop",
+    "query": "pop songs"
+  },
+  {
+    "label": "Hip hop",
+    "query": "hip hop"
+  },
+  {
+    "label": "Lo-fi",
+    "query": "lofi music"
+  },
+  {
+    "label": "Rock",
+    "query": "rock music"
+  },
+  {
+    "label": "Bollywood",
+    "query": "Bollywood songs"
+  },
+  {
+    "label": "Punjabi",
+    "query": "Punjabi music"
+  },
+  {
+    "label": "Classical",
+    "query": "Indian classical music"
+  },
+  {
+    "label": "EDM",
+    "query": "EDM electronic music"
+  },
+  {
+    "label": "Focus",
+    "query": "instrumental focus music"
+  },
+  {
+    "label": "Workout",
+    "query": "high energy workout music"
+  }
+]

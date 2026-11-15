@@ -44,7 +44,7 @@ object NexusUi {
         const val miniPlayerArtwork = 48
     }
 
-    enum class NavigationTab { HOME, LIBRARY, ROOM, YOU }
+    enum class NavigationTab { HOME, SEARCH, ROOMS, YOU }
 
     data class MiniPlayerViews(
         val container: LinearLayout,
@@ -61,7 +61,11 @@ object NexusUi {
     fun rounded(context: Context, color: Int, radiusDp: Int): GradientDrawable =
         GradientDrawable().apply {
             setColor(color)
-            cornerRadius = dp(context, radiusDp).toFloat()
+            cornerRadius = dp(context, when {
+            radiusDp <= 6 -> NexusDesignSystem.Shape.media
+            radiusDp <= 12 -> NexusDesignSystem.Shape.control
+            else -> NexusDesignSystem.Shape.large
+        }).toFloat()
         }
 
     fun text(
@@ -93,23 +97,23 @@ object NexusUi {
         minHeight = dp(context, Spacing.controlHeight)
         minimumHeight = dp(context, Spacing.controlHeight)
         setPadding(dp(context, 12), 0, dp(context, 12), 0)
-        setTextColor(if (primary) Colors.accentForeground else Colors.foreground)
+        setTextColor(Colors.foreground)
         typeface = Typeface.create(NexusDesignSystem.Type.interfaceText(context), Typeface.BOLD)
-        background = rounded(context, if (primary) Colors.accent else Colors.raised, 10)
+        background = rounded(context, Colors.raised, NexusDesignSystem.Shape.control)
     }
 
     fun bottomNavigation(
         context: Context,
         selected: NavigationTab,
         onHome: () -> Unit,
-        onLibrary: () -> Unit,
+        onSearch: () -> Unit,
         onRoom: () -> Unit,
         onYou: () -> Unit
     ): LinearLayout {
         val bar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            background = rounded(context, Colors.surface, 18)
+            background = MaterialSurface.background(context, MaterialSurface.Role.LARGE_SURFACE)
             setPadding(dp(context, 10), dp(context, 7), dp(context, 10), dp(context, 7))
         }
 
@@ -121,17 +125,20 @@ object NexusUi {
                 minWidth = 0
                 minimumWidth = 0
                     minimumHeight = dp(context, Spacing.controlHeight)
-                typeface = Typeface.create(NexusDesignSystem.Type.experimental(context), Typeface.BOLD)
                 val isSelected = selected == tab
-                setTextColor(if (isSelected) Colors.accentForeground else Colors.foreground)
-                background = rounded(context, if (isSelected) Colors.accent else Colors.raised, 12)
+                typeface = Typeface.create(
+                    NexusDesignSystem.Type.interfaceText(context),
+                    if (isSelected) Typeface.BOLD else Typeface.NORMAL
+                )
+                setTextColor(Colors.foreground)
+                background = rounded(context, if (isSelected) Colors.raised else Colors.surface, NexusDesignSystem.Shape.control)
                 setOnClickListener { onClick() }
             }
 
         val tabs = listOf(
             Triple("Home", NavigationTab.HOME, onHome),
-            Triple("Library", NavigationTab.LIBRARY, onLibrary),
-            Triple("Room", NavigationTab.ROOM, onRoom),
+            Triple("Search", NavigationTab.SEARCH, onSearch),
+            Triple("Rooms", NavigationTab.ROOMS, onRoom),
             Triple("You", NavigationTab.YOU, onYou)
         )
         tabs.forEachIndexed { index, (title, destination, callback) ->
@@ -154,13 +161,13 @@ object NexusUi {
     ): MiniPlayerViews {
         val panel = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(context, Colors.raised, 16)
+            background = MaterialSurface.background(context, MaterialSurface.Role.LARGE_SURFACE)
             setPadding(dp(context, 14), dp(context, 5), dp(context, 14), dp(context, 12))
         }
         val progress = SeekBar(context).apply {
             max = 1000
-            progressTintList = android.content.res.ColorStateList.valueOf(Colors.accent)
-            thumbTintList = android.content.res.ColorStateList.valueOf(Colors.accent)
+            progressTintList = android.content.res.ColorStateList.valueOf(Colors.muted)
+            thumbTintList = android.content.res.ColorStateList.valueOf(Colors.muted)
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, value: Int, fromUser: Boolean) {
                     if (fromUser) onSeekChanged()
@@ -207,7 +214,7 @@ object NexusUi {
         val playPause = ImageButton(context).apply {
             contentDescription = "Play"
             isEnabled = false
-            background = rounded(context, Colors.accent, 12)
+            background = rounded(context, Colors.raised, NexusDesignSystem.Shape.control)
             setPadding(dp(context, 14), dp(context, 12), dp(context, 14), dp(context, 12))
             setImageDrawable(PlaybackGlyphDrawable(context, playing = false))
             setOnClickListener { onTogglePlayback() }
@@ -232,7 +239,7 @@ object NexusUi {
     ) : Drawable() {
         private val density = context.resources.displayMetrics.density
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Colors.accentForeground
+            color = Colors.foreground
             style = Paint.Style.FILL
         }
 

@@ -12,6 +12,9 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
@@ -22,6 +25,8 @@ import android.widget.Toast
 import com.nexus.music.MainActivity
 import com.nexus.music.ui.NexusUi
 import com.nexus.music.ui.NexusDesignSystem
+import com.nexus.music.ui.MaterialSurface
+import com.nexus.music.ui.DebugJankMonitor
 import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackService
 import com.nexus.music.rooms.domain.RoomConnectionState
@@ -52,6 +57,7 @@ class ListeningRoomActivity : Activity() {
 
     private lateinit var introPanel: LinearLayout
     private lateinit var bottomNavigation: LinearLayout
+    private lateinit var introSpacer: View
     private lateinit var status: TextView
     private lateinit var codeInput: EditText
     private lateinit var joinButton: Button
@@ -82,24 +88,28 @@ class ListeningRoomActivity : Activity() {
     private var lastChatSignalVersion = 0L
     private var isActivityStarted = false
     private var backInvokedCallback: android.window.OnBackInvokedCallback? = null
+    private var jankMonitor: DebugJankMonitor? = null
 
     private val background = NexusDesignSystem.Palette.archiveIvory
     private val surface = NexusDesignSystem.Palette.sleeveWhite
-    private val raised = Color.rgb(235, 225, 207)
-    private val accent = NexusDesignSystem.Palette.deepVinylGreen
+    private val raised = NexusDesignSystem.Palette.raised
+    private val accent = NexusDesignSystem.Palette.muted
     private val foreground = NexusDesignSystem.Palette.carbonInk
-    private val muted = Color.rgb(104, 94, 82)
+    private val muted = NexusDesignSystem.Palette.muted
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.statusBarColor = background
         window.navigationBarColor = background
-        window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(this@ListeningRoomActivity.background)
-            setPadding(dp(22), dp(24), dp(22), dp(16))
+            background = MaterialSurface.background(
+                this@ListeningRoomActivity,
+                MaterialSurface.Role.CANVAS
+            )
+            setPadding(0, dp(24), 0, dp(16))
         }
         introPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -108,17 +118,17 @@ class ListeningRoomActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        header.addView(label("NEXUS  /  LISTENING ROOM", 11f, accent, true).apply {
-            letterSpacing = .12f
-            typeface = NexusDesignSystem.Type.technical(this@ListeningRoomActivity)
-        }, LinearLayout.LayoutParams(0, -2, 1f))
+        header.addView(label("Rooms", 28f, foreground, true), LinearLayout.LayoutParams(0, -2, 1f))
         introPanel.addView(header)
-        introPanel.addView(label("A room of your own.", 29f, foreground, true).apply {
+        introPanel.addView(label("Create or join a room", 22f, foreground, true).apply {
             typeface = NexusDesignSystem.Type.display(this@ListeningRoomActivity)
         }, params(14))
-        root.addView(introPanel)
+        root.addView(introPanel, LinearLayout.LayoutParams(-1, -2).apply {
+            marginStart = dp(22)
+            marginEnd = dp(22)
+        })
 
-        status = label("Ready when you are", 11f, muted)
+        status = label("Enter a room code or create a room.", 12f, muted)
         status.setPadding(dp(12), dp(12), dp(12), dp(12))
         status.background = rounded(surface, 8)
         status.maxLines = 1
@@ -130,7 +140,10 @@ class ListeningRoomActivity : Activity() {
                 true
             }
         }
-        root.addView(status, params(16))
+        root.addView(status, params(16).apply {
+            marginStart = dp(22)
+            marginEnd = dp(22)
+        })
 
         roomActions = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -142,7 +155,7 @@ class ListeningRoomActivity : Activity() {
         }
         roomActions.addView(createButton, params(0))
         codeInput = EditText(this).apply {
-            hint = "ENTER 5-CHARACTER CODE"
+            hint = "Room code"
             setHintTextColor(muted)
             setTextColor(this@ListeningRoomActivity.foreground)
             textSize = 14f
@@ -163,7 +176,14 @@ class ListeningRoomActivity : Activity() {
             setOnClickListener { joinRoom() }
         }
         roomActions.addView(joinButton, params(10))
-        root.addView(roomActions, params(16))
+        root.addView(roomActions, params(16).apply {
+            marginStart = dp(22)
+            marginEnd = dp(22)
+        })
+
+        // Keep the shared navigation dock pinned to the bottom even before a room is joined.
+        introSpacer = View(this)
+        root.addView(introSpacer, LinearLayout.LayoutParams(-1, 0, 1f))
 
         roomPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -209,10 +229,7 @@ class ListeningRoomActivity : Activity() {
         })
         roomPanel.addView(playbackFailureRow, params(8))
 
-        roomPanel.addView(label("THE CONVERSATION", 10f, accent, true).apply {
-            letterSpacing = .14f
-            typeface = NexusDesignSystem.Type.technical(this@ListeningRoomActivity)
-        }, params(18))
+        roomPanel.addView(label("Chat", 17f, foreground, true), params(12))
         val chatScroll = ScrollView(this).apply {
             background = rounded(surface, 12)
             isFillViewport = false
@@ -251,11 +268,29 @@ class ListeningRoomActivity : Activity() {
         roomPanel.addView(sendRow, params(0))
         root.addView(roomPanel, LinearLayout.LayoutParams(-1, 0, 1f).apply {
             topMargin = dp(12)
+            marginStart = dp(22)
+            marginEnd = dp(22)
         })
         bottomNavigation = buildBottomNavigation()
         root.addView(bottomNavigation, LinearLayout.LayoutParams(-1, dp(62)))
 
-        setContentView(root)
+        // On Android 11+, keep the navigation bar at its original screen bounds.
+        // Only the chat composer follows the IME; the chat remains scrollable behind it.
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+            val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+            sendRow.translationY = -imeBottom.toFloat()
+            chatScroll.setPadding(
+                chatScroll.paddingLeft,
+                chatScroll.paddingTop,
+                chatScroll.paddingRight,
+                imeBottom
+            )
+            insets
+        }
+        setContentView(root, ViewGroup.LayoutParams(-1, -1))
+        ViewCompat.requestApplyInsets(root)
+        jankMonitor = DebugJankMonitor(window)
+        jankMonitor?.setEnabled(false)
         registerBackNavigation()
         playback = PlaybackConnection(
             context = this,
@@ -371,7 +406,8 @@ class ListeningRoomActivity : Activity() {
         val sessionGeneration = roomSessionGeneration
         roomId = id
         introPanel.visibility = View.GONE
-        bottomNavigation.visibility = View.GONE
+        introSpacer.visibility = View.GONE
+        bottomNavigation.visibility = View.VISIBLE
         roomPanel.visibility = View.VISIBLE
         roomActions.visibility = View.GONE
         createButton.visibility = View.GONE
@@ -616,6 +652,7 @@ class ListeningRoomActivity : Activity() {
         if (clearPersistedRoom) ActiveRoomSessionStore.clear(this)
         lastChatSignalVersion = 0L
         introPanel.visibility = View.VISIBLE
+        introSpacer.visibility = View.VISIBLE
         bottomNavigation.visibility = View.VISIBLE
         roomPanel.visibility = View.GONE
         roomActions.visibility = View.VISIBLE
@@ -641,9 +678,9 @@ class ListeningRoomActivity : Activity() {
     private fun buildBottomNavigation(): LinearLayout =
         NexusUi.bottomNavigation(
             context = this,
-            selected = NexusUi.NavigationTab.ROOM,
+            selected = NexusUi.NavigationTab.ROOMS,
             onHome = ::navigateHome,
-            onLibrary = ::navigateLibrary,
+            onSearch = ::navigateSearch,
             onRoom = {},
             onYou = ::navigateYou
         )
@@ -654,14 +691,18 @@ class ListeningRoomActivity : Activity() {
                 .putExtra(MainActivity.EXTRA_OPEN_YOU, true)
                 .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
         )
+        @Suppress("DEPRECATION")
+        overridePendingTransition(0, 0)
     }
 
-    private fun navigateLibrary() {
+    private fun navigateSearch() {
         startActivity(
             Intent(this, MainActivity::class.java)
-                .putExtra(MainActivity.EXTRA_OPEN_LIBRARY, true)
+                .putExtra(MainActivity.EXTRA_OPEN_SEARCH, true)
                 .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
         )
+        @Suppress("DEPRECATION")
+        overridePendingTransition(0, 0)
     }
 
     private fun navigateHome() {
@@ -669,6 +710,8 @@ class ListeningRoomActivity : Activity() {
             Intent(this, MainActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
         )
+        @Suppress("DEPRECATION")
+        overridePendingTransition(0, 0)
     }
 
     private fun setBusy(busy: Boolean, message: String? = null) {
@@ -701,7 +744,12 @@ class ListeningRoomActivity : Activity() {
 
     private fun rounded(color: Int, radius: Int) = GradientDrawable().apply {
         setColor(color)
-        cornerRadius = dp(radius).toFloat()
+        val token = when {
+            radius <= 6 -> NexusDesignSystem.Shape.media
+            radius <= 12 -> NexusDesignSystem.Shape.control
+            else -> NexusDesignSystem.Shape.large
+        }
+        cornerRadius = dp(token).toFloat()
     }
 
     private fun actionButton(value: String, primary: Boolean) = Button(this).apply {
@@ -711,9 +759,9 @@ class ListeningRoomActivity : Activity() {
         minWidth = 0
         minimumWidth = 0
         setPadding(dp(12), 0, dp(12), 0)
-        setTextColor(if (primary) NexusDesignSystem.Palette.sleeveWhite else this@ListeningRoomActivity.foreground)
+        setTextColor(this@ListeningRoomActivity.foreground)
         typeface = Typeface.DEFAULT_BOLD
-        background = rounded(if (primary) accent else raised, 10)
+        background = rounded(raised, NexusDesignSystem.Shape.control)
         typeface = NexusDesignSystem.Type.experimental(this@ListeningRoomActivity)
         minHeight = dp(48)
     }
@@ -734,6 +782,7 @@ class ListeningRoomActivity : Activity() {
     override fun onStart() {
         super.onStart()
         isActivityStarted = true
+        jankMonitor?.setEnabled(true)
         startChatFallbackSync()
         if (roomId != null) {
             scope.launch {
@@ -750,6 +799,7 @@ class ListeningRoomActivity : Activity() {
 
     override fun onStop() {
         isActivityStarted = false
+        jankMonitor?.setEnabled(false)
         stopChatFallbackSync()
         super.onStop()
     }

@@ -111,6 +111,7 @@ dependencies {
     implementation(libs.newpipe.extractor)
     implementation(libs.okhttp)
     implementation(libs.coroutines.android)
+    implementation(libs.metrics.performance)
     implementation(libs.coil)
     implementation(libs.coil.network.okhttp)
     implementation("androidx.work:work-runtime-ktx:2.10.1")

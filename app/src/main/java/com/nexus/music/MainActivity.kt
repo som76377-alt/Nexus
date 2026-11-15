@@ -16,8 +16,8 @@ import android.net.Uri
 import android.provider.Settings
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowInsets
-import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.ImageView
@@ -32,6 +32,7 @@ import android.widget.Toast
 import androidx.media3.common.Player
 import coil3.load
 import com.nexus.music.catalog.CatalogTrack
+import com.nexus.music.blend.TasteProfileComputer
 import com.nexus.music.library.LocalLibraryStore
 import com.nexus.music.ui.LibraryView
 import com.nexus.music.ui.NexusUi
@@ -39,12 +40,20 @@ import com.nexus.music.ui.NowPlayingView
 import com.nexus.music.ui.NexusDesignSystem
 import com.nexus.music.ui.SearchPanel
 import com.nexus.music.ui.YouView
+import com.nexus.music.ui.PlaylistHubView
+import com.nexus.music.ui.NexusExperienceSettings
+import com.nexus.music.ui.NexusHaptics
+import com.nexus.music.ui.MaterialSurface
+import com.nexus.music.ui.DebugJankMonitor
+import com.nexus.music.recommendations.GenreBucket
+import com.nexus.music.recommendations.RecommendationMixer
+import com.nexus.music.recommendations.RecommendationHistoryStore
+import com.nexus.music.recommendations.RecommendationCacheStore
 import com.nexus.music.catalog.ResolvedAudio
 import com.nexus.music.catalog.NexusCatalog
 import com.nexus.music.catalog.YoutubeSearchScope
 import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackSnapshot
-import com.nexus.music.playback.AudioCacheStore
 import com.nexus.music.playback.CachedAudioResolver
 import com.nexus.music.playback.PersistentAudioCacheLookup
 import com.nexus.music.update.GitHubReleaseUpdater
@@ -60,10 +69,29 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import kotlin.random.Random
 
 class MainActivity : Activity() {
     private enum class SearchSort { RELEVANCE, POPULAR, TITLE, DURATION }
+
+    private data class DiscoveryBucket(
+        val id: String,
+        val label: String,
+        val query: String,
+        val scope: YoutubeSearchScope
+    )
+    private data class DiscoveryShelf(
+        val id: String,
+        val title: String,
+        val buckets: List<DiscoveryBucket>
+    )
     private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val repository by lazy { NexusCatalog.repository(this) }
     private val libraryStore by lazy { LocalLibraryStore(this) }
@@ -87,7 +115,21 @@ class MainActivity : Activity() {
     private lateinit var nowPlayingView: NowPlayingView
     private lateinit var mainScroll: ScrollView
     private lateinit var homeContent: LinearLayout
+    private lateinit var searchContent: LinearLayout
     private lateinit var bottomNavigationHost: LinearLayout
+    private var jankMonitor: DebugJankMonitor? = null
+    private val experienceSettings by lazy { NexusExperienceSettings(this) }
+    private val recommendationHistory by lazy { RecommendationHistoryStore(this) }
+    private val recommendationCache by lazy { RecommendationCacheStore(this) }
+    private var recommendationsGeneration = 0L
+    private var lastHomeBucketIds: List<String> = emptyList()
+    private var recommendationsJob: Job? = null
+    private var recommendationPrefetchJob: Job? = null
+    private val prefetchedAudio = mutableMapOf<String, ResolvedAudio>()
+    private val audioPrefetchInFlight = mutableSetOf<String>()
+    private var activeContentKey = "home"
+    private var homeScrollPosition = 0
+    private var searchScrollPosition = 0
 
     private var playbackConnection: PlaybackConnection? = null
     private var updateCheckJob: Job? = null
@@ -106,12 +148,12 @@ class MainActivity : Activity() {
     private var currentSort = SearchSort.RELEVANCE
     private var backInvokedCallback: android.window.OnBackInvokedCallback? = null
 
-    private val screenBackground = NexusDesignSystem.Palette.archiveIvory
-    private val surface = NexusDesignSystem.Palette.sleeveWhite
-    private val surfaceRaised = NexusDesignSystem.Palette.sleeveWhite
-    private val accent = NexusDesignSystem.Palette.terracotta
-    private val primaryText = NexusDesignSystem.Palette.carbonInk
-    private val secondaryText = Color.rgb(104, 94, 82)
+    private val screenBackground = NexusDesignSystem.Palette.canvas
+    private val surface = NexusDesignSystem.Palette.surface
+    private val surfaceRaised = NexusDesignSystem.Palette.raised
+    private val accent = NexusDesignSystem.Palette.muted
+    private val primaryText = NexusDesignSystem.Palette.foreground
+    private val secondaryText = NexusDesignSystem.Palette.muted
 
     private val progressTicker = object : Runnable {
         override fun run() {
@@ -132,10 +174,10 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         window.statusBarColor = screenBackground
         window.navigationBarColor = screenBackground
-        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+        window.decorView.systemUiVisibility = 0
         window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
-        val root = FrameLayout(this).apply { setBackgroundColor(screenBackground) }
+        val root = MaterialSurface(this, MaterialSurface.Role.CANVAS)
         val base = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(screenBackground)
@@ -153,23 +195,19 @@ class MainActivity : Activity() {
 
         content.addView(com.nexus.music.ui.HomeDiscoveryView(
             context = this,
-            onExplore = { query ->
-                searchPanel.queryInput.setText(query)
-                selectedScope = YoutubeSearchScope.MUSIC_SONGS
-                searchPanel.setSelectedScope(selectedScope)
-                performSearch()
-            },
-            onProviderLab = {
-                startActivity(Intent(this, com.nexus.music.diagnostics.ProviderLabActivity::class.java))
-            }
-        ), verticalParams(18))
+            onSaved = { showLibrary("Saved", libraryStore.savedTracks(), allowRemove = true) },
+            onHistory = { showLibrary("History", libraryStore.recentTracks(), allowRemove = false) },
+            onPlaylists = ::showPlaylists,
+            onBlend = ::showBlend,
+            partnerConnected = false
+        ), verticalParams(8))
 
         homeShelvesContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         content.addView(homeShelvesContainer, verticalParams(18))
 
         updatePanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(surface, 14)
+            background = rounded(surface, NexusDesignSystem.Shape.large)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             visibility = View.GONE
         }
@@ -185,9 +223,9 @@ class MainActivity : Activity() {
             isAllCaps = false
             minWidth = 0
             minimumWidth = 0
-            setTextColor(Color.rgb(14, 20, 12))
+            setTextColor(primaryText)
             typeface = Typeface.DEFAULT_BOLD
-            background = rounded(accent, 10)
+            background = rounded(surfaceRaised, NexusDesignSystem.Shape.control)
             setPadding(dp(12), 0, dp(12), 0)
             visibility = View.GONE
             setOnClickListener {
@@ -225,18 +263,22 @@ class MainActivity : Activity() {
         }
         updateProgressContainer.addView(updateProgressBar, LinearLayout.LayoutParams(-1, dp(9)))
         updatePanel.addView(updateProgressContainer)
-        content.addView(updatePanel, verticalParams(14))
         searchPanel = SearchPanel(
             context = this,
             initialScope = selectedScope,
             onSearchRequested = ::performSearch,
             onScopeSelected = ::selectScope
         )
+        searchContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(22), dp(24), dp(22), dp(32))
+            addView(text("Search", 30f, primaryText, bold = true), verticalParams(8))
+        }
         val sortButton = NexusUi.actionButton(this, "Sort results", primary = false).apply {
             setOnClickListener { showSearchSortMenu(this) }
         }
-        content.addView(sortButton, verticalParams(8))
-        content.addView(searchPanel, verticalParams(18))
+        searchContent.addView(sortButton, verticalParams(8))
+        searchContent.addView(searchPanel, verticalParams(12))
 
         scroll.addView(content)
         base.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -249,15 +291,26 @@ class MainActivity : Activity() {
         nowPlayingView = NowPlayingView(
             context = this,
             onClose = { nowPlayingView.visibility = View.GONE },
-            onToggle = { playbackConnection?.togglePlayback() },
-            onSeek = { playbackConnection?.seekTo(it) }
+            onToggle = {
+                if (::nowPlayingView.isInitialized) NexusHaptics.confirm(nowPlayingView, experienceSettings)
+                playbackConnection?.togglePlayback()
+            },
+            onSeek = {
+                if (::nowPlayingView.isInitialized) NexusHaptics.seekStep(nowPlayingView, experienceSettings)
+                playbackConnection?.seekTo(it)
+            }
         ).apply {
             visibility = View.GONE
             render(lastPlaybackSnapshot)
         }
         root.addView(nowPlayingView, FrameLayout.LayoutParams(-1, -1))
         setContentView(root)
-        if (intent.getBooleanExtra(EXTRA_OPEN_YOU, false)) showYou() else if (intent.getBooleanExtra(EXTRA_OPEN_LIBRARY, false)) showLibrary()
+        when {
+            intent.getBooleanExtra(EXTRA_OPEN_YOU, false) -> showYou()
+            intent.getBooleanExtra(EXTRA_OPEN_SEARCH, false) -> showSearch()
+            intent.getBooleanExtra(EXTRA_OPEN_LIBRARY, false) -> showLibrary("Saved", libraryStore.savedTracks(), allowRemove = true)
+            else -> showHome()
+        }
         loadHomeShelves()
         registerBackNavigation()
         applySystemBarInsets(base)
@@ -289,92 +342,151 @@ class MainActivity : Activity() {
             context = this,
             selected = selected,
             onHome = ::showHome,
-            onLibrary = ::showLibrary,
+            onSearch = ::showSearch,
             onRoom = ::openRoomPage,
             onYou = ::showYou
         )
 
+    private fun displayContent(view: View, key: String) {
+        if (mainScroll.childCount > 0) {
+            when (activeContentKey) {
+                "home" -> homeScrollPosition = mainScroll.scrollY
+                "search" -> searchScrollPosition = mainScroll.scrollY
+            }
+        }
+        activeContentKey = key
+        mainScroll.removeAllViews()
+        mainScroll.addView(view)
+        val restorePosition = when (key) {
+            "home" -> homeScrollPosition
+            "search" -> searchScrollPosition
+            else -> 0
+        }
+        mainScroll.post {
+            if (activeContentKey == key) mainScroll.scrollTo(0, restorePosition)
+        }
+    }
+
+    private fun renderBottomNavigation(selected: NexusUi.NavigationTab) {
+        bottomNavigationHost.removeAllViews()
+        bottomNavigationHost.addView(buildBottomNavigation(selected), LinearLayout.LayoutParams(-1, dp(62)))
+    }
+
     private fun showHome() {
         youRenderGeneration++
         if (!::mainScroll.isInitialized) return
-        mainScroll.removeAllViews()
-        mainScroll.addView(homeContent)
-        bottomNavigationHost.removeAllViews()
-        bottomNavigationHost.addView(buildBottomNavigation(NexusUi.NavigationTab.HOME), LinearLayout.LayoutParams(-1, dp(62)))
+        displayContent(homeContent, "home")
+        renderBottomNavigation(NexusUi.NavigationTab.HOME)
     }
 
-    private fun showLibrary() {
+    private fun showSearch() {
         youRenderGeneration++
         if (!::mainScroll.isInitialized) return
-        mainScroll.removeAllViews()
-        mainScroll.addView(
+        displayContent(searchContent, "search")
+        renderBottomNavigation(NexusUi.NavigationTab.SEARCH)
+    }
+
+    private fun showLibrary(
+        title: String,
+        tracks: List<CatalogTrack>,
+        allowRemove: Boolean,
+        onBack: () -> Unit = ::showHome
+    ) {
+        youRenderGeneration++
+        val removeAction: ((CatalogTrack) -> Unit)? = if (allowRemove) ({ track ->
+            when (title) {
+                "Saved" -> libraryStore.remove(track)
+                "Watch later" -> libraryStore.removeFromWatchLater(track)
+                else -> libraryStore.removeFromPlaylist(track, title)
+            }
+            showLibrary(title, libraryStoreTracks(title), allowRemove, onBack)
+        }) else null
+        displayContent(
             LibraryView(
                 context = this,
-                saved = libraryStore.savedTracks(),
-                recent = libraryStore.recentTracks(),
+                title = title,
+                tracks = tracks,
                 onPlay = ::startResolvingTrack,
-                onRemove = { track -> libraryStore.remove(track); showLibrary() },
-                onBack = ::showHome
-            )
+                onRemove = removeAction,
+                onBack = onBack,
+                onMore = { anchor, track -> showTrackMenu(anchor, track) }
+            ),
+            "library"
         )
-        bottomNavigationHost.removeAllViews()
-        bottomNavigationHost.addView(buildBottomNavigation(NexusUi.NavigationTab.LIBRARY), LinearLayout.LayoutParams(-1, dp(62)))
+        renderBottomNavigation(NexusUi.NavigationTab.HOME)
+    }
+
+    private fun libraryStoreTracks(title: String): List<CatalogTrack> = when (title) {
+        "Saved" -> libraryStore.savedTracks()
+        "History" -> libraryStore.recentTracks()
+        "Watch later" -> libraryStore.watchLaterTracks()
+        else -> libraryStore.playlistTracks(title)
+    }
+
+    private fun showPlaylists() {
+        youRenderGeneration++
+        val playlists = libraryStore.playlistNames().map { it to libraryStore.playlistTracks(it).size }
+        displayContent(
+            PlaylistHubView(
+                context = this,
+                watchLaterCount = libraryStore.watchLaterTracks().size,
+                playlists = playlists,
+                onOpen = ::showPlaylist,
+                onCreate = ::createPlaylist,
+                onBack = ::showHome
+            ),
+            "playlists"
+        )
+        renderBottomNavigation(NexusUi.NavigationTab.HOME)
+    }
+
+    private fun showPlaylist(name: String) {
+        showLibrary(
+            name,
+            libraryStore.playlistTracks(name),
+            allowRemove = true,
+            onBack = ::showPlaylists
+        )
+    }
+
+    private fun createPlaylist() = promptCreatePlaylist(null)
+
+    private fun showBlend() {
+        Toast.makeText(this, "Blend appears when a partner is connected.", Toast.LENGTH_SHORT).show()
     }
 
     private fun showYou() {
         if (!::mainScroll.isInitialized) return
-        val generation = ++youRenderGeneration
-        activityScope.launch {
-            val usedBytes = withContext(Dispatchers.IO) {
-                AudioCacheStore.usedBytes(this@MainActivity)
-            }
-            if (generation != youRenderGeneration || isFinishing || isDestroyed) return@launch
-            mainScroll.removeAllViews()
-            mainScroll.addView(
-                YouView(
-                    context = this@MainActivity,
-                    savedCount = libraryStore.savedTracks().size,
-                    recentCount = libraryStore.recentTracks().size,
-                    onLibrary = ::showLibrary,
-                    onAbout = ::showAboutNexus,
-                    cacheUsedBytes = usedBytes,
-                    cacheMaxBytes = AudioCacheStore.maxBytes(this@MainActivity),
-                    onClearCache = {
-                        val requestedGeneration = youRenderGeneration
-                        activityScope.launch(Dispatchers.IO) {
-                            PersistentAudioCacheLookup(this@MainActivity).clear()
-                            withContext(Dispatchers.Main) {
-                                if (requestedGeneration == youRenderGeneration) showYou()
-                            }
-                        }
-                    },
-                    onCacheLimitChanged = { bytes ->
-                        val requestedGeneration = youRenderGeneration
-                        activityScope.launch(Dispatchers.IO) {
-                            AudioCacheStore.setMaxBytes(this@MainActivity, bytes)
-                            withContext(Dispatchers.Main) {
-                                if (requestedGeneration == youRenderGeneration) showYou()
-                            }
-                        }
-                    }
-                )
-            )
-            bottomNavigationHost.removeAllViews()
-            bottomNavigationHost.addView(
-                buildBottomNavigation(NexusUi.NavigationTab.YOU),
-                LinearLayout.LayoutParams(-1, dp(62))
-            )
+        youRenderGeneration++
+        (updatePanel.parent as? ViewGroup)?.removeView(updatePanel)
+        val youContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(screenBackground)
         }
+        youContent.addView(
+            YouView(
+                context = this,
+                partnerStatus = "Not connected",
+                roomStatus = "Open Rooms to connect",
+                reduceEffects = experienceSettings.reduceEffects || experienceSettings.effectsShouldBeReduced(),
+                hapticsEnabled = experienceSettings.hapticsEnabled,
+                onReduceEffectsChanged = { experienceSettings.reduceEffects = it },
+                onHapticsChanged = { experienceSettings.hapticsEnabled = it },
+                onAbout = ::showAboutNexus
+            ),
+            LinearLayout.LayoutParams(-1, -2)
+        )
+        youContent.addView(updatePanel, LinearLayout.LayoutParams(-1, -2).apply {
+            setMargins(dp(22), dp(10), dp(22), dp(24))
+        })
+        displayContent(youContent, "you")
+        renderBottomNavigation(NexusUi.NavigationTab.YOU)
     }
 
     private fun showAboutNexus() {
         AlertDialog.Builder(this)
             .setTitle("Nexus")
-            .setMessage(
-                "The art of listening.\n\nDiscover music, keep a personal collection, " +
-                    "listen in the background and share listening rooms.\n\n" +
-                    "Official project and releases: github.com/som76377-alt/Nexus"
-            )
+            .setMessage("Music discovery and listening rooms.\n\nOfficial project: github.com/som76377-alt/Nexus")
             .setPositiveButton("Close", null)
             .show()
     }
@@ -385,6 +497,8 @@ class MainActivity : Activity() {
             Intent(this, com.nexus.music.rooms.ListeningRoomActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
         )
+        @Suppress("DEPRECATION")
+        overridePendingTransition(0, 0)
     }
 
     /**
@@ -627,13 +741,17 @@ class MainActivity : Activity() {
     private fun buildPlayerPanel(): LinearLayout {
         val player = NexusUi.miniPlayer(
             context = this,
-            onTogglePlayback = { playbackConnection?.togglePlayback() },
+            onTogglePlayback = {
+                if (::playPauseButton.isInitialized) NexusHaptics.confirm(playPauseButton, experienceSettings)
+                playbackConnection?.togglePlayback()
+            },
             onSeekStarted = { isSeeking = true },
             onSeekChanged = { isSeeking = true },
             onSeekFinished = { progress ->
                 val duration = lastPlaybackSnapshot.durationMs
                 if (duration > 0L) {
                     val target = duration * progress.toLong() / playbackProgress.max
+                    NexusHaptics.seekStep(playbackProgress, experienceSettings)
                     playbackConnection?.seekTo(target)
                 }
                 isSeeking = false
@@ -768,70 +886,361 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun loadHomeShelves() {
-        val shelves = listOf(
-            "Popular Indian music" to "popular Indian songs",
-            "Independent voices" to "Indian independent music",
-            "Ghazal archive" to "ghazal classics",
-            "Instrumental focus" to "Indian instrumental music"
-        )
+    private fun loadHomeShelves(reroll: Boolean = false) {
+        recommendationsJob?.cancel()
+        val generation = ++recommendationsGeneration
+        val allBuckets = readDiscoveryShelves().flatMap { it.buckets }
+        val longFormIds = setOf("study", "ambient", "nature")
+        val regular = allBuckets.filterNot { it.id in longFormIds }
+        val retained = if (reroll) lastHomeBucketIds.mapNotNull { id -> allBuckets.firstOrNull { it.id == id } }.shuffled().take(3) else emptyList()
+        val retainedRegular = retained.filterNot { it.id in longFormIds }
+        val regularSelection = (retainedRegular + regular.filterNot { it.id in retainedRegular.map { b -> b.id } }.shuffled().take((5 - retainedRegular.size).coerceAtLeast(0))).shuffled()
+        val longForm = allBuckets.filter { it.id in longFormIds }
+        val selected = (regularSelection + if (longForm.isNotEmpty() && (!reroll || Random.nextInt(3) == 0)) listOf(longForm.random()) else emptyList()).take(6)
+        lastHomeBucketIds = selected.map { it.id }
+        val shelves = selected.map { bucket -> DiscoveryShelf(bucket.id, bucket.label, listOf(bucket)) }
+        val buckets = selected
         homeShelvesContainer.removeAllViews()
-        activityScope.launch {
-            shelves.forEach { (title, query) ->
-                try {
-                    val tracks = repository.search(query, YoutubeSearchScope.MUSIC_SONGS)
-                        .distinctBy { it.url }
-                        .sortedByDescending { it.viewCount ?: -1L }
-                        .take(8)
-                    if (tracks.isNotEmpty() && !isFinishing && !isDestroyed) {
-                        homeShelvesContainer.addView(buildHomeShelf(title, tracks), verticalParams(20))
-                    }
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (_: Exception) {
-                    // A single unavailable discovery query must not hide other Home content.
+
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        header.addView(text("Discover", 21f, primaryText, bold = true), LinearLayout.LayoutParams(0, -2, 1f))
+        header.addView(NexusUi.actionButton(this, "Reroll", primary = false).apply {
+            setOnClickListener { loadHomeShelves(reroll = true) }
+        }, LinearLayout.LayoutParams(-2, dp(42)))
+        homeShelvesContainer.addView(header, verticalParams(12))
+
+        // Paint persisted shelves immediately; network refresh must never block first content.
+        val cachedByBucket = buckets.mapNotNull { bucket ->
+            recommendationCache.get(bucket.id)?.let { bucket.id to filterHomeCandidates(it, bucket) }
+        }.toMap()
+        val cachedShelves = shelves.mapNotNull { shelf ->
+            val tracks = shelf.buckets.flatMap { cachedByBucket[it.id].orEmpty() }
+                .distinctBy { it.url }.shuffled().take(18)
+            if (tracks.isEmpty()) null else shelf.title to tracks
+        }
+        val cachedForYou = RecommendationMixer.mix(
+            tasteTracks = (libraryStore.recentTracks().take(60) + libraryStore.savedTracks().take(60)).filter { track -> filterHomeCandidates(listOf(track), buckets.first()).isNotEmpty() },
+            genreTracks = cachedByBucket,
+            seed = Random.nextLong(),
+            excludedIds = recommendationHistory.shownIds(),
+            limit = 20
+        )
+        if (cachedForYou.isNotEmpty() || cachedShelves.isNotEmpty()) {
+            renderRecommendationTiles(cachedForYou, cachedShelves)
+            prefetchRecommendationAudio((cachedForYou + cachedShelves.flatMap { it.second }).distinctBy { it.url })
+        } else {
+            homeShelvesContainer.addView(text("Finding music for you…", 13f, secondaryText), verticalParams(8))
+        }
+
+        recommendationsJob = activityScope.launch {
+            try {
+                val semaphore = Semaphore(4)
+                val firstBuckets = shelves.take(1).mapNotNull { it.buckets.firstOrNull() }
+                val firstResults = coroutineScope {
+                    firstBuckets.map { bucket ->
+                        async {
+                            semaphore.withPermit {
+                                bucket.id to (cachedByBucket[bucket.id] ?: runCatching {
+                                    filterHomeCandidates(repository.search(bucket.query, bucket.scope), bucket).distinctBy { it.url }.take(24)
+                                }.getOrDefault(emptyList()))
+                            }
+                        }
+                    }.awaitAll().toMap()
+                }
+                if (generation != recommendationsGeneration || isFinishing || isDestroyed) return@launch
+                firstResults.filterValues { it.isNotEmpty() }.forEach { (id, tracks) ->
+                    recommendationCache.put(id, tracks)
+                }
+                var accumulated = cachedByBucket + firstResults
+                renderDiscoveryResults(shelves, accumulated, generation)
+                prefetchRecommendationAudio(firstResults.values.flatten())
+
+                // Remaining genre/style buckets enrich the visible shelves after first paint.
+                val remaining = buckets.filterNot { it in firstBuckets }
+                val remainingResults = coroutineScope {
+                    remaining.map { bucket ->
+                        async {
+                            semaphore.withPermit {
+                                bucket.id to (cachedByBucket[bucket.id] ?: runCatching {
+                                    filterHomeCandidates(repository.search(bucket.query, bucket.scope), bucket).distinctBy { it.url }.take(24)
+                                }.getOrDefault(emptyList()))
+                            }
+                        }
+                    }.awaitAll().toMap()
+                }
+                if (generation != recommendationsGeneration || isFinishing || isDestroyed) return@launch
+                remainingResults.filterValues { it.isNotEmpty() }.forEach { (id, tracks) ->
+                    recommendationCache.put(id, tracks)
+                }
+                accumulated = accumulated + remainingResults
+
+                // Similar-artist discovery is optional enrichment; never delay the first screen.
+                val recentArtists = TasteProfileComputer.compute(
+                    events = libraryStore.playHistory(),
+                    nowMs = System.currentTimeMillis()
+                ).artists.take(2).map { it.artist }
+                val tasteSearches = coroutineScope {
+                    recentArtists.map { artist ->
+                        async {
+                            semaphore.withPermit {
+                                runCatching {
+                                    repository.search("$artist similar artists music", YoutubeSearchScope.MUSIC_SONGS)
+                                }.getOrDefault(emptyList())
+                            }
+                        }
+                    }.awaitAll().flatten()
+                }
+                if (generation != recommendationsGeneration || isFinishing || isDestroyed) return@launch
+                val homePolicyBucket = buckets.firstOrNull() ?: return@launch
+                val tastePool = (libraryStore.recentTracks().take(60) +
+                    libraryStore.savedTracks().take(60) + filterHomeCandidates(tasteSearches, homePolicyBucket)).filter { track ->
+                    filterHomeCandidates(listOf(track), homePolicyBucket).isNotEmpty()
+                }.distinctBy { it.url }
+                val forYou = RecommendationMixer.mix(
+                    tasteTracks = tastePool,
+                    genreTracks = accumulated,
+                    seed = Random.nextLong(),
+                    excludedIds = recommendationHistory.shownIds(),
+                    limit = 20
+                )
+                renderDiscoveryResults(shelves, accumulated, generation, forYou)
+                prefetchRecommendationAudio(forYou + accumulated.values.flatten())
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                if (generation == recommendationsGeneration && !isFinishing && !isDestroyed &&
+                    homeShelvesContainer.childCount <= 1
+                ) {
+                    homeShelvesContainer.addView(
+                        text("Recommendations unavailable · Tap to retry", 13f, secondaryText).apply {
+                            setOnClickListener { loadHomeShelves(reroll = true) }
+                        }, verticalParams(8)
+                    )
                 }
             }
         }
     }
 
-    private fun buildHomeShelf(title: String, tracks: List<CatalogTrack>): LinearLayout {
-        val section = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        section.addView(text(title, 22f, primaryText, bold = true))
-        section.addView(text("Sorted by available view count", 11f, secondaryText).apply {
-            setPadding(0, dp(3), 0, dp(10))
-        })
+    private fun renderDiscoveryResults(
+        shelves: List<DiscoveryShelf>,
+        bucketResults: Map<String, List<CatalogTrack>>,
+        generation: Long,
+        forYouOverride: List<CatalogTrack>? = null
+    ) {
+        if (generation != recommendationsGeneration || isFinishing || isDestroyed) return
+        val shelfTracks = shelves.mapNotNull { shelf ->
+            val tracks = shelf.buckets.flatMap { bucketResults[it.id].orEmpty() }
+                .distinctBy { it.url }.shuffled().take(18)
+            if (tracks.isEmpty()) null else shelf.title to tracks
+        }
+        val homePolicyBucket = shelves.firstOrNull()?.buckets?.firstOrNull()
+        val safeTasteTracks = (libraryStore.recentTracks().take(60) + libraryStore.savedTracks().take(60))
+            .filter { track -> homePolicyBucket?.let { filterHomeCandidates(listOf(track), it).isNotEmpty() } == true }
+        val forYou = forYouOverride ?: RecommendationMixer.mix(
+            tasteTracks = safeTasteTracks,
+            genreTracks = bucketResults,
+            seed = Random.nextLong(),
+            excludedIds = recommendationHistory.shownIds(),
+            limit = 20
+        )
+        if (forYou.isNotEmpty()) recommendationHistory.remember(forYou)
+        renderRecommendationTiles(forYou, shelfTracks)
+    }
+
+    private fun filterHomeCandidates(tracks: List<CatalogTrack>, bucket: DiscoveryBucket): List<CatalogTrack> {
+        val longForm = bucket.id in setOf("study", "ambient", "nature")
+        val rejected = listOf("playlist", "compilation", "full album", "karaoke", "lyrics", "lyric video", "cover", "fan-made", "fan made", "ai generated", "ai-generated", "suno", "udio", "slowed", "sped up", "nightcore", "mashup", "remix")
+        return tracks.filter { track ->
+            val title = track.title.lowercase()
+            val duration = track.durationSeconds ?: return@filter false
+            val artist = track.artist?.trim().orEmpty()
+            val durationOk = if (longForm) duration >= 8L * 60L else duration in 70L..600L
+            val trustedReleaseMarker = artist.endsWith("- Topic", ignoreCase = true) ||
+                listOf("official audio", "official music video", "official video").any(title::contains)
+            durationOk && artist.isNotBlank() && artist.lowercase() !in setOf("unknown", "various artists", "youtube") &&
+                (longForm || trustedReleaseMarker) && rejected.none(title::contains) && track.url.startsWith("https://")
+        }
+    }
+
+    private fun prefetchRecommendationAudio(tracks: List<CatalogTrack>) {
+        val candidates = tracks.distinctBy { it.url }
+            .filter { it.url !in prefetchedAudio && it.url !in audioPrefetchInFlight }
+            .take(10)
+        if (candidates.isEmpty() || recommendationPrefetchJob?.isActive == true) return
+        recommendationPrefetchJob = activityScope.launch {
+            val semaphore = Semaphore(2)
+            candidates.map { track ->
+                async {
+                    audioPrefetchInFlight.add(track.url)
+                    try {
+                        semaphore.withPermit {
+                            val resolved = CachedAudioResolver(
+                                PersistentAudioCacheLookup(this@MainActivity),
+                                repository::resolveAudio
+                            ).resolve(track.url)
+                            prefetchedAudio[track.url] = resolved
+                        }
+                    } catch (_: CancellationException) {
+                        throw CancellationException()
+                    } catch (_: Exception) {
+                        // A failed prefetch is harmless; tapping the track retries normally.
+                    } finally {
+                        audioPrefetchInFlight.remove(track.url)
+                    }
+                }
+            }.awaitAll()
+        }
+    }
+
+    private fun readDiscoveryShelves(): List<DiscoveryShelf> = runCatching {
+        val raw = assets.open("genre-buckets.json").bufferedReader().use { it.readText() }
+        val source = org.json.JSONObject(raw).getJSONArray("shelves")
+        buildList {
+            for (index in 0 until source.length()) {
+                val item = source.optJSONObject(index) ?: continue
+                val id = item.optString("id").trim()
+                val title = item.optString("title").trim()
+                val entries = item.optJSONArray("buckets") ?: continue
+                val buckets = buildList {
+                    for (bucketIndex in 0 until entries.length()) {
+                        // Accept both the compact legacy tuple format and named objects.
+                        // The shipped genre-buckets.json uses [id, label, query, scope].
+                        val tuple = entries.optJSONArray(bucketIndex)
+                        val bucket = entries.optJSONObject(bucketIndex)
+                        val bucketId = (bucket?.optString("id") ?: tuple?.optString(0)).orEmpty().trim()
+                        val label = (bucket?.optString("label") ?: tuple?.optString(1)).orEmpty().trim()
+                        val query = (bucket?.optString("query") ?: tuple?.optString(2)).orEmpty().trim()
+                        val scopeName = bucket?.optString("scope")
+                            ?: tuple?.optString(3)
+                            ?: "MUSIC_SONGS"
+                        val scope = runCatching {
+                            YoutubeSearchScope.valueOf(scopeName)
+                        }.getOrDefault(YoutubeSearchScope.MUSIC_SONGS)
+                        if (bucketId.isNotEmpty() && label.isNotEmpty() && query.isNotEmpty()) {
+                            add(DiscoveryBucket(bucketId, label, query, scope))
+                        }
+                    }
+                }
+                if (id.isNotEmpty() && title.isNotEmpty() && buckets.isNotEmpty()) {
+                    add(DiscoveryShelf(id, title, buckets))
+                }
+            }
+        }
+    }.getOrDefault(emptyList())
+
+    private fun renderRecommendationTiles(
+        forYou: List<CatalogTrack>,
+        shelves: List<Pair<String, List<CatalogTrack>>>
+    ) {
+        homeShelvesContainer.removeAllViews()
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        header.addView(text("Discover", 21f, primaryText, bold = true), LinearLayout.LayoutParams(0, -2, 1f))
+        header.addView(NexusUi.actionButton(this, "Reroll", primary = false).apply {
+            setOnClickListener { loadHomeShelves() }
+        }, LinearLayout.LayoutParams(-2, dp(42)))
+        homeShelvesContainer.addView(header, verticalParams(12))
+
+        if (forYou.isNotEmpty()) addRecommendationShelf("Picked for you", forYou)
+        shelves.forEach { (title, tracks) -> addRecommendationShelf(title, tracks) }
+    }
+
+    private fun addRecommendationShelf(title: String, tracks: List<CatalogTrack>) {
+        if (tracks.isEmpty()) return
+        homeShelvesContainer.addView(
+            text(title, 17f, primaryText, bold = true),
+            verticalParams(20)
+        )
         val horizontal = android.widget.HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
             clipToPadding = false
         }
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        tracks.forEach { track ->
-            val tile = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                isClickable = true
-                isFocusable = true
-                setOnClickListener { startResolvingTrack(track) }
-                contentDescription = "Play ${track.title}"
-            }
-            val art = ImageView(this).apply {
-                scaleType = ImageView.ScaleType.CENTER_CROP
-                background = rounded(surfaceRaised, 8)
-                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            }
-            track.thumbnailUrl?.let { art.load(it) }
-            tile.addView(art, LinearLayout.LayoutParams(dp(142), dp(142)))
-            tile.addView(text(track.title.ifBlank { "Untitled" }, 13f, primaryText, bold = true, maxLines = 2).apply {
-                setPadding(0, dp(7), 0, dp(2))
-            }, LinearLayout.LayoutParams(dp(142), -2))
-            tile.addView(text(track.artist ?: "Unknown artist", 11f, secondaryText, maxLines = 1))
-            row.addView(tile, LinearLayout.LayoutParams(dp(142), -2).apply {
-                marginEnd = dp(12)
-            })
-        }
+        tracks.forEach { track -> row.addView(buildRecommendationTile(track)) }
         horizontal.addView(row)
-        section.addView(horizontal)
-        return section
+        homeShelvesContainer.addView(horizontal, verticalParams(9))
+    }
+
+    private fun highResolutionThumbnail(track: CatalogTrack): String? {
+        val original = track.thumbnailUrl?.takeIf { it.startsWith("https://") }
+        val videoId = runCatching {
+            val uri = Uri.parse(track.url)
+            val host = uri.host.orEmpty().lowercase()
+            val segments = uri.pathSegments
+            val candidate = when {
+                host == "youtu.be" -> segments.firstOrNull()
+                host.endsWith("youtube.com") || host.endsWith("youtube-nocookie.com") ->
+                    uri.getQueryParameter("v")
+                        ?: segments.windowed(2).firstOrNull {
+                            it[0] in setOf("embed", "shorts", "live", "v")
+                        }?.get(1)
+                else -> null
+            }
+            candidate?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{11}")) }
+        }.getOrNull()
+        return videoId?.let { "https://i.ytimg.com/vi/$it/maxresdefault.jpg" } ?: original
+    }
+
+    private fun buildRecommendationTile(track: CatalogTrack): LinearLayout {
+        val tile = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(dp(158), -2).apply { marginEnd = dp(14) }
+        }
+        val artFrame = FrameLayout(this)
+        val art = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            background = rounded(surfaceRaised, NexusDesignSystem.Shape.media)
+            clipToOutline = true
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        val originalThumbnail = track.thumbnailUrl?.takeIf { it.startsWith("https://") }
+        val preferredThumbnail = highResolutionThumbnail(track)
+        if (preferredThumbnail != null) {
+            art.load(preferredThumbnail) {
+                listener(onError = { _, _ ->
+                    if (originalThumbnail != null && originalThumbnail != preferredThumbnail) {
+                        art.load(originalThumbnail)
+                    }
+                })
+            }
+        }
+        artFrame.addView(art, FrameLayout.LayoutParams(-1, -1))
+        artFrame.setOnClickListener { startResolvingTrack(track) }
+        artFrame.contentDescription = "Play " + track.title
+        tile.addView(artFrame, LinearLayout.LayoutParams(-1, dp(158)))
+
+        val detail = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.TOP
+        }
+        detail.addView(
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setOnClickListener { startResolvingTrack(track) }
+                addView(text(track.title.ifBlank { "Untitled" }, 13f, primaryText, bold = true, maxLines = 2))
+                addView(text(track.artist ?: "Unknown artist", 11f, secondaryText, maxLines = 1).apply {
+                    setPadding(0, dp(3), 0, 0)
+                })
+            },
+            LinearLayout.LayoutParams(0, -2, 1f)
+        )
+        detail.addView(TextView(this).apply {
+            text = "⋮"
+            textSize = 20f
+            setTextColor(secondaryText)
+            gravity = Gravity.CENTER
+            minWidth = dp(36)
+            minHeight = dp(44)
+            contentDescription = "More actions for " + track.title
+            setOnClickListener { showTrackMenu(this, track) }
+        })
+        tile.addView(detail, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+        return tile
     }
 
     private fun showSearchSortMenu(anchor: View) {
@@ -866,8 +1275,8 @@ class MainActivity : Activity() {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = rounded(surface, 16)
-            setPadding(dp(10), dp(10), dp(12), dp(10))
+            setBackgroundColor(Color.TRANSPARENT)
+            setPadding(0, dp(8), 0, dp(8))
             isClickable = true
             isFocusable = true
             setOnClickListener { startResolvingTrack(track) }
@@ -875,11 +1284,12 @@ class MainActivity : Activity() {
         }
         val thumbnail = ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
-            background = rounded(surfaceRaised, 10)
+            background = rounded(surfaceRaised, NexusDesignSystem.Shape.media)
+            clipToOutline = true
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
         track.thumbnailUrl?.let { thumbnail.load(it) }
-        card.addView(thumbnail, LinearLayout.LayoutParams(dp(112), dp(72)))
+        card.addView(thumbnail, LinearLayout.LayoutParams(dp(72), dp(72)))
 
         val details = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -897,31 +1307,95 @@ class MainActivity : Activity() {
             setPadding(0, dp(5), 0, 0)
         })
         card.addView(details, LinearLayout.LayoutParams(0, -2, 1f))
-        val saved = libraryStore.isSaved(track)
         card.addView(TextView(this).apply {
-            text = if (saved) "✓" else "＋"
-            textSize = 21f
-            setTextColor(if (saved) NexusDesignSystem.Palette.deepVinylGreen else NexusDesignSystem.Palette.terracotta)
+            text = "⋮"
+            textSize = 22f
+            setTextColor(secondaryText)
             gravity = Gravity.CENTER
             minWidth = dp(48)
             minHeight = dp(48)
-            contentDescription = if (saved) "Remove ${track.title} from Library" else "Save ${track.title} to Library"
-            setOnClickListener {
-                if (libraryStore.isSaved(track)) {
-                    libraryStore.remove(track)
-                    Toast.makeText(this@MainActivity, "Removed from Library", Toast.LENGTH_SHORT).show()
-                } else {
-                    libraryStore.save(track)
-                    Toast.makeText(this@MainActivity, "Saved to Library", Toast.LENGTH_SHORT).show()
-                }
-                renderSearchResults()
-            }
+            contentDescription = "More actions for " + track.title
+            setOnClickListener { showTrackMenu(this, track) }
         }, LinearLayout.LayoutParams(dp(48), dp(48)))
         return card
     }
 
+    private fun showTrackMenu(anchor: View, track: CatalogTrack) {
+        PopupMenu(this, anchor).apply {
+            menu.add(if (libraryStore.isSaved(track)) "Remove from Saved" else "Save")
+            menu.add(if (libraryStore.isWatchLater(track)) "Remove from Watch later" else "Watch later")
+            menu.add("Add to playlist")
+            setOnMenuItemClickListener { item ->
+                when (item.title.toString()) {
+                    "Save" -> {
+                        libraryStore.save(track)
+                        NexusHaptics.confirm(anchor, experienceSettings)
+                        if (activeContentKey == "search") renderSearchResults()
+                    }
+                    "Remove from Saved" -> {
+                        libraryStore.remove(track)
+                        if (activeContentKey == "search") renderSearchResults()
+                    }
+                    "Watch later" -> {
+                        libraryStore.addToWatchLater(track)
+                        NexusHaptics.confirm(anchor, experienceSettings)
+                    }
+                    "Remove from Watch later" -> libraryStore.removeFromWatchLater(track)
+                    "Add to playlist" -> showPlaylistChooser(track)
+                }
+                true
+            }
+            show()
+        }
+    }
+
+    private fun showPlaylistChooser(track: CatalogTrack) {
+        val playlists = listOf("Watch later") + libraryStore.playlistNames() + "New playlist…"
+        AlertDialog.Builder(this)
+            .setTitle("Add to playlist")
+            .setItems(playlists.toTypedArray()) { _, index ->
+                when (index) {
+                    0 -> libraryStore.addToWatchLater(track)
+                    playlists.lastIndex -> promptCreatePlaylist(track)
+                    else -> libraryStore.addToPlaylist(track, playlists[index])
+                }
+                if (index < playlists.lastIndex) {
+                    NexusHaptics.confirm(mainScroll, experienceSettings)
+                    Toast.makeText(this, "Added to " + playlists[index], Toast.LENGTH_SHORT).show()
+                }
+            }
+            .show()
+    }
+
+    private fun promptCreatePlaylist(track: CatalogTrack?) {
+        val input = android.widget.EditText(this).apply {
+            hint = "Playlist name"
+            isSingleLine = true
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+        }
+        AlertDialog.Builder(this)
+            .setTitle("New playlist")
+            .setView(input)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Create") { _, _ ->
+                val name = input.text.toString().trim()
+                if (libraryStore.createPlaylist(name)) {
+                    track?.let { libraryStore.addToPlaylist(it, name) }
+                    Toast.makeText(this, "Playlist created", Toast.LENGTH_SHORT).show()
+                    if (activeContentKey == "playlists") showPlaylists()
+                } else {
+                    Toast.makeText(this, "Enter a new playlist name.", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .show()
+    }
+
     private fun startResolvingTrack(track: CatalogTrack) {
         if (isResolving) return
+        prefetchedAudio.remove(track.url)?.let { readyAudio ->
+            showResolved(readyAudio)
+            return
+        }
         isResolving = true
         playerSubtitle.text = "Preparing audio…"
         activityScope.launch {
@@ -986,7 +1460,12 @@ class MainActivity : Activity() {
 
     private fun rounded(color: Int, radiusDp: Int) = GradientDrawable().apply {
         setColor(color)
-        cornerRadius = dp(radiusDp).toFloat()
+        val token = when {
+            radiusDp <= 6 -> NexusDesignSystem.Shape.media
+            radiusDp <= 12 -> NexusDesignSystem.Shape.control
+            else -> NexusDesignSystem.Shape.large
+        }
+        cornerRadius = dp(token).toFloat()
     }
 
     private fun verticalParams(top: Int) =
@@ -1018,7 +1497,8 @@ class MainActivity : Activity() {
         setIntent(intent)
         when {
             intent.getBooleanExtra(EXTRA_OPEN_YOU, false) -> showYou()
-            intent.getBooleanExtra(EXTRA_OPEN_LIBRARY, false) -> showLibrary()
+            intent.getBooleanExtra(EXTRA_OPEN_SEARCH, false) -> showSearch()
+            intent.getBooleanExtra(EXTRA_OPEN_LIBRARY, false) -> showLibrary("Saved", libraryStore.savedTracks(), allowRemove = true)
             else -> showHome()
         }
     }
@@ -1026,12 +1506,14 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         isActivityStarted = true
+        jankMonitor?.setEnabled(true)
         if (::updateStatusText.isInitialized) checkForUpdates()
         updatePlaybackUi(playbackConnection?.snapshot() ?: lastPlaybackSnapshot)
     }
 
     override fun onStop() {
         isActivityStarted = false
+        jankMonitor?.setEnabled(false)
         progressHandler.removeCallbacks(progressTicker)
         super.onStop()
     }
@@ -1044,6 +1526,11 @@ class MainActivity : Activity() {
         searchGeneration++
         searchJob?.cancel()
         searchJob = null
+        recommendationsJob?.cancel()
+        recommendationsJob = null
+        recommendationPrefetchJob?.cancel()
+        recommendationPrefetchJob = null
+        recommendationsGeneration++
         progressHandler.removeCallbacks(progressTicker)
         playbackConnection?.close()
         playbackConnection = null
@@ -1057,6 +1544,7 @@ class MainActivity : Activity() {
 
     companion object {
         const val EXTRA_OPEN_LIBRARY = "com.nexus.music.extra.OPEN_LIBRARY"
+        const val EXTRA_OPEN_SEARCH = "com.nexus.music.extra.OPEN_SEARCH"
         const val EXTRA_OPEN_YOU = "com.nexus.music.extra.OPEN_YOU"
     }
 }
