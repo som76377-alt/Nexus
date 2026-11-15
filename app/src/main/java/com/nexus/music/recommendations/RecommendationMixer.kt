@@ -96,10 +96,15 @@ class RecommendationHistoryStore(context: Context) {
 
     fun remember(tracks: List<CatalogTrack>, nowMs: Long = System.currentTimeMillis()) {
         val entries = JSONArray()
-        val existing = readHistory().filter { it.second > nowMs - HISTORY_TTL_MS }
-        val merged = (existing + tracks.map { it.url to nowMs })
+        val latest = tracks.asSequence()
+            .map { it.url to nowMs }
+            .filter { it.first.isNotBlank() }
             .distinctBy { it.first }
-            .takeLast(MAX_HISTORY)
+            .toList()
+        val latestIds = latest.mapTo(mutableSetOf()) { it.first }
+        val existing = readHistory()
+            .filter { it.second > nowMs - HISTORY_TTL_MS && it.first !in latestIds }
+        val merged = (latest + existing).take(MAX_HISTORY)
         merged.forEach { (url, time) ->
             entries.put(JSONObject().put("url", url).put("time", time))
         }
