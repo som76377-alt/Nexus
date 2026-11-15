@@ -1036,8 +1036,11 @@ class MainActivity : Activity() {
                 .distinctBy { it.url }.shuffled().take(18)
             if (tracks.isEmpty()) null else shelf.title to tracks
         }
+        val homePolicyBucket = shelves.firstOrNull()?.buckets?.firstOrNull()
+        val safeTasteTracks = (libraryStore.recentTracks().take(60) + libraryStore.savedTracks().take(60))
+            .filter { track -> homePolicyBucket?.let { filterHomeCandidates(listOf(track), it).isNotEmpty() } == true }
         val forYou = forYouOverride ?: RecommendationMixer.mix(
-            tasteTracks = libraryStore.recentTracks().take(60) + libraryStore.savedTracks().take(60),
+            tasteTracks = safeTasteTracks,
             genreTracks = bucketResults,
             seed = Random.nextLong(),
             excludedIds = recommendationHistory.shownIds(),
@@ -1055,8 +1058,10 @@ class MainActivity : Activity() {
             val duration = track.durationSeconds ?: return@filter false
             val artist = track.artist?.trim().orEmpty()
             val durationOk = if (longForm) duration >= 8L * 60L else duration in 70L..600L
+            val trustedReleaseMarker = artist.endsWith("- Topic", ignoreCase = true) ||
+                listOf("official audio", "official music video", "official video").any(title::contains)
             durationOk && artist.isNotBlank() && artist.lowercase() !in setOf("unknown", "various artists", "youtube") &&
-                rejected.none(title::contains) && track.url.startsWith("https://")
+                (longForm || trustedReleaseMarker) && rejected.none(title::contains) && track.url.startsWith("https://")
         }
     }
 
