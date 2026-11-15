@@ -92,7 +92,7 @@ class NowPlayingView(
         clipToPadding = false
         gravity = Gravity.CENTER_HORIZONTAL
         setPadding(dp(24), dp(16), dp(24), dp(24))
-        setBackgroundColor(paper)
+        background = MaterialSurface.background(context, MaterialSurface.Role.CANVAS)
 
         val top = LinearLayout(context).apply {
             orientation = HORIZONTAL
