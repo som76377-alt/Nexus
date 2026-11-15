@@ -100,13 +100,13 @@ class NowPlayingView(
         disc.apply {
             setImageResource(vinylDiscResource)
             scaleType = ImageView.ScaleType.FIT_CENTER
-            contentDescription = "Vinyl record"
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
         stage.addView(disc, FrameLayout.LayoutParams(dp(DISC_SIZE_DP), dp(DISC_SIZE_DP), Gravity.CENTER))
         tonearm.apply {
             setImageResource(tonearmResource)
             scaleType = ImageView.ScaleType.FIT_CENTER
-            contentDescription = "Tonearm"
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             pivotX = dp(TONEARM_PIVOT_X_DP).toFloat()
             pivotY = dp(TONEARM_PIVOT_Y_DP).toFloat()
             translationX = dp(TONEARM_TRANSLATION_X_DP).toFloat()
