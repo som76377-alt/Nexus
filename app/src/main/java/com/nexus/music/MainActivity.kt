@@ -1121,7 +1121,7 @@ class MainActivity : Activity() {
                     "Save" -> {
                         libraryStore.save(track)
                         NexusHaptics.confirm(anchor, experienceSettings)
-                        renderSearchResults()
+                        if (activeContentKey == "search") renderSearchResults()
                     }
                     "Remove from Saved" -> {
                         libraryStore.remove(track)
