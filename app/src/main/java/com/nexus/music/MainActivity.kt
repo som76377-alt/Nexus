@@ -1003,7 +1003,7 @@ class MainActivity : Activity() {
         artFrame.addView(art, FrameLayout.LayoutParams(-1, -1))
         artFrame.setOnClickListener { startResolvingTrack(track) }
         artFrame.contentDescription = "Play " + track.title
-        tile.addView(artFrame, LayoutParams(-1, dp(142)))
+        tile.addView(artFrame, LinearLayout.LayoutParams(-1, dp(142)))
 
         val detail = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
