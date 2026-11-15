@@ -18,7 +18,6 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
-import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.ImageView
@@ -110,6 +109,7 @@ class MainActivity : Activity() {
     private val recommendationHistory by lazy { RecommendationHistoryStore(this) }
     private val recommendationCache by lazy { RecommendationCacheStore(this) }
     private var recommendationsGeneration = 0L
+    private var recommendationsJob: Job? = null
     private var activeContentKey = "home"
     private var homeScrollPosition = 0
     private var searchScrollPosition = 0
@@ -868,6 +868,7 @@ class MainActivity : Activity() {
     }
 
     private fun loadHomeShelves() {
+        recommendationsJob?.cancel()
         val generation = ++recommendationsGeneration
         val seed = Random.nextLong()
         val buckets = readGenreBuckets().shuffled(Random(seed)).take(6)
@@ -885,7 +886,7 @@ class MainActivity : Activity() {
         val status = text("Finding a new mix…", 13f, secondaryText)
         homeShelvesContainer.addView(status, verticalParams(8))
 
-        activityScope.launch {
+        recommendationsJob = activityScope.launch {
             try {
                 val semaphore = Semaphore(3)
                 val genreResults = coroutineScope {
@@ -1313,6 +1314,9 @@ class MainActivity : Activity() {
         searchGeneration++
         searchJob?.cancel()
         searchJob = null
+        recommendationsJob?.cancel()
+        recommendationsJob = null
+        recommendationsGeneration++
         progressHandler.removeCallbacks(progressTicker)
         playbackConnection?.close()
         playbackConnection = null
