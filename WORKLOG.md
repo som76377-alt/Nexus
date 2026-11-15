@@ -66,3 +66,9 @@
 |---|---|---|---|---|
 | Restore mini-player visibility on integration | DONE — merged to integration | `3b819a4476b90bf808b6c9445c76c3ed96cbce91` | [Android CI #925](https://github.com/som76377-alt/Nexus/actions/runs/43695912171) — success | Restored the state-driven mini-player container and visibility predicate lost from integration; added four JVM state tests. UI lifecycle only; YouTube search, extraction, and live playback were not changed or validated. |
 | Permit owner-authorized final consolidation merge | DONE — merged to integration | `ebc9a78dd0f21205771b74e5cbdca9e2dd6ce9cc` | [Android CI](https://github.com/som76377-alt/Nexus/actions/runs/43696486989) — success | Owner explicitly authorized changing the default draft-only final-merge rule. AGENTS.md now permits one fully reviewed integration-to-main consolidation PR after exact-head Android and Web checks pass. No app behavior changed. |
+
+
+## Final consolidation conflict resolution
+| Task | Status | Commit | CI run | Learning |
+|---|---|---|---|---|
+| Preserve current Home discovery design while reconciling branch divergence | DONE — implementation CI passed | `9f70f66f8cab574ff0dc94ae5e2397836b82a7f5` | [Android CI #43697290730](https://github.com/som76377-alt/Nexus/actions/runs/43697290730) — success | Kept main's newer neutral category-row/ripple redesign and its 48dp targets instead of restoring integration's superseded coloured-chip layout. Other overlapping MainActivity and NowPlayingView edits were identical on both branches. The final combined main/integration PR still requires its own exact-head checks. |
