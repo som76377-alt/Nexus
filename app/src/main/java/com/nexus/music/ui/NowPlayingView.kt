@@ -424,9 +424,7 @@ class NowPlayingView(
     }
 
     private fun applyArmFrame() {
-        tonearm.rotation = armAngle + if (armLift < 0.05f) {
-            sin(SystemClock.uptimeMillis().toDouble() / STYLUS_VIBRATION_PERIOD_MS).toFloat() * STYLUS_VIBRATION_DEGREES
-        } else 0f
+        tonearm.rotation = armAngle
         tonearm.translationY = dp(TONEARM_TRANSLATION_Y_DP) - liftDistancePx * armLift
         tonearm.elevation = dp(1) + dp(ARM_SHADOW_HEIGHT_DP) * armLift
     }
