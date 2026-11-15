@@ -6,71 +6,61 @@ import android.graphics.Typeface
 import androidx.core.content.res.ResourcesCompat
 
 /**
- * Central visual foundation for Nexus.
- *
- * Keep this file presentation-only. It must not own navigation, playback, catalogue,
- * persistence, or room state.
+ * Small semantic token set for the Nexus material direction.
+ * The scanned canvas and metal control are represented by flat placeholders until
+ * a licence-verified photograph is committed. UI code must never reference texture files.
  */
 object NexusDesignSystem {
     object Palette {
-        // Foundation
-        val archiveIvory: Int = Color.rgb(241, 232, 214) // #F1E8D6
-        val carbonInk: Int = Color.rgb(38, 33, 30) // #26211E
-        val deepVinylGreen: Int = Color.rgb(32, 82, 71) // #205247
-        val sleeveWhite: Int = Color.rgb(248, 242, 230) // #F8F2E6
+        // M1: matte canvas and supporting flat surfaces.
+        val canvas = Color.rgb(20, 23, 25)       // #141719
+        val surface = Color.rgb(29, 34, 36)      // #1D2224
+        val raised = Color.rgb(38, 44, 47)       // #262C2F
+        val foreground = Color.rgb(241, 242, 239)
+        val muted = Color.rgb(164, 174, 176)
 
-        // Expressive accents
-        val oxblood: Int = Color.rgb(121, 59, 72) // #793B48
-        val cobalt: Int = Color.rgb(64, 91, 145) // #405B91
-        val terracotta: Int = Color.rgb(194, 93, 64) // #C25D40
-        val ochre: Int = Color.rgb(211, 164, 77) // #D3A44D
-        val jade: Int = Color.rgb(102, 131, 109) // #66836D
-        val dustyRose: Int = Color.rgb(184, 120, 121) // #B87879
-        val plum: Int = Color.rgb(98, 68, 94) // #62445E
-        val petrol: Int = Color.rgb(57, 124, 123) // #397C7B
-        val saffron: Int = Color.rgb(224, 182, 93) // #E0B65D
+        // M2: a single brushed-metal placeholder, reserved for the main Player knob.
+        val metal = Color.rgb(184, 192, 194)
+        val metalForeground = Color.rgb(22, 26, 28)
 
-        // Dark appearance foundation
-        val nightBackground: Int = Color.rgb(25, 25, 23) // #191917
-        val nightSurface: Int = Color.rgb(37, 36, 32) // #252420
-        val nightElevated: Int = Color.rgb(48, 45, 40) // #302D28
-        val nightText: Int = Color.rgb(240, 230, 213) // #F0E6D5
-        val nightMuted: Int = Color.rgb(185, 174, 157) // #B9AE9D
-        val nightGreen: Int = Color.rgb(114, 152, 138) // #72988A
-        val nightCopper: Int = Color.rgb(207, 128, 87) // #CF8057
-        val nightPlum: Int = Color.rgb(167, 123, 146) // #A77B92
-        val nightGold: Int = Color.rgb(208, 175, 105) // #D0AF69
+        // Compatibility names used by existing presentation-only screens.
+        val archiveIvory: Int get() = canvas
+        val carbonInk: Int get() = foreground
+        val deepVinylGreen: Int get() = metal
+        val sleeveWhite: Int get() = surface
+        val oxblood: Int get() = muted
+        val cobalt: Int get() = metal
+        val terracotta: Int get() = metal
+        val ochre: Int get() = metal
+        val jade: Int get() = muted
+        val dustyRose: Int get() = muted
+        val plum: Int get() = muted
+        val petrol: Int get() = muted
+        val saffron: Int get() = metal
+        val nightBackground: Int get() = canvas
+        val nightSurface: Int get() = surface
+        val nightElevated: Int get() = raised
+        val nightText: Int get() = foreground
+        val nightMuted: Int get() = muted
+        val nightGreen: Int get() = metal
+        val nightCopper: Int get() = metal
+        val nightPlum: Int get() = muted
+        val nightGold: Int get() = metal
 
-        // Compatibility aliases for existing presentation code. These are deliberately
-        // mapped to the new identity so callers can migrate incrementally.
-        val background: Int get() = archiveIvory
-        val surface: Int get() = sleeveWhite
-        val raised: Int get() = sleeveWhite
-        val accent: Int get() = terracotta
-        val foreground: Int get() = carbonInk
-        val muted: Int get() = Color.rgb(104, 94, 82)
-        val accentForeground: Int get() = sleeveWhite
+        val background: Int get() = canvas
+        val accent: Int get() = metal
+        val accentForeground: Int get() = metalForeground
     }
 
     object Type {
-        /**
-         * Resolve the bundled, SIL OFL-licensed font resources by semantic role.
-         * Platform fallback keeps rendering safe if an asset is unavailable.
-         */
-        fun display(context: Context): Typeface =
-            bundledOrFallback(context, "fraunces", Typeface.create("serif", Typeface.NORMAL))
-
-        fun experimental(context: Context): Typeface =
-            bundledOrFallback(context, "syne", Typeface.create("sans-serif", Typeface.BOLD))
-
-        fun editorial(context: Context): Typeface =
-            bundledOrFallback(context, "instrument_serif", Typeface.create("serif", Typeface.NORMAL))
-
-        fun interfaceText(context: Context): Typeface =
-            bundledOrFallback(context, "dm_sans", Typeface.create("sans-serif", Typeface.NORMAL))
-
-        fun technical(context: Context): Typeface =
-            bundledOrFallback(context, "space_mono", Typeface.create("monospace", Typeface.NORMAL))
+        // One family throughout the interface. The bundled DM Sans file is the single source.
+        fun interfaceText(context: Context): Typeface = bundledOrFallback(
+            context, "dm_sans", Typeface.create("sans-serif", Typeface.NORMAL)
+        )
+        fun display(context: Context): Typeface = interfaceText(context)
+        fun experimental(context: Context): Typeface = interfaceText(context)
+        fun editorial(context: Context): Typeface = interfaceText(context)
+        fun technical(context: Context): Typeface = interfaceText(context)
 
         private fun bundledOrFallback(context: Context, resourceName: String, fallback: Typeface): Typeface {
             val id = context.resources.getIdentifier(resourceName, "font", context.packageName)
@@ -82,17 +72,21 @@ object NexusDesignSystem {
     object Spacing {
         const val screenHorizontal = 22
         const val screenVertical = 24
-        const val sectionGap = 30
+        const val sectionGap = 28
         const val compactGap = 8
         const val controlHeight = 48
-        const val navigationHeight = 68
+        const val navigationHeight = 64
         const val miniPlayerArtwork = 48
         const val minimumTouchTarget = 48
     }
 
     object Shape {
-        const val artworkCorner = 6
-        const val controlCorner = 10
-        const val panelCorner = 18
+        const val control = 8
+        const val media = 5
+        const val large = 18
+        // Compatibility aliases; new components should use the three roles above.
+        const val artworkCorner = media
+        const val controlCorner = control
+        const val panelCorner = large
     }
 }
