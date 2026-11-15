@@ -12,6 +12,8 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
@@ -95,13 +97,7 @@ class ListeningRoomActivity : Activity() {
         super.onCreate(savedInstanceState)
         window.statusBarColor = background
         window.navigationBarColor = background
-        window.setSoftInputMode(
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
-            } else {
-                android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
-            }
-        )
+        window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -258,21 +254,19 @@ class ListeningRoomActivity : Activity() {
 
         // On Android 11+, keep the navigation bar at its original screen bounds.
         // Only the chat composer follows the IME; the chat remains scrollable behind it.
-        root.setOnApplyWindowInsetsListener { _, insets ->
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                val imeBottom = insets.getInsets(android.view.WindowInsets.Type.ime()).bottom
-                sendRow.translationY = -imeBottom.toFloat()
-                chatScroll.setPadding(
-                    chatScroll.paddingLeft,
-                    chatScroll.paddingTop,
-                    chatScroll.paddingRight,
-                    imeBottom
-                )
-            }
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+            val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+            sendRow.translationY = -imeBottom.toFloat()
+            chatScroll.setPadding(
+                chatScroll.paddingLeft,
+                chatScroll.paddingTop,
+                chatScroll.paddingRight,
+                imeBottom
+            )
             insets
         }
-        root.requestApplyInsets()
         setContentView(root)
+        ViewCompat.requestApplyInsets(root)
         registerBackNavigation()
         playback = PlaybackConnection(
             context = this,
@@ -388,7 +382,7 @@ class ListeningRoomActivity : Activity() {
         val sessionGeneration = roomSessionGeneration
         roomId = id
         introPanel.visibility = View.GONE
-        bottomNavigation.visibility = View.GONE
+        bottomNavigation.visibility = View.VISIBLE
         roomPanel.visibility = View.VISIBLE
         roomActions.visibility = View.GONE
         createButton.visibility = View.GONE
