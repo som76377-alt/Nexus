@@ -44,6 +44,7 @@ import com.nexus.music.ui.PlaylistHubView
 import com.nexus.music.ui.NexusExperienceSettings
 import com.nexus.music.ui.NexusHaptics
 import com.nexus.music.ui.MaterialSurface
+import com.nexus.music.ui.DebugJankMonitor
 import com.nexus.music.recommendations.GenreBucket
 import com.nexus.music.recommendations.RecommendationMixer
 import com.nexus.music.recommendations.RecommendationHistoryStore
@@ -104,6 +105,7 @@ class MainActivity : Activity() {
     private lateinit var homeContent: LinearLayout
     private lateinit var searchContent: LinearLayout
     private lateinit var bottomNavigationHost: LinearLayout
+    private var jankMonitor: DebugJankMonitor? = null
     private val experienceSettings by lazy { NexusExperienceSettings(this) }
     private val recommendationHistory by lazy { RecommendationHistoryStore(this) }
     private val recommendationCache by lazy { RecommendationCacheStore(this) }
@@ -1291,12 +1293,14 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         isActivityStarted = true
+        jankMonitor?.setEnabled(true)
         if (::updateStatusText.isInitialized) checkForUpdates()
         updatePlaybackUi(playbackConnection?.snapshot() ?: lastPlaybackSnapshot)
     }
 
     override fun onStop() {
         isActivityStarted = false
+        jankMonitor?.setEnabled(false)
         progressHandler.removeCallbacks(progressTicker)
         super.onStop()
     }
