@@ -208,7 +208,7 @@ class MainActivity : Activity() {
                 }
             }
         }
-        updateRow.addView(updateButton, LinearLayout.LayoutParams(-2, dp(36)).apply {
+        updateRow.addView(updateButton, LinearLayout.LayoutParams(-2, dp(48)).apply {
             marginStart = dp(10)
         })
         updatePanel.addView(updateRow)
@@ -840,7 +840,7 @@ class MainActivity : Activity() {
             val art = ImageView(this).apply {
                 scaleType = ImageView.ScaleType.CENTER_CROP
                 background = rounded(surfaceRaised, 8)
-                contentDescription = "Artwork for ${track.title}"
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             }
             track.thumbnailUrl?.let { art.load(it) }
             tile.addView(art, LinearLayout.LayoutParams(dp(142), dp(142)))
@@ -894,11 +894,12 @@ class MainActivity : Activity() {
             isClickable = true
             isFocusable = true
             setOnClickListener { startResolvingTrack(track) }
+            contentDescription = "Play ${track.title.ifBlank { "Untitled" }} by ${track.artist ?: "Unknown artist"}"
         }
         val thumbnail = ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             background = rounded(surfaceRaised, 10)
-            contentDescription = "Track thumbnail"
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
         track.thumbnailUrl?.let { thumbnail.load(it) }
         card.addView(thumbnail, LinearLayout.LayoutParams(dp(112), dp(72)))
@@ -925,7 +926,9 @@ class MainActivity : Activity() {
             textSize = 21f
             setTextColor(if (saved) NexusDesignSystem.Palette.deepVinylGreen else NexusDesignSystem.Palette.terracotta)
             gravity = Gravity.CENTER
-            contentDescription = if (saved) "Saved to Library" else "Save to Library"
+            minWidth = dp(48)
+            minHeight = dp(48)
+            contentDescription = if (saved) "Remove ${track.title} from Library" else "Save ${track.title} to Library"
             setOnClickListener {
                 if (libraryStore.isSaved(track)) {
                     libraryStore.remove(track)
@@ -936,7 +939,7 @@ class MainActivity : Activity() {
                 }
                 renderSearchResults()
             }
-        }, LinearLayout.LayoutParams(dp(38), dp(54)))
+        }, LinearLayout.LayoutParams(dp(48), dp(48)))
         return card
     }
 

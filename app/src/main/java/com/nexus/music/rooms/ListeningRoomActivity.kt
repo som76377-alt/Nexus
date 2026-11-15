@@ -201,10 +201,10 @@ class ListeningRoomActivity : Activity() {
         }
         playbackFailureRow.addView(playbackFailureText, LinearLayout.LayoutParams(0, -2, 1f))
         playbackRetryButton = actionButton("Retry", true).apply {
-            minHeight = dp(36)
+            minHeight = dp(48)
             setOnClickListener { PlaybackService.retryPlaybackRecovery() }
         }
-        playbackFailureRow.addView(playbackRetryButton, LinearLayout.LayoutParams(-2, dp(36)).apply {
+        playbackFailureRow.addView(playbackRetryButton, LinearLayout.LayoutParams(-2, dp(48)).apply {
             marginStart = dp(8)
         })
         roomPanel.addView(playbackFailureRow, params(8))
@@ -245,7 +245,7 @@ class ListeningRoomActivity : Activity() {
         sendButton = actionButton("Send", true).apply {
             setOnClickListener { sendMessage() }
         }
-        sendRow.addView(sendButton, LinearLayout.LayoutParams(-2, dp(44)).apply {
+        sendRow.addView(sendButton, LinearLayout.LayoutParams(-2, dp(48)).apply {
             marginStart = dp(8)
         })
         roomPanel.addView(sendRow, params(0))
@@ -715,7 +715,7 @@ class ListeningRoomActivity : Activity() {
         typeface = Typeface.DEFAULT_BOLD
         background = rounded(if (primary) accent else raised, 10)
         typeface = NexusDesignSystem.Type.experimental(this@ListeningRoomActivity)
-        minHeight = dp(46)
+        minHeight = dp(48)
     }
 
     private fun params(top: Int) = LinearLayout.LayoutParams(-1, -2).apply {

@@ -15,7 +15,7 @@ Work in the existing Nexus Android music and synchronized-listening repository. 
 7. **Two-device evidence.** Do not claim real synchronization, lock-screen, interruption, latency, or device behavior without evidence from two physical devices. Mark such behavior UNVERIFIED when only code and CI have been checked.
 8. **Local-first and scope control.** Local playback must never wait on room/network work. Do not expand scope, add features, modify SQL migrations without proving the required migration-first path, or create new architecture records. Do not alter unrelated app behavior.
 9. **Honest reporting.** Report actual branch, commit, CI run, failures, test coverage, and line delta. No fake completion claims, no vague “fixed” statements, no defending a broken result. If a decision is genuinely ambiguous, record DECISION-NEEDED in WORKLOG.md and report it.
-10. **Branch safety.** Never commit directly to main, never merge a task branch into main, and never delete branches. Task PRs merge only into integration/room-v2 after green CI. The final integration-to-main PR must remain a single draft PR and must not be merged.
+10. **Branch safety.** Never commit directly to main, never merge a task branch into main, and never delete branches. Task PRs merge only into integration/room-v2 after green CI. The final integration-to-main PR must remain a single draft PR unless the repository owner explicitly authorizes changing this rule; with that authorization, merge only the single reviewed consolidation PR after exact-head Android and Web checks pass.
 
 ## Room design constraints
 
@@ -45,6 +45,6 @@ Execute tasks in the order below. For each task: create a task branch from the c
 ## Retry, merge, and final-report rules
 
 - After three failed attempts on a task, revert that task, mark it BLOCKED in WORKLOG.md, and continue with the next independent task. T1 blocked is the only task-level stop condition.
-- Never touch main during task execution. Never delete branches.
+- Never touch main during task execution. Never delete branches. The repository owner may explicitly authorize the final consolidation merge; record that authorization in the final PR and merge only after exact-head checks pass.
 - Maintain one root WORKLOG.md row per task with status, commit, CI run/link, and a concise learning/root-cause note.
-- When the queue is complete, create exactly one draft PR from integration/room-v2 to main. Do not merge it. Its body must be a final report of no more than 400 words, with a table containing task, DONE/BLOCKED/SKIPPED, commit, CI link, SPEC IDs, and net line delta; then list UNVERIFIED device behavior, DECISION-NEEDED items, and the two-phone test checklist.
+- When the queue is complete, create exactly one PR from integration/room-v2 to main. Default to draft and do not merge it. If the repository owner explicitly authorizes changing this final-merge restriction, record that authorization in the PR body, complete the full diff review, require exact-head Android and Web checks, and merge that one consolidation PR only. Its body must be a final report of no more than 400 words, with a table containing task, DONE/BLOCKED/SKIPPED, commit, CI link, SPEC IDs, and net line delta; then list UNVERIFIED device behavior, DECISION-NEEDED items, and the two-phone test checklist.

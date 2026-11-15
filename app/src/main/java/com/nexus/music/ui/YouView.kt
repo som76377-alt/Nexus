@@ -106,13 +106,18 @@ class YouView(
         storageTop.addView(storageLabels, LayoutParams(0, -2, 1f))
         storageTop.addView(text("Clear", 12f, NexusDesignSystem.Palette.oxblood).apply {
             isClickable = true; isFocusable = true
-            setPadding(dp(12), dp(8), dp(12), dp(8))
+            minWidth = dp(48); minHeight = dp(48)
+            gravity = Gravity.CENTER
+            contentDescription = "Clear cached audio"
             setOnClickListener { onClearCache() }
         })
         storage.addView(storageTop)
         val capLabel = when (cacheMaxBytes) { 500L shl 20 -> "500 MB"; 2L shl 30 -> "2 GB"; else -> "1 GB" }
         storage.addView(text("Cache limit · $capLabel", 11f, muted).apply {
-            setPadding(0, dp(10), 0, 0); isClickable = true; isFocusable = true
+            minHeight = dp(48)
+            gravity = Gravity.CENTER_VERTICAL
+            isClickable = true; isFocusable = true
+            contentDescription = "Change offline audio cache limit. Current limit: $capLabel"
             setOnClickListener {
                 PopupMenu(context, this).apply {
                     menu.add("500 MB").setOnMenuItemClickListener { onCacheLimitChanged(500L shl 20); true }

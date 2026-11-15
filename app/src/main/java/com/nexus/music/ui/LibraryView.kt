@@ -41,7 +41,7 @@ class LibraryView(
             contentDescription = "Back to Home"
             setOnClickListener { onBack() }
         }
-        header.addView(back, LayoutParams(dp(44), dp(48)))
+        header.addView(back, LayoutParams(dp(48), dp(48)))
         val title = TextView(context).apply {
             text = "Your collection"
             textSize = 29f
@@ -154,9 +154,9 @@ class LibraryView(
                 textSize = 23f
                 setTextColor(NexusDesignSystem.Palette.oxblood)
                 gravity = Gravity.CENTER
-                contentDescription = "Remove from saved records"
+                contentDescription = "Remove ${track.title} from saved records"
                 setOnClickListener { onRemove(track) }
-            }, LayoutParams(dp(38), dp(48)))
+            }, LayoutParams(dp(48), dp(48)))
         } else {
             row.addView(TextView(context).apply {
                 text = "▶"
