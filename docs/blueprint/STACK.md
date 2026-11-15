@@ -1,30 +1,41 @@
 # Nexus stack audit
 
 Audit date: 2026-11-15
-Audited ref: `integration/room-v2`
-Audited commit: `ea2c51e5fe5bc995063d752d9bf400ce0442ad3e`
+Audited source ref: integration/room-v2
+Baseline commit: ea2c51e5fe5bc995063d752d9bf400ce0442ad3e
 
 ## Confirmed stack
 
-- **Platform/language:** native Android application, Kotlin, one `:app` module. Compile SDK 36, target SDK 36, minimum SDK 24, Java 17.
-- **UI toolkit:** Android framework Views built programmatically. The current source does **not** use Jetpack Compose or Compose Scaffold. Blueprint references to composables/Scaffold must be adapted to presentation-only View components and a single Activity-owned navigation/content host; do not migrate the UI toolkit merely to match terminology.
-- **Entry/navigation:** `MainActivity` owns Home, Library and You screens by replacing content inside a `ScrollView`; it creates the bottom bar through `NexusUi.bottomNavigation`. Rooms is launched as a separate `ListeningRoomActivity`. This duplicates navigation ownership and prevents one stable bar across all four destinations.
-- **Bottom bar and Rooms:** `MainActivity` owns `bottomNavigationHost`; `ListeningRoomActivity` independently creates and owns another bottom navigation view. In Rooms, `ListeningRoomActivity` sets `SOFT_INPUT_ADJUST_RESIZE` and places its bottom navigation at the bottom of a vertical root layout. The IME resizes that whole window/layout, so the bar can move upward when the keyboard appears. The precise pixel/bounds defect is not measured yet; the structural cause is confirmed.
-- **Search/catalogue:** `SearchPanel` is a programmatic View using the existing `YoutubeCatalogRepository` / `NexusCatalog` path. Keep it as a black box for this redesign. No provider/extractor/NewPipe changes are in scope.
-- **Images:** Coil 3 (`coil3.load`) for artwork and thumbnails.
-- **Playback:** Media3 / ExoPlayer and MediaSession are owned by `PlaybackService`; UI callbacks use `PlaybackConnection`. Visual code must not touch this layer.
-- **Local library:** `LocalLibraryStore` currently stores Saved and Recently Played metadata as JSON in Android SharedPreferences (`nexus_library`), not AndroidX Room. It stores canonical track URLs and display metadata, not temporary stream URLs. Playlists and Watch later are not implemented in this store.
-- **Room backend:** Supabase REST/Realtime through the existing rooms API/repository and service-owned controller. The Rooms Activity observes room state and handles chat presentation. Do not change this path for visual work.
-- **Caching:** the existing audio cache is playback-adjacent and currently exposed in You; it is owned by playback/cache classes. Keep it untouched unless a separately permitted task is approved.
-- **Design assets:** five licensed font resources and existing vinyl/tonearm PNG assets are present. No verified CC0 leather/dark-stone/brushed-metal scan is registered yet.
+- Native Android application, Kotlin, one :app module. Compile SDK 36, target SDK 36, minimum SDK 24, Java 17.
+- UI toolkit is Android framework Views built programmatically. The current source does not use Jetpack Compose or Compose Scaffold. Blueprint references to composables/Scaffold are adapted to presentation-only Views and shared material/navigation tokens.
+- MainActivity originally owns Home, Library and You by replacing content inside a ScrollView; its bottom bar is built by NexusUi.bottomNavigation.
+- Rooms is a separate ListeningRoomActivity that owns its own copy of bottom navigation and observes the PlaybackService-owned room controller. Room originally used SOFT_INPUT_ADJUST_RESIZE with the bar at the bottom of a vertical root, causing the bar to shift when the IME resized the window.
+- Search uses SearchPanel and the existing NexusCatalog.repository().search interface. Search execution and stream resolution remain unchanged.
+- Images load with Coil 3.
+- Playback uses Media3/ExoPlayer and MediaSession owned by PlaybackService; UI commands go through PlaybackConnection.
+- Current local Saved/History persistence uses JSON in Android SharedPreferences (nexus_library), not AndroidX Room. It stores canonical track URLs and display metadata, not short-lived stream URLs. The redesign branch extends this compatible format with Watch later, custom playlists and local play timestamps.
+- Supabase REST/Realtime and room state remain in existing room APIs/service controller. No room transport code was changed in this redesign.
+- The existing playback/audio cache remains in the playback layer. The redesign removed its management controls from You but did not change the cache implementation.
+
+## Bottom-bar root cause and redesign-branch behavior
+
+The structural issue is confirmed: two Activities independently create navigation bars; Room also used adjustResize. On the redesign branch the Rooms bar stays visible after joining, and the Activity uses adjustNothing plus WindowInsetsCompat to move/pad only the chat composer. The bar is therefore no longer part of the resizable chat layout.
+
+UNVERIFIED: pixel-equal bottom-bar bounds with the keyboard open have not been tested on device or screenshot instrumentation. Rooms remains a separate Activity; the roadmap's strict single-root-Activity requirement is not fully met in this pass.
+
+## Current branch architecture additions
+
+- New View-based MaterialSurface draws a flat token placeholder; no screen loads texture files directly.
+- NexusDesignSystem defines dark canvas/support surfaces, three radius roles and a single type-family facade.
+- NexusExperienceSettings stores Reduce effects and haptics preferences; effects are disabled on low-RAM and battery-saver conditions.
+- LocalLibraryStore stores Saved/History/Watch later/playlists in SharedPreferences; Room DB migration is still outstanding.
+- RecommendationMixer is a deterministic 60/40 taste/exploration mixer over configured JSON buckets. Cache/history also use SharedPreferences until Room migration.
+- TasteProfileComputer aggregates local play timestamps into up to 100 artist scores with a 30-day half-life. BlendGenerator builds shared-first, alternating 50-track mixes. Pair sharing remains a stub pending approved Supabase table/RLS migration.
+- NowPlayingView no longer runs an infinite disc animation; finite spin and tilt are presentation-only.
 
 ## Verification
 
-- Latest exact integration commit checked: `ea2c51e5fe5bc995063d752d9bf400ce0442ad3e`.
-- Android CI: run [43698587696](https://github.com/som76377-alt/Nexus/actions/runs/43698587696), completed successfully on that exact SHA.
-- Web room test: run [43698587670](https://github.com/som76377-alt/Nexus/actions/runs/43698587670), completed successfully on that exact SHA.
-- No device screenshots, low-RAM measurements or two-device results were available during this audit. Those remain **UNVERIFIED**.
-
-## Adaptation notes
-
-The roadmap's Jetpack Compose terms are conceptual UI ownership requirements, not an instruction to introduce Compose. Implement equivalent View-based single-host navigation only if it can preserve existing room/playback ownership without changing playback or room transport. The blueprint's "Room tables" means AndroidX Room database tables; current persistence is SharedPreferences, so the current state must be migrated deliberately and tested rather than assumed to already exist.
+- Baseline Android CI run 43698587696 succeeded on baseline commit ea2c51e5fe5bc995063d752d9bf400ce0442ad3e.
+- Baseline Web room test 43698587670 succeeded on the same baseline commit.
+- No redesign-branch CI result has been obtained yet.
+- No weak-device screenshots, frame-jank measurements, memory measurements or two-device results are available. All are UNVERIFIED.
