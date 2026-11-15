@@ -44,7 +44,7 @@ object NexusUi {
         const val miniPlayerArtwork = 48
     }
 
-    enum class NavigationTab { HOME, LIBRARY, ROOM, YOU }
+    enum class NavigationTab { HOME, SEARCH, ROOMS, YOU }
 
     data class MiniPlayerViews(
         val container: LinearLayout,
@@ -102,14 +102,14 @@ object NexusUi {
         context: Context,
         selected: NavigationTab,
         onHome: () -> Unit,
-        onLibrary: () -> Unit,
+        onSearch: () -> Unit,
         onRoom: () -> Unit,
         onYou: () -> Unit
     ): LinearLayout {
         val bar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            background = rounded(context, Colors.surface, 18)
+            background = rounded(context, Colors.surface, NexusDesignSystem.Shape.large)
             setPadding(dp(context, 10), dp(context, 7), dp(context, 10), dp(context, 7))
         }
 
@@ -130,8 +130,8 @@ object NexusUi {
 
         val tabs = listOf(
             Triple("Home", NavigationTab.HOME, onHome),
-            Triple("Library", NavigationTab.LIBRARY, onLibrary),
-            Triple("Room", NavigationTab.ROOM, onRoom),
+            Triple("Search", NavigationTab.SEARCH, onSearch),
+            Triple("Rooms", NavigationTab.ROOMS, onRoom),
             Triple("You", NavigationTab.YOU, onYou)
         )
         tabs.forEachIndexed { index, (title, destination, callback) ->
@@ -207,7 +207,7 @@ object NexusUi {
         val playPause = ImageButton(context).apply {
             contentDescription = "Play"
             isEnabled = false
-            background = rounded(context, Colors.accent, 12)
+            background = rounded(context, Colors.raised, NexusDesignSystem.Shape.control)
             setPadding(dp(context, 14), dp(context, 12), dp(context, 14), dp(context, 12))
             setImageDrawable(PlaybackGlyphDrawable(context, playing = false))
             setOnClickListener { onTogglePlayback() }
