@@ -25,3 +25,5 @@
 2026-11-15 | Thumbnail URLs remain those supplied by the existing catalogue interface | Provider/extractor/thumbnail URL resolution is out of scope and UI must treat catalogue as black box | A presentation-only image loader fallback can be added after current thumbnail host/format contracts are verified.
 
 2026-11-15 | A finite Player spin replaces the old continuously repeating disc animation | Blueprint mandates zero permanent animation loops and reduced GPU use on weak phones | Revisit only after owner visual check, retaining state-change-only behavior.
+
+2026-11-15 | Do not retain recommendation/Blend unit tests that cannot truthfully name an immutable SPEC S1–S8 requirement | AGENTS.md says all tests must cite an applicable SPEC ID and exercise observable behavior; none of S1–S8 specifies Home recommendations or Blend mix ordering. Their standalone tests were removed from this repo-policy branch rather than falsely tagged | Revisit only if the owner authorizes a repository test-policy exception or adds a separate applicable immutable product spec.
