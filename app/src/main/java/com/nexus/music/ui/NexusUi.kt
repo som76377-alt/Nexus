@@ -93,9 +93,9 @@ object NexusUi {
         minHeight = dp(context, Spacing.controlHeight)
         minimumHeight = dp(context, Spacing.controlHeight)
         setPadding(dp(context, 12), 0, dp(context, 12), 0)
-        setTextColor(if (primary) Colors.accentForeground else Colors.foreground)
+        setTextColor(Colors.foreground)
         typeface = Typeface.create(NexusDesignSystem.Type.interfaceText(context), Typeface.BOLD)
-        background = rounded(context, if (primary) Colors.accent else Colors.raised, 10)
+        background = rounded(context, Colors.raised, NexusDesignSystem.Shape.control)
     }
 
     fun bottomNavigation(
@@ -123,8 +123,8 @@ object NexusUi {
                     minimumHeight = dp(context, Spacing.controlHeight)
                 typeface = Typeface.create(NexusDesignSystem.Type.experimental(context), Typeface.BOLD)
                 val isSelected = selected == tab
-                setTextColor(if (isSelected) Colors.accentForeground else Colors.foreground)
-                background = rounded(context, if (isSelected) Colors.accent else Colors.raised, 12)
+                setTextColor(Colors.foreground)
+                background = rounded(context, Colors.raised, NexusDesignSystem.Shape.control)
                 setOnClickListener { onClick() }
             }
 
@@ -232,7 +232,7 @@ object NexusUi {
     ) : Drawable() {
         private val density = context.resources.displayMetrics.density
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Colors.accentForeground
+            color = Colors.foreground
             style = Paint.Style.FILL
         }
 
