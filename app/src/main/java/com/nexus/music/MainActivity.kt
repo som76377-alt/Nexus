@@ -1103,7 +1103,8 @@ class MainActivity : Activity() {
         setIntent(intent)
         when {
             intent.getBooleanExtra(EXTRA_OPEN_YOU, false) -> showYou()
-            intent.getBooleanExtra(EXTRA_OPEN_LIBRARY, false) -> showLibrary()
+            intent.getBooleanExtra(EXTRA_OPEN_SEARCH, false) -> showSearch()
+            intent.getBooleanExtra(EXTRA_OPEN_LIBRARY, false) -> showLibrary("Saved", libraryStore.savedTracks(), allowRemove = true)
             else -> showHome()
         }
     }
@@ -1142,6 +1143,7 @@ class MainActivity : Activity() {
 
     companion object {
         const val EXTRA_OPEN_LIBRARY = "com.nexus.music.extra.OPEN_LIBRARY"
+        const val EXTRA_OPEN_SEARCH = "com.nexus.music.extra.OPEN_SEARCH"
         const val EXTRA_OPEN_YOU = "com.nexus.music.extra.OPEN_YOU"
     }
 }
