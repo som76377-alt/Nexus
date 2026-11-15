@@ -732,7 +732,7 @@ class MainActivity : Activity() {
                 val duration = lastPlaybackSnapshot.durationMs
                 if (duration > 0L) {
                     val target = duration * progress.toLong() / playbackProgress.max
-                    NexusHaptics.seekStep(player.progress, experienceSettings)
+                    NexusHaptics.seekStep(playbackProgress, experienceSettings)
                     playbackConnection?.seekTo(target)
                 }
                 isSeeking = false
