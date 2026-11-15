@@ -32,6 +32,7 @@ import android.widget.Toast
 import androidx.media3.common.Player
 import coil3.load
 import com.nexus.music.catalog.CatalogTrack
+import com.nexus.music.blend.TasteProfileComputer
 import com.nexus.music.library.LocalLibraryStore
 import com.nexus.music.ui.LibraryView
 import com.nexus.music.ui.NexusUi
@@ -904,10 +905,11 @@ class MainActivity : Activity() {
                     }.awaitAll().toMap()
                 }
 
-                val recentArtists = libraryStore.recentTracks()
-                    .mapNotNull { it.artist?.trim()?.takeIf(String::isNotBlank) }
-                    .distinct()
-                    .take(3)
+                val recentTracks = libraryStore.recentTracks()
+                val recentArtists = TasteProfileComputer.compute(
+                    events = libraryStore.playHistory(),
+                    nowMs = System.currentTimeMillis()
+                ).artists.take(3).map { it.artist }
                 val tasteQueries = recentArtists.map { "$it similar artists music" }
                 val tasteSearches = coroutineScope {
                     tasteQueries.map { query ->
@@ -920,6 +922,7 @@ class MainActivity : Activity() {
                     }.awaitAll().flatten()
                 }
                 val tastePool = (
+                    recentTracks.take(60) +
                     libraryStore.savedTracks().take(60) +
                     tasteSearches
                 ).distinctBy { it.url }
