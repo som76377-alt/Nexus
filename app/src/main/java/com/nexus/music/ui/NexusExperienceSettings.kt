@@ -2,6 +2,7 @@ package com.nexus.music.ui
 
 import android.app.ActivityManager
 import android.content.Context
+import android.os.Build
 import android.os.PowerManager
 import android.view.HapticFeedbackConstants
 import android.view.View
@@ -43,7 +44,14 @@ object SilentUiSoundPolicy : UiSoundPolicy {
 
 object NexusHaptics {
     fun confirm(view: View, settings: NexusExperienceSettings) {
-        if (settings.hapticsEnabled) view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+        if (settings.hapticsEnabled) {
+            val feedback = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                HapticFeedbackConstants.CONFIRM
+            } else {
+                HapticFeedbackConstants.VIRTUAL_KEY
+            }
+            view.performHapticFeedback(feedback)
+        }
     }
 
     fun seekStep(view: View, settings: NexusExperienceSettings) {
