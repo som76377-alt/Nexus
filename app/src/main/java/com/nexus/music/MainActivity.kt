@@ -16,6 +16,7 @@ import android.net.Uri
 import android.provider.Settings
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowInsets
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
@@ -438,6 +439,7 @@ class MainActivity : Activity() {
     private fun showYou() {
         if (!::mainScroll.isInitialized) return
         youRenderGeneration++
+        (updatePanel.parent as? ViewGroup)?.removeView(updatePanel)
         val youContent = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(screenBackground)
@@ -445,8 +447,6 @@ class MainActivity : Activity() {
         youContent.addView(
             YouView(
                 context = this,
-                savedCount = libraryStore.savedTracks().size,
-                historyCount = libraryStore.recentTracks().size,
                 partnerStatus = "Not connected",
                 roomStatus = "Open Rooms to connect",
                 reduceEffects = experienceSettings.reduceEffects || experienceSettings.effectsShouldBeReduced(),
