@@ -154,12 +154,12 @@ class SearchPanel(
         scopeToggleButton.contentDescription =
             "Search scope: ${if (songsSelected) "Songs" else "All"}. Tap to switch."
         scopeToggleButton.setTextColor(
-            if (songsSelected) NexusUi.Colors.accentForeground else NexusUi.Colors.foreground
+            NexusUi.Colors.foreground
         )
         scopeToggleButton.background = NexusUi.rounded(
             context,
-            if (songsSelected) NexusUi.Colors.accent else NexusUi.Colors.raised,
-            12
+            if (songsSelected) NexusUi.Colors.raised else NexusUi.Colors.surface,
+            NexusDesignSystem.Shape.control
         )
     }
 }
