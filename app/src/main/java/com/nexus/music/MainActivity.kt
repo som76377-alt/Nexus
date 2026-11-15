@@ -915,7 +915,8 @@ class MainActivity : Activity() {
                                         .distinctBy { it.url }
                                         .take(24)
                                 }.getOrDefault(emptyList()).also {
-                                    recommendationCache.put(bucket.id, it)
+                                    // Never cache transient empty/network-failure results for six hours.
+                                    if (it.isNotEmpty()) recommendationCache.put(bucket.id, it)
                                 }
                                 bucket.id to tracks
                             }
@@ -990,12 +991,18 @@ class MainActivity : Activity() {
                 val entries = item.optJSONArray("buckets") ?: continue
                 val buckets = buildList {
                     for (bucketIndex in 0 until entries.length()) {
-                        val bucket = entries.optJSONObject(bucketIndex) ?: continue
-                        val bucketId = bucket.optString("id").trim()
-                        val label = bucket.optString("label").trim()
-                        val query = bucket.optString("query").trim()
+                        // Accept both the compact legacy tuple format and named objects.
+                        // The shipped genre-buckets.json uses [id, label, query, scope].
+                        val tuple = entries.optJSONArray(bucketIndex)
+                        val bucket = entries.optJSONObject(bucketIndex)
+                        val bucketId = (bucket?.optString("id") ?: tuple?.optString(0)).orEmpty().trim()
+                        val label = (bucket?.optString("label") ?: tuple?.optString(1)).orEmpty().trim()
+                        val query = (bucket?.optString("query") ?: tuple?.optString(2)).orEmpty().trim()
+                        val scopeName = bucket?.optString("scope")
+                            ?: tuple?.optString(3)
+                            ?: "MUSIC_SONGS"
                         val scope = runCatching {
-                            YoutubeSearchScope.valueOf(bucket.optString("scope", "MUSIC_SONGS"))
+                            YoutubeSearchScope.valueOf(scopeName)
                         }.getOrDefault(YoutubeSearchScope.MUSIC_SONGS)
                         if (bucketId.isNotEmpty() && label.isNotEmpty() && query.isNotEmpty()) {
                             add(DiscoveryBucket(bucketId, label, query, scope))
