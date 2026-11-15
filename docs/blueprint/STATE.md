@@ -86,3 +86,4 @@ Working branch: redesign/nexus-blueprint-v1.
 - [ ] 11.1 Conditional Player shader experiment only after owner feedback
 
 Last session: 2026-11-15 — implemented the first coordinated UI/library/recommendation/Blend-domain pass on the redesign branch. CI, device appearance, performance and migration/asset gates remain unverified or blocked.
+- 2026-11-15 performance pass: Home now paints cached discovery shelves before network refresh, fetches one starter bucket per shelf before enriching the remaining buckets, and pre-resolves up to four visible tracks with two concurrent resolver slots. Playback taps consume a prefetched ResolvedAudio when available; uncached selections still use the existing validated resolver path.
