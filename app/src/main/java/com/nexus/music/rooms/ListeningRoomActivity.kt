@@ -25,6 +25,7 @@ import com.nexus.music.MainActivity
 import com.nexus.music.ui.NexusUi
 import com.nexus.music.ui.NexusDesignSystem
 import com.nexus.music.ui.MaterialSurface
+import com.nexus.music.ui.DebugJankMonitor
 import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackService
 import com.nexus.music.rooms.domain.RoomConnectionState
@@ -85,6 +86,7 @@ class ListeningRoomActivity : Activity() {
     private var lastChatSignalVersion = 0L
     private var isActivityStarted = false
     private var backInvokedCallback: android.window.OnBackInvokedCallback? = null
+    private var jankMonitor: DebugJankMonitor? = null
 
     private val background = NexusDesignSystem.Palette.archiveIvory
     private val surface = NexusDesignSystem.Palette.sleeveWhite
@@ -267,6 +269,8 @@ class ListeningRoomActivity : Activity() {
         }
         setContentView(root)
         ViewCompat.requestApplyInsets(root)
+        jankMonitor = DebugJankMonitor(window)
+        jankMonitor?.setEnabled(false)
         registerBackNavigation()
         playback = PlaybackConnection(
             context = this,
@@ -750,6 +754,7 @@ class ListeningRoomActivity : Activity() {
     override fun onStart() {
         super.onStart()
         isActivityStarted = true
+        jankMonitor?.setEnabled(true)
         startChatFallbackSync()
         if (roomId != null) {
             scope.launch {
@@ -766,6 +771,7 @@ class ListeningRoomActivity : Activity() {
 
     override fun onStop() {
         isActivityStarted = false
+        jankMonitor?.setEnabled(false)
         stopChatFallbackSync()
         super.onStop()
     }
