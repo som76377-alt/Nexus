@@ -22,6 +22,7 @@ import android.widget.Toast
 import com.nexus.music.MainActivity
 import com.nexus.music.ui.NexusUi
 import com.nexus.music.ui.NexusDesignSystem
+import com.nexus.music.ui.MaterialSurface
 import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackService
 import com.nexus.music.rooms.domain.RoomConnectionState
