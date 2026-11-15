@@ -80,6 +80,18 @@ import kotlin.random.Random
 
 class MainActivity : Activity() {
     private enum class SearchSort { RELEVANCE, POPULAR, TITLE, DURATION }
+
+    private data class DiscoveryBucket(
+        val id: String,
+        val label: String,
+        val query: String,
+        val scope: YoutubeSearchScope
+    )
+    private data class DiscoveryShelf(
+        val id: String,
+        val title: String,
+        val buckets: List<DiscoveryBucket>
+    )
     private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val repository by lazy { NexusCatalog.repository(this) }
     private val libraryStore by lazy { LocalLibraryStore(this) }
@@ -874,33 +886,37 @@ class MainActivity : Activity() {
         recommendationsJob?.cancel()
         val generation = ++recommendationsGeneration
         val seed = Random.nextLong()
-        val buckets = readGenreBuckets().shuffled(Random(seed)).take(6)
+        val shelves = readDiscoveryShelves()
+        val buckets = shelves.flatMap { it.buckets }
         homeShelvesContainer.removeAllViews()
 
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        header.addView(text("Recommendations", 19f, primaryText, bold = true), LinearLayout.LayoutParams(0, -2, 1f))
+        header.addView(text("Discover", 21f, primaryText, bold = true), LinearLayout.LayoutParams(0, -2, 1f))
         header.addView(NexusUi.actionButton(this, "Reroll", primary = false).apply {
             setOnClickListener { loadHomeShelves() }
         }, LinearLayout.LayoutParams(-2, dp(42)))
         homeShelvesContainer.addView(header, verticalParams(12))
-        val status = text("Finding a new mix…", 13f, secondaryText)
+        val status = text("Building your music shelves…", 13f, secondaryText)
         homeShelvesContainer.addView(status, verticalParams(8))
 
         recommendationsJob = activityScope.launch {
             try {
                 val semaphore = Semaphore(3)
-                val genreResults = coroutineScope {
+                val bucketResults = coroutineScope {
                     buckets.map { bucket ->
                         async {
                             semaphore.withPermit {
                                 val cached = recommendationCache.get(bucket.id)
-                                val tracks = cached ?: repository.search(bucket.query, YoutubeSearchScope.MUSIC_SONGS)
-                                    .distinctBy { it.url }
-                                    .take(40)
-                                    .also { recommendationCache.put(bucket.id, it) }
+                                val tracks = cached ?: runCatching {
+                                    repository.search(bucket.query, bucket.scope)
+                                        .distinctBy { it.url }
+                                        .take(24)
+                                }.getOrDefault(emptyList()).also {
+                                    recommendationCache.put(bucket.id, it)
+                                }
                                 bucket.id to tracks
                             }
                         }
@@ -912,13 +928,13 @@ class MainActivity : Activity() {
                     events = libraryStore.playHistory(),
                     nowMs = System.currentTimeMillis()
                 ).artists.take(3).map { it.artist }
-                val tasteQueries = recentArtists.map { "$it similar artists music" }
                 val tasteSearches = coroutineScope {
-                    tasteQueries.map { query ->
+                    recentArtists.map { artist ->
                         async {
                             semaphore.withPermit {
-                                runCatching { repository.search(query, YoutubeSearchScope.MUSIC_SONGS) }
-                                    .getOrDefault(emptyList())
+                                runCatching {
+                                    repository.search("$artist similar artists music", YoutubeSearchScope.MUSIC_SONGS)
+                                }.getOrDefault(emptyList())
                             }
                         }
                     }.awaitAll().flatten()
@@ -928,22 +944,30 @@ class MainActivity : Activity() {
                     libraryStore.savedTracks().take(60) +
                     tasteSearches
                 ).distinctBy { it.url }
-
-                val batch = RecommendationMixer.mix(
+                val forYou = RecommendationMixer.mix(
                     tasteTracks = tastePool,
-                    genreTracks = genreResults,
+                    genreTracks = bucketResults,
                     seed = seed,
                     excludedIds = recommendationHistory.shownIds(),
                     limit = 20
                 )
                 if (generation != recommendationsGeneration || isFinishing || isDestroyed) return@launch
 
-                if (batch.isEmpty()) {
+                val visibleShelves = shelves.mapNotNull { shelf ->
+                    val tracks = shelf.buckets
+                        .flatMap { bucketResults[it.id].orEmpty() }
+                        .distinctBy { it.url }
+                        .take(18)
+                    if (tracks.isEmpty()) null else shelf.title to tracks
+                }
+                if (forYou.isEmpty() && visibleShelves.isEmpty()) {
                     status.text = "Recommendations are unavailable right now."
+                    status.setOnClickListener { loadHomeShelves() }
                     return@launch
                 }
-                recommendationHistory.remember(batch)
-                renderRecommendationTiles(batch)
+                status.visibility = View.GONE
+                if (forYou.isNotEmpty()) recommendationHistory.remember(forYou)
+                renderRecommendationTiles(forYou, visibleShelves)
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Exception) {
@@ -955,34 +979,61 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun readGenreBuckets(): List<GenreBucket> = runCatching {
+    private fun readDiscoveryShelves(): List<DiscoveryShelf> = runCatching {
         val raw = assets.open("genre-buckets.json").bufferedReader().use { it.readText() }
-        val array = JSONArray(org.json.JSONObject(raw).getJSONArray("buckets").toString())
+        val source = org.json.JSONObject(raw).getJSONArray("shelves")
         buildList {
-            for (index in 0 until array.length()) {
-                val item = array.optJSONObject(index) ?: continue
+            for (index in 0 until source.length()) {
+                val item = source.optJSONObject(index) ?: continue
                 val id = item.optString("id").trim()
-                val label = item.optString("label").trim()
-                val query = item.optString("query").trim()
-                if (id.isNotEmpty() && label.isNotEmpty() && query.isNotEmpty()) {
-                    add(GenreBucket(id, label, query))
+                val title = item.optString("title").trim()
+                val entries = item.optJSONArray("buckets") ?: continue
+                val buckets = buildList {
+                    for (bucketIndex in 0 until entries.length()) {
+                        val bucket = entries.optJSONObject(bucketIndex) ?: continue
+                        val bucketId = bucket.optString("id").trim()
+                        val label = bucket.optString("label").trim()
+                        val query = bucket.optString("query").trim()
+                        val scope = runCatching {
+                            YoutubeSearchScope.valueOf(bucket.optString("scope", "MUSIC_SONGS"))
+                        }.getOrDefault(YoutubeSearchScope.MUSIC_SONGS)
+                        if (bucketId.isNotEmpty() && label.isNotEmpty() && query.isNotEmpty()) {
+                            add(DiscoveryBucket(bucketId, label, query, scope))
+                        }
+                    }
+                }
+                if (id.isNotEmpty() && title.isNotEmpty() && buckets.isNotEmpty()) {
+                    add(DiscoveryShelf(id, title, buckets))
                 }
             }
         }
     }.getOrDefault(emptyList())
 
-    private fun renderRecommendationTiles(tracks: List<CatalogTrack>) {
+    private fun renderRecommendationTiles(
+        forYou: List<CatalogTrack>,
+        shelves: List<Pair<String, List<CatalogTrack>>>
+    ) {
         homeShelvesContainer.removeAllViews()
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        header.addView(text("Recommendations", 19f, primaryText, bold = true), LinearLayout.LayoutParams(0, -2, 1f))
+        header.addView(text("Discover", 21f, primaryText, bold = true), LinearLayout.LayoutParams(0, -2, 1f))
         header.addView(NexusUi.actionButton(this, "Reroll", primary = false).apply {
             setOnClickListener { loadHomeShelves() }
         }, LinearLayout.LayoutParams(-2, dp(42)))
         homeShelvesContainer.addView(header, verticalParams(12))
 
+        if (forYou.isNotEmpty()) addRecommendationShelf("Picked for you", forYou)
+        shelves.forEach { (title, tracks) -> addRecommendationShelf(title, tracks) }
+    }
+
+    private fun addRecommendationShelf(title: String, tracks: List<CatalogTrack>) {
+        if (tracks.isEmpty()) return
+        homeShelvesContainer.addView(
+            text(title, 17f, primaryText, bold = true),
+            verticalParams(20)
+        )
         val horizontal = android.widget.HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
             clipToPadding = false
@@ -990,13 +1041,33 @@ class MainActivity : Activity() {
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         tracks.forEach { track -> row.addView(buildRecommendationTile(track)) }
         horizontal.addView(row)
-        homeShelvesContainer.addView(horizontal, verticalParams(10))
+        homeShelvesContainer.addView(horizontal, verticalParams(9))
+    }
+
+    private fun highResolutionThumbnail(track: CatalogTrack): String? {
+        val original = track.thumbnailUrl?.takeIf { it.startsWith("https://") }
+        val videoId = runCatching {
+            val uri = Uri.parse(track.url)
+            val host = uri.host.orEmpty().lowercase()
+            val segments = uri.pathSegments
+            val candidate = when {
+                host == "youtu.be" -> segments.firstOrNull()
+                host.endsWith("youtube.com") || host.endsWith("youtube-nocookie.com") ->
+                    uri.getQueryParameter("v")
+                        ?: segments.windowed(2).firstOrNull {
+                            it[0] in setOf("embed", "shorts", "live", "v")
+                        }?.get(1)
+                else -> null
+            }
+            candidate?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{11}")) }
+        }.getOrNull()
+        return videoId?.let { "https://i.ytimg.com/vi/$it/maxresdefault.jpg" } ?: original
     }
 
     private fun buildRecommendationTile(track: CatalogTrack): LinearLayout {
         val tile = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(dp(142), -2).apply { marginEnd = dp(14) }
+            layoutParams = LinearLayout.LayoutParams(dp(158), -2).apply { marginEnd = dp(14) }
         }
         val artFrame = FrameLayout(this)
         val art = ImageView(this).apply {
@@ -1005,11 +1076,21 @@ class MainActivity : Activity() {
             clipToOutline = true
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
-        track.thumbnailUrl?.let { art.load(it) }
+        val originalThumbnail = track.thumbnailUrl?.takeIf { it.startsWith("https://") }
+        val preferredThumbnail = highResolutionThumbnail(track)
+        if (preferredThumbnail != null) {
+            art.load(preferredThumbnail) {
+                listener(onError = { _, _ ->
+                    if (originalThumbnail != null && originalThumbnail != preferredThumbnail) {
+                        art.load(originalThumbnail)
+                    }
+                })
+            }
+        }
         artFrame.addView(art, FrameLayout.LayoutParams(-1, -1))
         artFrame.setOnClickListener { startResolvingTrack(track) }
         artFrame.contentDescription = "Play " + track.title
-        tile.addView(artFrame, LinearLayout.LayoutParams(-1, dp(142)))
+        tile.addView(artFrame, LinearLayout.LayoutParams(-1, dp(158)))
 
         val detail = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
