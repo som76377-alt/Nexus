@@ -8,12 +8,12 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
-import android.graphics.RadialGradient
-import android.graphics.RectF
-import android.graphics.Shader
 import android.graphics.Typeface
 import android.os.Build
-import android.os.SystemClock
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.view.Gravity
 import android.view.View
 import android.view.animation.AccelerateDecelerateInterpolator
@@ -41,11 +41,27 @@ class NowPlayingView(
     private val vinylDiscResource = R.drawable.vinyl_disc
     private val tonearmResource = R.drawable.tonearm
 
-    private val ink = Color.rgb(38, 33, 30)
-    private val paper = Color.rgb(241, 232, 214)
-    private val muted = Color.rgb(112, 99, 84)
-    private val green = Color.rgb(32, 82, 71)
-    private val copper = Color.rgb(194, 93, 64)
+    private val ink = NexusDesignSystem.Palette.foreground
+    private val paper = NexusDesignSystem.Palette.canvas
+    private val muted = NexusDesignSystem.Palette.muted
+    private val green = NexusDesignSystem.Palette.muted
+    private val copper = NexusDesignSystem.Palette.muted
+    private val experienceSettings = NexusExperienceSettings(context)
+    private val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+    private val accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+    private var tiltRegistered = false
+    private val tiltListener = object : SensorEventListener {
+        override fun onSensorChanged(event: SensorEvent) {
+            if (!isShown || experienceSettings.effectsShouldBeReduced()) {
+                unregisterTilt()
+                return
+            }
+            val limit = dp(6).toFloat()
+            disc.translationX = -(event.values[0] * dp(0.35f)).coerceIn(-limit, limit)
+            disc.translationY = -(event.values[1] * dp(0.25f)).coerceIn(-limit, limit)
+        }
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+    }
     private val disc = ImageView(context)
     private val tonearm = ImageView(context)
     private val title = TextView(context)
@@ -66,7 +82,6 @@ class NowPlayingView(
     private var armAngle = REST_ANGLE
     private var armLift = 0f
     private var discAngle = 0f
-    private var lastFrameTime = 0L
     private var deckState = VinylMotion.DeckState.STOPPED
     private var armPhase = VinylMotion.ArmPhase.RESTING
     private val liftDistancePx = dp(LIFT_HEIGHT_DP)
@@ -88,7 +103,7 @@ class NowPlayingView(
             setOnClickListener { onClose() }
         }
         top.addView(close, LayoutParams(dp(52), dp(48)))
-        val label = text("NOW PLAYING", 11f, green, true).apply { letterSpacing = .18f }
+        val label = text("Now playing", 14f, muted, false)
         top.addView(label, LayoutParams(0, -2, 1f))
         addView(top, LayoutParams(-1, dp(52)))
 
@@ -96,7 +111,6 @@ class NowPlayingView(
             clipChildren = false
             clipToPadding = false
         }
-        stage.addView(RecordShadowView(context), FrameLayout.LayoutParams(dp(DISC_SIZE_DP), dp(DISC_SIZE_DP), Gravity.CENTER))
         disc.apply {
             setImageResource(vinylDiscResource)
             scaleType = ImageView.ScaleType.FIT_CENTER
@@ -138,8 +152,8 @@ class NowPlayingView(
         remaining.apply { textSize = 11f; setTextColor(muted); typeface = Typeface.MONOSPACE; gravity = Gravity.END }
         timeline.addView(elapsed, LayoutParams(dp(48), -2))
         seek.max = 1000
-        seek.progressTintList = android.content.res.ColorStateList.valueOf(green)
-        seek.thumbTintList = android.content.res.ColorStateList.valueOf(copper)
+        seek.progressTintList = android.content.res.ColorStateList.valueOf(muted)
+        seek.thumbTintList = android.content.res.ColorStateList.valueOf(muted)
         seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar?, value: Int, fromUser: Boolean) { if (fromUser) isSeeking = true }
             override fun onStartTrackingTouch(bar: SeekBar?) { isSeeking = true }
@@ -161,7 +175,7 @@ class NowPlayingView(
         play.apply {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(green)
+                setColor(NexusDesignSystem.Palette.metal)
             }
             setImageDrawable(TransportGlyph(context, false))
             contentDescription = "Play"
@@ -186,7 +200,7 @@ class NowPlayingView(
     fun render(snapshot: PlaybackSnapshot) {
         lastSnapshot = snapshot
         title.text = snapshot.title.ifBlank { "Nothing playing" }
-        artist.text = snapshot.artist.ifBlank { "Choose a record from the collection" }
+        artist.text = snapshot.artist.ifBlank { "No track selected" }
         durationMs = snapshot.durationMs
         lastPositionMs = snapshot.positionMs
         elapsed.text = clock(snapshot.positionMs)
@@ -417,28 +431,30 @@ class NowPlayingView(
         tonearm.elevation = dp(1) + dp(ARM_SHADOW_HEIGHT_DP) * armLift
     }
 
+    /** One short spin is triggered by the play-state change; there is no infinite frame loop. */
     private fun startFrameTicker() {
-        if (discAnimator?.isStarted == true) return
-        lastFrameTime = SystemClock.uptimeMillis()
-        val ticker = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = FRAME_TICK_MS
-            repeatCount = ValueAnimator.INFINITE
+        if (discAnimator?.isRunning == true) return
+        lateinit var spin: ValueAnimator
+        spin = ValueAnimator.ofFloat(discAngle, discAngle + 360f).apply {
+            duration = 2_400L
             interpolator = LinearInterpolator()
-            addUpdateListener {
-                val now = SystemClock.uptimeMillis()
-                val delta = (now - lastFrameTime).coerceAtLeast(0L)
-                lastFrameTime = now
-                discAngle = (discAngle + delta * DEGREES_PER_MS * currentSpeed) % 360f
-                val wobble = sin(now.toDouble() / PLATTER_WOBBLE_PERIOD_MS).toFloat() * PLATTER_WOBBLE_DEGREES
-                disc.rotation = discAngle + wobble
-                if (armLift < 0.05f && armPhase == VinylMotion.ArmPhase.TRACKING) {
-                    tonearm.rotation = armAngle + sin(now.toDouble() / STYLUS_VIBRATION_PERIOD_MS).toFloat() * STYLUS_VIBRATION_DEGREES
-                }
+            addUpdateListener { animator ->
+                discAngle = ((animator.animatedValue as Float) % 360f)
+                disc.rotation = discAngle
             }
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    if (discAnimator !== spin) return
+                    discAngle = 0f
+                    disc.rotation = 0f
+                    discAnimator = null
+                    refreshLayers()
+                }
+            })
         }
-        discAnimator = ticker
+        discAnimator = spin
         disc.setLayerType(View.LAYER_TYPE_HARDWARE, null)
-        ticker.start()
+        spin.start()
     }
 
     private fun stopFrameTicker() {
@@ -464,7 +480,6 @@ class NowPlayingView(
         previousArmAnimator?.cancel()
         disc.setLayerType(View.LAYER_TYPE_NONE, null)
         tonearm.setLayerType(View.LAYER_TYPE_NONE, null)
-        lastFrameTime = 0L
     }
 
     private fun refreshLayers() {
@@ -475,24 +490,42 @@ class NowPlayingView(
     }
 
     private fun animationsEnabled(): Boolean =
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.O || ValueAnimator.areAnimatorsEnabled()
+        !experienceSettings.effectsShouldBeReduced() &&
+            (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || ValueAnimator.areAnimatorsEnabled())
+
+    private fun registerTilt() {
+        if (tiltRegistered || !isShown || experienceSettings.effectsShouldBeReduced()) return
+        val sensor = accelerometer ?: return
+        tiltRegistered = sensorManager.registerListener(tiltListener, sensor, SensorManager.SENSOR_DELAY_UI)
+    }
+
+    private fun unregisterTilt() {
+        if (tiltRegistered) sensorManager.unregisterListener(tiltListener)
+        tiltRegistered = false
+        disc.translationX = 0f
+        disc.translationY = 0f
+    }
 
     override fun onVisibilityChanged(changedView: View, visibility: Int) {
         super.onVisibilityChanged(changedView, visibility)
         if (changedView !== this) return
         if (visibility != VISIBLE) {
+            unregisterTilt()
             stopAllMotion()
         } else {
+            registerTilt()
             resumeMotionIfNeeded()
         }
     }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        registerTilt()
         resumeMotionIfNeeded()
     }
 
     override fun onDetachedFromWindow() {
+        unregisterTilt()
         stopAllMotion()
         super.onDetachedFromWindow()
     }
@@ -532,21 +565,8 @@ class NowPlayingView(
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
-    private inner class RecordShadowView(context: Context) : View(context) {
-        private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-        private val shadowBounds = RectF()
-        override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-            shadowBounds.set(w * 0.06f, h * 0.12f, w * 0.94f, h * 0.90f)
-            shadowPaint.shader = RadialGradient(w / 2f, h * 0.52f, w * 0.48f,
-                intArrayOf(0x26000000, 0x12000000, Color.TRANSPARENT), floatArrayOf(0f, 0.72f, 1f), Shader.TileMode.CLAMP)
-        }
-        override fun onDraw(canvas: Canvas) {
-            canvas.drawOval(shadowBounds, shadowPaint)
-        }
-    }
-
-    private class TransportGlyph(context: Context, private val playing: Boolean) : android.graphics.drawable.Drawable() {
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+old runtime shadow    private class TransportGlyph(context: Context, private val playing: Boolean) : android.graphics.drawable.Drawable() {
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = NexusDesignSystem.Palette.metalForeground }
         override fun draw(canvas: Canvas) {
             val b = bounds; val s = minOf(b.width(), b.height()) * .38f
             val l = b.centerX() - s / 2f; val t = b.centerY() - s / 2f
@@ -582,13 +602,7 @@ class NowPlayingView(
         const val ARM_OVERSHOOT_DEGREES = 2.5f
         const val SPIN_UP_MS = 1_200L
         const val SPIN_DOWN_MS = 1_800L
-        const val DEGREES_PER_MS = 360f / 1_800f
-        const val FRAME_TICK_MS = 16L
         const val SEEK_GLIDE_MS = 300L
         const val TRACKING_EPSILON_DEGREES = 0.08f
-        const val PLATTER_WOBBLE_PERIOD_MS = 6_000L
-        const val PLATTER_WOBBLE_DEGREES = 0.22f
-        const val STYLUS_VIBRATION_PERIOD_MS = 145L
-        const val STYLUS_VIBRATION_DEGREES = 0.10f
     }
 }
