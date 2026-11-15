@@ -72,3 +72,9 @@
 | Task | Status | Commit | CI run | Learning |
 |---|---|---|---|---|
 | Preserve current Home discovery design while reconciling branch divergence | DONE — implementation CI passed | `9f70f66f8cab574ff0dc94ae5e2397836b82a7f5` | [Android CI #43697290730](https://github.com/som76377-alt/Nexus/actions/runs/43697290730) — success | Kept main's newer neutral category-row/ripple redesign and its 48dp targets instead of restoring integration's superseded coloured-chip layout. Other overlapping MainActivity and NowPlayingView edits were identical on both branches. The final combined main/integration PR still requires its own exact-head checks. |
+
+
+## CI reliability — separate debug APK delivery from release-only validation
+| Task | Status | Commit | CI run | Learning |
+|---|---|---|---|---|
+| Upload debug APK immediately after assembleDebug; move release-variant compilation, Provider Lab build-type class inspection, and unsigned-release refusal test to a manually dispatched workflow with a 12-minute compile diagnostic limit | IN PROGRESS | pending | pending | The previous required Android CI assembled the debug APK successfully but did not upload it until after a release-only Kotlin compilation. That step remained in progress for over 45 minutes. Debug validation and release guard validation are now separate so a slow release variant cannot block the installable debug artifact. Release checks are preserved in `.github/workflows/release-validation.yml`, but are not claimed as passed by the debug CI. |

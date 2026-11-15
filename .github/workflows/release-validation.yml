@@ -1,0 +1,81 @@
+name: Release Guard Validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release-guard:
+    name: Compile release and verify signing/build-type guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install compile SDK packages
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Cache Gradle dependencies and wrapper
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('**/*.gradle*', 'gradle/wrapper/gradle-wrapper.properties', 'gradle/libs.versions.toml') }}
+          restore-keys: |
+            gradle-
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
+
+      - name: Compile debug and release Kotlin variants
+        shell: bash
+        run: |
+          set +e
+          timeout 12m ./gradlew --no-daemon --console=plain --stacktrace :app:compileDebugKotlin :app:compileReleaseKotlin > "$RUNNER_TEMP/nexus-release-compile.log" 2>&1
+          result=$?
+          cat "$RUNNER_TEMP/nexus-release-compile.log"
+          if [ "$result" -eq 124 ]; then
+            echo "::error::Release variant compilation exceeded the 12-minute diagnostic limit."
+          fi
+          exit "$result"
+
+      - name: Prove Provider Lab chaos is debug-only
+        run: bash scripts/check-provider-lab-chaos-build-types.sh
+
+      - name: Verify unsigned release builds fail closed
+        shell: bash
+        run: |
+          set +e
+          ./gradlew --no-daemon --console=plain :app:assembleRelease > "$RUNNER_TEMP/nexus-release-guard.log" 2>&1
+          build_status=$?
+          set -e
+
+          if [ "$build_status" -eq 0 ]; then
+            echo "::error::An unsigned release APK was unexpectedly assembled."
+            exit 1
+          fi
+
+          if ! grep -Fq "Release APKs must be signed with the permanent Nexus keystore" "$RUNNER_TEMP/nexus-release-guard.log"; then
+            cat "$RUNNER_TEMP/nexus-release-guard.log"
+            echo "::error::Release build failed for an unexpected reason; the fail-closed guard was not verified."
+            exit 1
+          fi
+
+          echo "Unsigned release build correctly refused before producing an APK."
