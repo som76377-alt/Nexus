@@ -105,6 +105,7 @@ class MainActivity : Activity() {
     private val updateChecker by lazy { GitHubReleaseUpdater() }
     private val progressHandler = Handler(Looper.getMainLooper())
 
+    private lateinit var rootContainer: FrameLayout
     private lateinit var searchPanel: SearchPanel
     private lateinit var homeShelvesContainer: LinearLayout
     private lateinit var updateButton: Button
@@ -190,6 +191,7 @@ class MainActivity : Activity() {
         window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
         val root = MaterialSurface(this, MaterialSurface.Role.CANVAS)
+        rootContainer = root
         val base = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(screenBackground)
@@ -284,23 +286,6 @@ class MainActivity : Activity() {
         }
         updateProgressContainer.addView(updateProgressBar, LinearLayout.LayoutParams(-1, dp(9)))
         updatePanel.addView(updateProgressContainer)
-        searchPanel = SearchPanel(
-            context = this,
-            initialScope = selectedScope,
-            onSearchRequested = ::performSearch,
-            onScopeSelected = ::selectScope
-        )
-        searchContent = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(22), dp(24), dp(22), dp(32))
-            addView(text("Search", 30f, primaryText, bold = true), verticalParams(8))
-        }
-        val sortButton = NexusUi.actionButton(this, "Sort results", primary = false).apply {
-            setOnClickListener { showSearchSortMenu(this) }
-        }
-        searchContent.addView(sortButton, verticalParams(8))
-        searchContent.addView(searchPanel, verticalParams(12))
-
         scroll.addView(content)
         base.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         miniPlayerContainer = buildPlayerPanel().apply { visibility = View.GONE }
@@ -309,22 +294,6 @@ class MainActivity : Activity() {
         bottomNavigationHost.addView(buildBottomNavigation(), LinearLayout.LayoutParams(-1, dp(62)))
         base.addView(bottomNavigationHost, LinearLayout.LayoutParams(-1, dp(62)))
         root.addView(base, FrameLayout.LayoutParams(-1, -1))
-        nowPlayingView = NowPlayingView(
-            context = this,
-            onClose = { nowPlayingView.visibility = View.GONE },
-            onToggle = {
-                if (::nowPlayingView.isInitialized) NexusHaptics.confirm(nowPlayingView, experienceSettings)
-                playbackConnection?.togglePlayback()
-            },
-            onSeek = {
-                if (::nowPlayingView.isInitialized) NexusHaptics.seekStep(nowPlayingView, experienceSettings)
-                playbackConnection?.seekTo(it)
-            }
-        ).apply {
-            visibility = View.GONE
-            render(lastPlaybackSnapshot)
-        }
-        root.addView(nowPlayingView, FrameLayout.LayoutParams(-1, -1))
         setContentView(root)
         when {
             intent.getBooleanExtra(EXTRA_OPEN_YOU, false) -> showYou()
@@ -336,7 +305,9 @@ class MainActivity : Activity() {
         registerBackNavigation()
         applySystemBarInsets(base)
         connectPlaybackService()
-        NexusUpdateScheduler.disableBackgroundUpdates(this)
+        activityScope.launch(Dispatchers.IO) {
+            NexusUpdateScheduler.disableBackgroundUpdates(applicationContext)
+        }
         root.post {
             if (!isDestroyed) {
                 if (BuildConfig.DEBUG) {
@@ -379,6 +350,53 @@ class MainActivity : Activity() {
             onYou = ::showYou
         )
 
+    private fun ensureSearchContent() {
+        if (::searchContent.isInitialized) return
+
+        searchPanel = SearchPanel(
+            context = this,
+            initialScope = selectedScope,
+            onSearchRequested = ::performSearch,
+            onScopeSelected = ::selectScope
+        )
+        searchContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(22), dp(24), dp(22), dp(32))
+            addView(text("Search", 30f, primaryText, bold = true), verticalParams(8))
+        }
+        val sortButton = NexusUi.actionButton(this, "Sort results", primary = false).apply {
+            setOnClickListener { showSearchSortMenu(this) }
+        }
+        searchContent.addView(sortButton, verticalParams(8))
+        searchContent.addView(searchPanel, verticalParams(12))
+    }
+
+    private fun ensureNowPlayingView(): NowPlayingView {
+        if (!::nowPlayingView.isInitialized) {
+            nowPlayingView = NowPlayingView(
+                context = this,
+                onClose = { nowPlayingView.visibility = View.GONE },
+                onToggle = {
+                    if (::nowPlayingView.isInitialized) {
+                        NexusHaptics.confirm(nowPlayingView, experienceSettings)
+                    }
+                    playbackConnection?.togglePlayback()
+                },
+                onSeek = {
+                    if (::nowPlayingView.isInitialized) {
+                        NexusHaptics.seekStep(nowPlayingView, experienceSettings)
+                    }
+                    playbackConnection?.seekTo(it)
+                }
+            ).apply {
+                visibility = View.GONE
+                render(lastPlaybackSnapshot)
+            }
+            rootContainer.addView(nowPlayingView, FrameLayout.LayoutParams(-1, -1))
+        }
+        return nowPlayingView
+    }
+
     private fun displayContent(view: View, key: String) {
         if (mainScroll.childCount > 0) {
             when (activeContentKey) {
@@ -414,6 +432,7 @@ class MainActivity : Activity() {
     private fun showSearch() {
         youRenderGeneration++
         if (!::mainScroll.isInitialized) return
+        ensureSearchContent()
         displayContent(searchContent, "search")
         renderBottomNavigation(NexusUi.NavigationTab.SEARCH)
     }
@@ -790,9 +809,10 @@ class MainActivity : Activity() {
             }
         )
         player.container.setOnClickListener {
-            nowPlayingView.setArtwork(lastPlaybackSnapshot.artworkUrl)
-            nowPlayingView.render(lastPlaybackSnapshot)
-            nowPlayingView.visibility = View.VISIBLE
+            val nowPlaying = ensureNowPlayingView()
+            nowPlaying.setArtwork(lastPlaybackSnapshot.artworkUrl)
+            nowPlaying.render(lastPlaybackSnapshot)
+            nowPlaying.visibility = View.VISIBLE
         }
         playbackProgress = player.progress
         playerArtwork = player.artwork
@@ -868,6 +888,7 @@ class MainActivity : Activity() {
     }
 
     private fun openDiscoveryCategory(bucket: DiscoveryBucket) {
+        ensureSearchContent()
         selectedScope = bucket.scope
         searchPanel.setSelectedScope(bucket.scope)
         searchPanel.queryInput.setText(bucket.query)

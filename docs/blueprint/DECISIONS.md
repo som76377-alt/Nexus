@@ -37,3 +37,5 @@
 2026-11-15 | Home candidate filtering no longer requires a second official-release marker or rejects lyrics, covers and remixes | Category query/scope already selects the search intent; the extra marker incorrectly removed valid catalogue results, leaving Nature ambience as the only visible shelf | Reintroduce a term only with evidence that it reliably identifies non-single-track content across the affected category.
 
 2026-11-15 | Recommendation result transitions use a single 140 ms row reveal and are disabled by Reduce effects, low-RAM and power-save conditions | A short state-change transition gives the user feedback while network results arrive without hiding the wait behind a perpetual shimmer | Remove the reveal helper or adjust its duration; it is not used for loading progress or playback.
+
+2026-11-15 | Search and Now Playing view trees are created on first navigation/open rather than during Home startup | These screens are not needed to display the initial Home frame; deferring them reduces startup view construction without changing their behavior | Keep the same lazy initialization guard whenever another initially-hidden screen is added.

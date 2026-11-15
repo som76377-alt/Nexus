@@ -40,6 +40,8 @@ class HomeDiscoveryView(
 ) : LinearLayout(context) {
     private val ink = NexusDesignSystem.Palette.foreground
     private val muted = NexusDesignSystem.Palette.muted
+    private val interfaceTypeface = interfaceTypeface
+    private val boldTypeface = Typeface.create(interfaceTypeface, Typeface.BOLD)
 
     init {
         orientation = VERTICAL
@@ -49,7 +51,7 @@ class HomeDiscoveryView(
             text = "Nexus"
             textSize = 32f
             setTextColor(ink)
-            typeface = NexusDesignSystem.Type.display(context)
+            typeface = interfaceTypeface
         }, LayoutParams(-1, -2))
 
         val shortcutsScroll = HorizontalScrollView(context).apply {
@@ -79,10 +81,7 @@ class HomeDiscoveryView(
             text = "Browse"
             textSize = 18f
             setTextColor(ink)
-            typeface = Typeface.create(
-                NexusDesignSystem.Type.interfaceText(context),
-                Typeface.BOLD
-            )
+            typeface = boldTypeface
             setPadding(0, dp(12), 0, dp(5))
         }, LayoutParams(-1, -2))
 
@@ -91,10 +90,7 @@ class HomeDiscoveryView(
                 text = group.title
                 textSize = 14f
                 setTextColor(muted)
-                typeface = Typeface.create(
-                    NexusDesignSystem.Type.interfaceText(context),
-                    Typeface.BOLD
-                )
+                typeface = boldTypeface
                 setPadding(0, dp(7), 0, 0)
             }, LayoutParams(-1, -2))
 
@@ -112,7 +108,7 @@ class HomeDiscoveryView(
                     text = category.label
                     textSize = 13f
                     setTextColor(ink)
-                    typeface = NexusDesignSystem.Type.interfaceText(context)
+                    typeface = interfaceTypeface
                     gravity = Gravity.CENTER
                     minimumHeight = dp(48)
                     setPadding(dp(12), 0, dp(12), 0)
@@ -137,7 +133,7 @@ class HomeDiscoveryView(
         text = label
         textSize = 14f
         setTextColor(ink)
-        typeface = Typeface.create(NexusDesignSystem.Type.interfaceText(context), Typeface.BOLD)
+        typeface = Typeface.create(interfaceTypeface, Typeface.BOLD)
         gravity = Gravity.CENTER
         minWidth = dp(48)
         minHeight = dp(48)
