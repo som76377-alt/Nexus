@@ -55,6 +55,7 @@ import com.nexus.music.recommendations.RecommendationHistoryStore
 import com.nexus.music.recommendations.RecommendationCacheStore
 import com.nexus.music.catalog.ResolvedAudio
 import com.nexus.music.catalog.NexusCatalog
+import com.nexus.music.catalog.YoutubeCatalogRepository
 import com.nexus.music.catalog.YoutubeSearchScope
 import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackSnapshot
@@ -1001,7 +1002,7 @@ class MainActivity : Activity() {
                     val tracks = shelf.buckets.flatMap { cachedByBucket[it.id].orEmpty() }
                         .distinctBy { it.url }
                         .shuffled()
-                        .take(18)
+                        .take(8)
                     if (tracks.isEmpty()) null else shelf.title to tracks
                 }
                 val cachedForYou = withContext(Dispatchers.Default) {
@@ -1031,15 +1032,10 @@ class MainActivity : Activity() {
                         async {
                             semaphore.withPermit {
                                 bucket.id to (
-                                    cachedByBucket[bucket.id]?.takeIf { it.isNotEmpty() } ?: runCatching {
-                                        val tracks = withContext(Dispatchers.IO) {
-                                            catalog.search(bucket.query, bucket.scope)
-                                        }
-                                        filterHomeCandidates(tracks, bucket)
+                                    cachedByBucket[bucket.id]?.takeIf { it.isNotEmpty() }
+                                        ?: searchDiscoveryBucket(catalog, bucket)
                                             .filterNot { it.url in excludedIds }
-                                            .distinctBy { it.url }
                                             .take(24)
-                                    }.getOrDefault(emptyList())
                                     )
                             }
                         }
@@ -1089,14 +1085,11 @@ class MainActivity : Activity() {
                         recentArtists.map { artist ->
                             async {
                                 semaphore.withPermit {
-                                    runCatching {
-                                        withContext(Dispatchers.IO) {
-                                            catalog.search(
-                                                "$artist similar artists music",
-                                                YoutubeSearchScope.MUSIC_SONGS
-                                            )
-                                        }
-                                    }.getOrDefault(emptyList())
+                                    searchCatalogSafely(
+                                        catalog,
+                                        "$artist similar artists music",
+                                        YoutubeSearchScope.MUSIC_SONGS
+                                    )
                                 }
                             }
                         }.awaitAll().flatten()
@@ -1167,10 +1160,31 @@ class MainActivity : Activity() {
                 .filterNot { it.url in excludedIds }
                 .distinctBy { it.url }
                 .shuffled()
-                .take(18)
+                .take(8)
             if (tracks.isEmpty()) null else shelf.title to tracks
         }
         renderRecommendationTiles(forYou, shelfTracks)
+    }
+
+    private suspend fun searchDiscoveryBucket(
+        catalog: YoutubeCatalogRepository,
+        bucket: DiscoveryBucket
+    ): List<CatalogTrack> {
+        val results = searchCatalogSafely(catalog, bucket.query, bucket.scope)
+        return filterHomeCandidates(results, bucket)
+            .distinctBy { it.url }
+    }
+
+    private suspend fun searchCatalogSafely(
+        catalog: YoutubeCatalogRepository,
+        query: String,
+        scope: YoutubeSearchScope
+    ): List<CatalogTrack> = try {
+        withContext(Dispatchers.IO) { catalog.search(query, scope) }
+    } catch (error: CancellationException) {
+        throw error
+    } catch (_: Exception) {
+        emptyList()
     }
 
     private fun filterHomeCandidates(
