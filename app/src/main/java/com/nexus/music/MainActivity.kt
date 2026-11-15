@@ -812,7 +812,7 @@ class MainActivity : Activity() {
             val art = ImageView(this).apply {
                 scaleType = ImageView.ScaleType.CENTER_CROP
                 background = rounded(surfaceRaised, 8)
-                contentDescription = "Artwork for ${track.title}"
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             }
             track.thumbnailUrl?.let { art.load(it) }
             tile.addView(art, LinearLayout.LayoutParams(dp(142), dp(142)))
@@ -866,11 +866,12 @@ class MainActivity : Activity() {
             isClickable = true
             isFocusable = true
             setOnClickListener { startResolvingTrack(track) }
+            contentDescription = "Play ${track.title.ifBlank { "Untitled" }} by ${track.artist ?: "Unknown artist"}"
         }
         val thumbnail = ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             background = rounded(surfaceRaised, 10)
-            contentDescription = "Track thumbnail"
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
         track.thumbnailUrl?.let { thumbnail.load(it) }
         card.addView(thumbnail, LinearLayout.LayoutParams(dp(112), dp(72)))
