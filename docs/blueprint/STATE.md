@@ -20,7 +20,7 @@ Working branch: redesign/nexus-blueprint-v1.
 | Phase 7 Blend | Local 30-day half-life top-100 taste aggregation; deterministic 50-track generator; tests; profile-only repository seam | Pair table, consent, partner profile download and Home visibility require approved Supabase migration/RLS and real partner identity |
 | Phase 8 material rollout | Shared material token system on canvas, Player, mini-player and nav | Scanned assets, baked lighting, contrast audit and full anti-AI gate pending |
 | Phase 9 feel | Haptics on playback and save/seek actions | Automatic audio cache policy skipped as separate playback-adjacent task under current no-playback-scope rules |
-| Phase 10 readiness | Recommendation and Blend tests added | JankStats, weak-device measurements, DEVICE_TEST owner run and asset/dead-code sweep pending |
+| Phase 10 readiness | Debug-only JankStats wired to MainActivity and Rooms; DEVICE_TEST.md added | Weak-device measurements and owner run pending; JankStats output is not yet CI/device-measured |
 | Phase 11 spike | Not started | Conditional on owner saying baked lighting looks dead; no shader work started |
 
 ## Original tasks (merge-gated)
