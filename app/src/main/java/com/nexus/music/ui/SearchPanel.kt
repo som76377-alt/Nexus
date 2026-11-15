@@ -29,7 +29,10 @@ class SearchPanel(
         NexusUi.Colors.muted
     ).apply {
         visibility = GONE
-        setPadding(0, NexusUi.dp(context, 12), 0, NexusUi.dp(context, 8))
+        minHeight = NexusUi.dp(context, 48)
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(0, NexusUi.dp(context, 8), 0, NexusUi.dp(context, 8))
+        isFocusable = true
         setOnClickListener { onSearchRequested() }
     }
 
