@@ -103,7 +103,10 @@ class ListeningRoomActivity : Activity() {
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(this@ListeningRoomActivity.background)
+            background = MaterialSurface.background(
+                this@ListeningRoomActivity,
+                MaterialSurface.Role.CANVAS
+            )
             setPadding(dp(22), dp(24), dp(22), dp(16))
         }
         introPanel = LinearLayout(this).apply {
