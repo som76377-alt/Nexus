@@ -78,7 +78,7 @@ class YouView(
     private fun statusRow(label: String, value: String) = LinearLayout(context).apply {
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        minHeight = dp(48)
+        setMinimumHeight(dp(48))
         addView(TextView(context).apply {
             text = label
             textSize = 14f
@@ -100,7 +100,7 @@ class YouView(
     ) = LinearLayout(context).apply {
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        minHeight = dp(64)
+        setMinimumHeight(dp(64))
         val labels = LinearLayout(context).apply { orientation = VERTICAL }
         labels.addView(TextView(context).apply {
             text = title
