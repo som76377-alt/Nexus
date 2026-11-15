@@ -698,6 +698,8 @@ class ListeningRoomActivity : Activity() {
             Intent(this, MainActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
         )
+        @Suppress("DEPRECATION")
+        overridePendingTransition(0, 0)
     }
 
     private fun setBusy(busy: Boolean, message: String? = null) {
