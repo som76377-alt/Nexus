@@ -25,6 +25,8 @@ import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
 import android.graphics.drawable.GradientDrawable
+import kotlin.math.PI
+import kotlin.math.sin
 import com.nexus.music.R
 import com.nexus.music.playback.PlaybackSnapshot
 
