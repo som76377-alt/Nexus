@@ -131,6 +131,7 @@ class MainActivity : Activity() {
     private val recommendationCache by lazy { RecommendationCacheStore(this) }
     private val discoveryShelves by lazy { readDiscoveryShelves() }
     private var recommendationStatusText: TextView? = null
+    private var pickedForYouSection: LinearLayout? = null
     private val displayedRecommendationIds = LinkedHashSet<String>()
     private val recommendationHistoryWriteMutex = Mutex()
     private var recommendationsGeneration = 0L
@@ -1024,30 +1025,8 @@ class MainActivity : Activity() {
                     Triple(cached, taste, excluded)
                 }
 
-                val cachedShelves = shelves.mapNotNull { shelf ->
-                    val tracks = shelf.buckets.flatMap { cachedByBucket[it.id].orEmpty() }
-                        .distinctBy { it.url }
-                        .shuffled()
-                        .take(8)
-                    if (tracks.isEmpty()) null else shelf.title to tracks
-                }
-                val cachedForYou = withContext(Dispatchers.Default) {
-                    RecommendationMixer.mix(
-                        tasteTracks = tasteTracks,
-                        genreTracks = cachedByBucket,
-                        seed = Random.nextLong(),
-                        excludedIds = excludedIds,
-                        limit = 20
-                    )
-                }
                 if (generation != recommendationsGeneration || isFinishing || isDestroyed) {
                     return@launch
-                }
-                if (cachedForYou.isNotEmpty() || cachedShelves.isNotEmpty()) {
-                    renderRecommendationTiles(cachedForYou, cachedShelves)
-                    prefetchRecommendationAudio(cachedForYou.ifEmpty {
-                        cachedShelves.flatMap { it.second }
-                    })
                 }
 
                 val semaphore = Semaphore(3)
@@ -1140,7 +1119,8 @@ class MainActivity : Activity() {
                         )
                     }
                     if (forYou.isNotEmpty()) {
-                        renderDiscoveryResults(shelves, accumulated, generation, forYou, excludedIds)
+                        // Enrichment changes only the personal rail; category shelves remain stable.
+                        replacePickedForYouShelf(forYou, generation)
                     }
                 }
             } catch (error: CancellationException) {
@@ -1375,7 +1355,11 @@ class MainActivity : Activity() {
         homeShelvesContainer.removeAllViews()
         addRecommendationHeader()
 
-        if (forYou.isNotEmpty()) addRecommendationShelf("Picked for you", forYou)
+        pickedForYouSection = if (forYou.isNotEmpty()) {
+            addRecommendationShelf("Picked for you", forYou)
+        } else {
+            null
+        }
         shelves.forEach { (title, tracks) -> addRecommendationShelf(title, tracks) }
 
         if (forYou.isEmpty() && shelves.isEmpty()) {
@@ -1389,8 +1373,26 @@ class MainActivity : Activity() {
         )
     }
 
-    private fun addRecommendationShelf(title: String, tracks: List<CatalogTrack>) {
-        if (tracks.isEmpty()) return
+    private fun replacePickedForYouShelf(
+        tracks: List<CatalogTrack>,
+        generation: Long
+    ) {
+        if (generation != recommendationsGeneration || isFinishing || isDestroyed) return
+        pickedForYouSection?.let(homeShelvesContainer::removeView)
+        pickedForYouSection = null
+        if (tracks.isNotEmpty()) {
+            val section = addRecommendationShelf("Picked for you", tracks)
+            if (section != null) {
+                homeShelvesContainer.removeView(section)
+                homeShelvesContainer.addView(section, 1.coerceAtMost(homeShelvesContainer.childCount))
+                pickedForYouSection = section
+            }
+        }
+        rememberDisplayedRecommendations(tracks)
+    }
+
+    private fun addRecommendationShelf(title: String, tracks: List<CatalogTrack>): LinearLayout? {
+        if (tracks.isEmpty()) return null
 
         val section = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1422,6 +1424,7 @@ class MainActivity : Activity() {
                 .setInterpolator(DecelerateInterpolator())
                 .start()
         }
+        return section
     }
 
     private fun highResolutionThumbnail(track: CatalogTrack): String? {
