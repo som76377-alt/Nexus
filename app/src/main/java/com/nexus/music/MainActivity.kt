@@ -897,7 +897,9 @@ class MainActivity : Activity() {
             textSize = 21f
             setTextColor(if (saved) NexusDesignSystem.Palette.deepVinylGreen else NexusDesignSystem.Palette.terracotta)
             gravity = Gravity.CENTER
-            contentDescription = if (saved) "Saved to Library" else "Save to Library"
+            minWidth = dp(48)
+            minHeight = dp(48)
+            contentDescription = if (saved) "Remove ${track.title} from Library" else "Save ${track.title} to Library"
             setOnClickListener {
                 if (libraryStore.isSaved(track)) {
                     libraryStore.remove(track)
@@ -908,7 +910,7 @@ class MainActivity : Activity() {
                 }
                 renderSearchResults()
             }
-        }, LinearLayout.LayoutParams(dp(38), dp(54)))
+        }, LinearLayout.LayoutParams(dp(48), dp(48)))
         return card
     }
 
