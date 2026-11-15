@@ -12,6 +12,8 @@ import com.nexus.music.catalog.CatalogUrlValidator
  * dependency, so this keeps the existing SharedPreferences format until a tested Room
  * migration can be introduced without losing existing Saved/History data.
  */
+data class PlayHistoryEvent(val track: CatalogTrack, val playedAtMs: Long)
+
 class LocalLibraryStore(context: Context) {
     private val preferences = context.applicationContext.getSharedPreferences("nexus_library", Context.MODE_PRIVATE)
     private val lock = Any()
@@ -19,6 +21,8 @@ class LocalLibraryStore(context: Context) {
     fun savedTracks(): List<CatalogTrack> = read(SAVED_KEY)
     fun recentTracks(): List<CatalogTrack> = read(RECENT_KEY)
     fun watchLaterTracks(): List<CatalogTrack> = read(WATCH_LATER_KEY)
+
+    fun playHistory(): List<PlayHistoryEvent> = readHistoryEvents()
     fun isSaved(track: CatalogTrack): Boolean = savedTracks().any { it.url == track.url }
     fun isWatchLater(track: CatalogTrack): Boolean = watchLaterTracks().any { it.url == track.url }
 
@@ -31,9 +35,40 @@ class LocalLibraryStore(context: Context) {
         write(SAVED_KEY, savedTracks().filterNot { it.url == track.url })
     }
 
-    fun recordPlayed(track: CatalogTrack) {
+    fun recordPlayed(track: CatalogTrack, playedAtMs: Long = System.currentTimeMillis()) {
         if (!valid(track)) return
-        write(RECENT_KEY, (listOf(track) + recentTracks().filterNot { it.url == track.url }).take(MAX_RECENT))
+        val updatedTracks = (listOf(track) + recentTracks().filterNot { it.url == track.url }).take(MAX_RECENT)
+        write(RECENT_KEY, updatedTracks)
+        val updatedTimes = readHistoryEvents()
+            .filterNot { it.track.url == track.url }
+            .plus(PlayHistoryEvent(track, playedAtMs))
+            .sortedByDescending { it.playedAtMs }
+            .take(MAX_RECENT)
+        val array = JSONArray()
+        updatedTimes.forEach { event ->
+            array.put(JSONObject().put("url", event.track.url).put("played_at", event.playedAtMs))
+        }
+        synchronized(lock) {
+            preferences.edit().putString(PLAY_TIMESTAMPS_KEY, array.toString()).apply()
+        }
+    }
+
+    private fun readHistoryEvents(): List<PlayHistoryEvent> {
+        val tracksByUrl = recentTracks().associateBy { it.url }
+        val raw = synchronized(lock) { preferences.getString(PLAY_TIMESTAMPS_KEY, null) }
+            ?: return emptyList()
+        return runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    val url = item.optString("url")
+                    val track = tracksByUrl[url] ?: continue
+                    val playedAt = item.optLong("played_at", 0L)
+                    if (playedAt > 0L) add(PlayHistoryEvent(track, playedAt))
+                }
+            }.sortedByDescending { it.playedAtMs }
+        }.getOrDefault(emptyList())
     }
 
     fun addToWatchLater(track: CatalogTrack) {
@@ -155,6 +190,7 @@ class LocalLibraryStore(context: Context) {
     private companion object {
         const val SAVED_KEY = "saved_tracks_v1"
         const val RECENT_KEY = "recent_tracks_v1"
+        const val PLAY_TIMESTAMPS_KEY = "recent_play_timestamps_v1"
         const val WATCH_LATER_KEY = "watch_later_v1"
         const val PLAYLIST_NAMES_KEY = "playlist_names_v1"
         const val WATCH_LATER_NAME = "Watch later"
