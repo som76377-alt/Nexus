@@ -61,7 +61,11 @@ object NexusUi {
     fun rounded(context: Context, color: Int, radiusDp: Int): GradientDrawable =
         GradientDrawable().apply {
             setColor(color)
-            cornerRadius = dp(context, radiusDp).toFloat()
+            cornerRadius = dp(context, when {
+            radiusDp <= 6 -> NexusDesignSystem.Shape.media
+            radiusDp <= 12 -> NexusDesignSystem.Shape.control
+            else -> NexusDesignSystem.Shape.large
+        }).toFloat()
         }
 
     fun text(
@@ -121,10 +125,13 @@ object NexusUi {
                 minWidth = 0
                 minimumWidth = 0
                     minimumHeight = dp(context, Spacing.controlHeight)
-                typeface = Typeface.create(NexusDesignSystem.Type.experimental(context), Typeface.BOLD)
                 val isSelected = selected == tab
+                typeface = Typeface.create(
+                    NexusDesignSystem.Type.interfaceText(context),
+                    if (isSelected) Typeface.BOLD else Typeface.NORMAL
+                )
                 setTextColor(Colors.foreground)
-                background = rounded(context, Colors.raised, NexusDesignSystem.Shape.control)
+                background = rounded(context, if (isSelected) Colors.raised else Colors.surface, NexusDesignSystem.Shape.control)
                 setOnClickListener { onClick() }
             }
 
@@ -159,8 +166,8 @@ object NexusUi {
         }
         val progress = SeekBar(context).apply {
             max = 1000
-            progressTintList = android.content.res.ColorStateList.valueOf(Colors.accent)
-            thumbTintList = android.content.res.ColorStateList.valueOf(Colors.accent)
+            progressTintList = android.content.res.ColorStateList.valueOf(Colors.muted)
+            thumbTintList = android.content.res.ColorStateList.valueOf(Colors.muted)
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, value: Int, fromUser: Boolean) {
                     if (fromUser) onSeekChanged()
