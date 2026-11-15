@@ -1,54 +1,226 @@
 {
-  "buckets": [
+  "shelves": [
     {
-      "id": "pop",
-      "label": "Pop",
-      "query": "pop songs"
+      "id": "genres",
+      "title": "Genres",
+      "buckets": [
+        [
+          "pop",
+          "Pop",
+          "pop hits songs",
+          "MUSIC_SONGS"
+        ],
+        [
+          "hiphop",
+          "Hip-hop & rap",
+          "hip hop rap songs",
+          "MUSIC_SONGS"
+        ],
+        [
+          "rock",
+          "Rock & alternative",
+          "rock alternative songs",
+          "MUSIC_SONGS"
+        ],
+        [
+          "electronic",
+          "Electronic & dance",
+          "EDM electronic dance tracks",
+          "MUSIC_SONGS"
+        ],
+        [
+          "indie",
+          "Indie",
+          "indie music songs",
+          "MUSIC_SONGS"
+        ],
+        [
+          "classical",
+          "Classical",
+          "classical music performances",
+          "EVERYTHING"
+        ],
+        [
+          "jazz",
+          "Jazz & blues",
+          "jazz blues music",
+          "MUSIC_SONGS"
+        ],
+        [
+          "metal",
+          "Metal",
+          "metal music songs",
+          "MUSIC_SONGS"
+        ]
+      ]
     },
     {
-      "id": "hiphop",
-      "label": "Hip hop",
-      "query": "hip hop music"
+      "id": "regional",
+      "title": "Regional sounds",
+      "buckets": [
+        [
+          "bollywood",
+          "Bollywood",
+          "latest Bollywood Hindi songs",
+          "MUSIC_SONGS"
+        ],
+        [
+          "punjabi",
+          "Punjabi",
+          "Punjabi hit songs",
+          "MUSIC_SONGS"
+        ],
+        [
+          "tamil",
+          "Tamil",
+          "Tamil hit songs",
+          "MUSIC_SONGS"
+        ],
+        [
+          "telugu",
+          "Telugu",
+          "Telugu hit songs",
+          "MUSIC_SONGS"
+        ],
+        [
+          "bengali",
+          "Bengali",
+          "Bengali songs",
+          "MUSIC_SONGS"
+        ],
+        [
+          "ghazal",
+          "Ghazal",
+          "Hindi Urdu ghazals",
+          "MUSIC_SONGS"
+        ],
+        [
+          "indian-classical",
+          "Indian classical",
+          "Hindustani Carnatic classical music",
+          "EVERYTHING"
+        ]
+      ]
     },
     {
-      "id": "lofi",
-      "label": "Lo-fi",
-      "query": "lofi music"
+      "id": "moods",
+      "title": "Moods & styles",
+      "buckets": [
+        [
+          "chill",
+          "Chill",
+          "chill relaxing songs",
+          "MUSIC_SONGS"
+        ],
+        [
+          "lofi",
+          "Lo-fi",
+          "lofi beats music",
+          "MUSIC_SONGS"
+        ],
+        [
+          "focus",
+          "Focus & study",
+          "instrumental focus study music",
+          "MUSIC_SONGS"
+        ],
+        [
+          "workout",
+          "Workout",
+          "high energy workout songs",
+          "MUSIC_SONGS"
+        ],
+        [
+          "romantic",
+          "Romantic",
+          "romantic love songs",
+          "MUSIC_SONGS"
+        ],
+        [
+          "devotional",
+          "Devotional",
+          "Indian devotional bhajan music",
+          "MUSIC_SONGS"
+        ],
+        [
+          "instrumental",
+          "Instrumental",
+          "instrumental music",
+          "MUSIC_SONGS"
+        ]
+      ]
     },
     {
-      "id": "rock",
-      "label": "Rock",
-      "query": "rock music"
+      "id": "remixes",
+      "title": "Remixes & versions",
+      "buckets": [
+        [
+          "remixes",
+          "Remixes",
+          "popular song remixes",
+          "EVERYTHING"
+        ],
+        [
+          "slowed",
+          "Slowed + reverb",
+          "slowed reverb songs",
+          "EVERYTHING"
+        ],
+        [
+          "sped-up",
+          "Sped up",
+          "sped up song versions",
+          "EVERYTHING"
+        ],
+        [
+          "mashups",
+          "Mashups",
+          "music mashups",
+          "EVERYTHING"
+        ],
+        [
+          "covers",
+          "Covers",
+          "popular song covers",
+          "EVERYTHING"
+        ],
+        [
+          "acoustic",
+          "Acoustic versions",
+          "acoustic song versions",
+          "EVERYTHING"
+        ]
+      ]
     },
     {
-      "id": "bollywood",
-      "label": "Bollywood",
-      "query": "Bollywood songs"
-    },
-    {
-      "id": "punjabi",
-      "label": "Punjabi",
-      "query": "Punjabi music"
-    },
-    {
-      "id": "classical",
-      "label": "Classical",
-      "query": "Indian classical music"
-    },
-    {
-      "id": "electronic",
-      "label": "Electronic",
-      "query": "electronic dance music"
-    },
-    {
-      "id": "indie",
-      "label": "Indie",
-      "query": "independent alternative music"
-    },
-    {
-      "id": "ghazal",
-      "label": "Ghazal",
-      "query": "ghazal songs"
+      "id": "live",
+      "title": "Live & acoustic",
+      "buckets": [
+        [
+          "live",
+          "Live performances",
+          "live music performances",
+          "EVERYTHING"
+        ],
+        [
+          "sessions",
+          "Studio sessions",
+          "live studio sessions music",
+          "EVERYTHING"
+        ],
+        [
+          "unplugged",
+          "Unplugged",
+          "unplugged acoustic performances",
+          "EVERYTHING"
+        ],
+        [
+          "concerts",
+          "Concert recordings",
+          "live concert music",
+          "EVERYTHING"
+        ]
+      ]
     }
   ]
 }
