@@ -56,6 +56,7 @@ class ListeningRoomActivity : Activity() {
 
     private lateinit var introPanel: LinearLayout
     private lateinit var bottomNavigation: LinearLayout
+    private lateinit var introSpacer: View
     private lateinit var status: TextView
     private lateinit var codeInput: EditText
     private lateinit var joinButton: Button
@@ -169,6 +170,10 @@ class ListeningRoomActivity : Activity() {
         }
         roomActions.addView(joinButton, params(10))
         root.addView(roomActions, params(16))
+
+        // Keep the shared navigation dock pinned to the bottom even before a room is joined.
+        introSpacer = View(this)
+        root.addView(introSpacer, LinearLayout.LayoutParams(-1, 0, 1f))
 
         roomPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -389,6 +394,7 @@ class ListeningRoomActivity : Activity() {
         val sessionGeneration = roomSessionGeneration
         roomId = id
         introPanel.visibility = View.GONE
+        introSpacer.visibility = View.GONE
         bottomNavigation.visibility = View.VISIBLE
         roomPanel.visibility = View.VISIBLE
         roomActions.visibility = View.GONE
@@ -634,6 +640,7 @@ class ListeningRoomActivity : Activity() {
         if (clearPersistedRoom) ActiveRoomSessionStore.clear(this)
         lastChatSignalVersion = 0L
         introPanel.visibility = View.VISIBLE
+        introSpacer.visibility = View.VISIBLE
         bottomNavigation.visibility = View.VISIBLE
         roomPanel.visibility = View.GONE
         roomActions.visibility = View.VISIBLE
@@ -672,6 +679,8 @@ class ListeningRoomActivity : Activity() {
                 .putExtra(MainActivity.EXTRA_OPEN_YOU, true)
                 .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
         )
+        @Suppress("DEPRECATION")
+        overridePendingTransition(0, 0)
     }
 
     private fun navigateSearch() {
@@ -680,6 +689,8 @@ class ListeningRoomActivity : Activity() {
                 .putExtra(MainActivity.EXTRA_OPEN_SEARCH, true)
                 .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
         )
+        @Suppress("DEPRECATION")
+        overridePendingTransition(0, 0)
     }
 
     private fun navigateHome() {
