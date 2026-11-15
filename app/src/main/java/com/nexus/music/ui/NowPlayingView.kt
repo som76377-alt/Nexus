@@ -90,7 +90,6 @@ class NowPlayingView(
         top.addView(close, LayoutParams(dp(52), dp(48)))
         val label = text("NOW PLAYING", 11f, green, true).apply { letterSpacing = .18f }
         top.addView(label, LayoutParams(0, -2, 1f))
-        top.addView(text("N° 01", 10f, muted, true))
         addView(top, LayoutParams(-1, dp(52)))
 
         val stage = FrameLayout(context).apply {
@@ -122,7 +121,7 @@ class NowPlayingView(
         title.apply {
             textSize = 27f
             setTextColor(ink)
-            typeface = Typeface.create("serif", Typeface.BOLD)
+            typeface = NexusDesignSystem.Type.display(context)
             gravity = Gravity.CENTER
             maxLines = 2
         }
@@ -171,11 +170,16 @@ class NowPlayingView(
         controls.addView(play, LayoutParams(dp(76), dp(76)).apply {
             marginStart = dp(18); marginEnd = dp(18)
         })
-        val mark = button("N", 18f, copper).apply { contentDescription = "Nexus" }
-        controls.addView(mark, LayoutParams(dp(64), dp(64)))
+        val forward = button("+15", 14f, ink).apply {
+            contentDescription = "Seek forward 15 seconds"
+        }
+        controls.addView(forward, LayoutParams(dp(64), dp(64)))
         addView(controls, LayoutParams(-1, dp(88)).apply { topMargin = dp(10) })
         back.setOnClickListener {
             if (durationMs > 0L) onSeek((lastPositionMs - 15_000L).coerceAtLeast(0L))
+        }
+        forward.setOnClickListener {
+            if (durationMs > 0L) onSeek((lastPositionMs + 15_000L).coerceAtMost(durationMs))
         }
     }
 
