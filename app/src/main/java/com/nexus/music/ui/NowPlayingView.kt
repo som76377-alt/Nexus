@@ -148,7 +148,7 @@ class NowPlayingView(
                 isSeeking = false
             }
         })
-        timeline.addView(seek, LayoutParams(0, dp(42), 1f))
+        timeline.addView(seek, LayoutParams(0, dp(48), 1f))
         timeline.addView(remaining, LayoutParams(dp(48), -2))
         addView(timeline, LayoutParams(-1, dp(48)).apply { topMargin = dp(14) })
 

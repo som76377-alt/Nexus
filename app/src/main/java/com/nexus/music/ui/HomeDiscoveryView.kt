@@ -131,7 +131,7 @@ class HomeDiscoveryView(
                 isFocusable = true
                 setOnClickListener { onExplore(query) }
             }
-            chips.addView(chip, LayoutParams(-2, dp(44)).apply { marginEnd = dp(9) })
+            chips.addView(chip, LayoutParams(-2, dp(48)).apply { marginEnd = dp(9) })
         }
         scroll.addView(chips)
         addView(scroll, LayoutParams(-1, -2))
