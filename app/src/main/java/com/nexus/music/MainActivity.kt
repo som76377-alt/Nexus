@@ -115,7 +115,7 @@ class MainActivity : Activity() {
     private val screenBackground = NexusDesignSystem.Palette.canvas
     private val surface = NexusDesignSystem.Palette.surface
     private val surfaceRaised = NexusDesignSystem.Palette.raised
-    private val accent = NexusDesignSystem.Palette.metal
+    private val accent = NexusDesignSystem.Palette.muted
     private val primaryText = NexusDesignSystem.Palette.foreground
     private val secondaryText = NexusDesignSystem.Palette.muted
 
@@ -171,7 +171,7 @@ class MainActivity : Activity() {
 
         updatePanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(surface, 14)
+            background = rounded(surface, NexusDesignSystem.Shape.large)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             visibility = View.GONE
         }
@@ -187,9 +187,9 @@ class MainActivity : Activity() {
             isAllCaps = false
             minWidth = 0
             minimumWidth = 0
-            setTextColor(Color.rgb(14, 20, 12))
+            setTextColor(primaryText)
             typeface = Typeface.DEFAULT_BOLD
-            background = rounded(accent, 10)
+            background = rounded(surfaceRaised, NexusDesignSystem.Shape.control)
             setPadding(dp(12), 0, dp(12), 0)
             visibility = View.GONE
             setOnClickListener {
@@ -952,7 +952,7 @@ class MainActivity : Activity() {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = rounded(surface, 16)
+            background = rounded(surface, NexusDesignSystem.Shape.large)
             setPadding(dp(10), dp(10), dp(12), dp(10))
             isClickable = true
             isFocusable = true
@@ -961,7 +961,7 @@ class MainActivity : Activity() {
         }
         val thumbnail = ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
-            background = rounded(surfaceRaised, 10)
+            background = rounded(surfaceRaised, NexusDesignSystem.Shape.media)
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
         track.thumbnailUrl?.let { thumbnail.load(it) }
@@ -985,13 +985,13 @@ class MainActivity : Activity() {
         card.addView(details, LinearLayout.LayoutParams(0, -2, 1f))
         val saved = libraryStore.isSaved(track)
         card.addView(TextView(this).apply {
-            text = if (saved) "✓" else "＋"
-            textSize = 21f
-            setTextColor(if (saved) NexusDesignSystem.Palette.deepVinylGreen else NexusDesignSystem.Palette.terracotta)
+            text = "⋮"
+            textSize = 22f
+            setTextColor(secondaryText)
             gravity = Gravity.CENTER
             minWidth = dp(48)
             minHeight = dp(48)
-            contentDescription = if (saved) "Remove ${track.title} from Library" else "Save ${track.title} to Library"
+            contentDescription = "More actions for ${track.title}"
             setOnClickListener {
                 if (libraryStore.isSaved(track)) {
                     libraryStore.remove(track)
