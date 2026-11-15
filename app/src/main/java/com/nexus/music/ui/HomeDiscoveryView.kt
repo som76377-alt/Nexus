@@ -1,6 +1,7 @@
 package com.nexus.music.ui
 
 import android.content.Context
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.widget.HorizontalScrollView
