@@ -5,7 +5,6 @@ import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Typeface
@@ -28,8 +27,6 @@ import android.widget.TextView
 import android.graphics.drawable.GradientDrawable
 import com.nexus.music.R
 import com.nexus.music.playback.PlaybackSnapshot
-import kotlin.math.PI
-import kotlin.math.sin
 
 /** Full-screen Now Playing presentation. All transport commands are delegated to PlaybackConnection. */
 class NowPlayingView(
