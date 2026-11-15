@@ -979,19 +979,23 @@ class MainActivity : Activity() {
             try {
                 // SharedPreferences/JSON reads and lazy catalogue construction stay off the UI thread.
                 val catalog = withContext(Dispatchers.IO) { repository }
-                val (cachedByBucket, tasteTracks, historyIds) = withContext(Dispatchers.IO) {
+                val inMemoryExcludedIds = displayedRecommendationIds.toSet()
+                val (cachedByBucket, tasteTracks, excludedIds) = withContext(Dispatchers.IO) {
+                    val historyIds = recommendationHistory.shownIds()
+                    val excluded = historyIds + inMemoryExcludedIds
                     val cached = buckets.mapNotNull { bucket ->
-                        recommendationCache.get(bucket.id)?.let {
-                            bucket.id to filterHomeCandidates(it, bucket)
+                        recommendationCache.get(bucket.id)?.let { cachedTracks ->
+                            val available = filterHomeCandidates(cachedTracks, bucket)
+                                .filterNot { it.url in excluded }
+                            if (available.isEmpty()) null else bucket.id to available
                         }
                     }.toMap()
                     val taste = (
                         libraryStore.recentTracks().take(60) +
                             libraryStore.savedTracks().take(60)
                         ).distinctBy { it.url }
-                    Triple(cached, taste, recommendationHistory.shownIds())
+                    Triple(cached, taste, excluded)
                 }
-                val excludedIds = historyIds + displayedRecommendationIds
 
                 val cachedShelves = shelves.mapNotNull { shelf ->
                     val tracks = shelf.buckets.flatMap { cachedByBucket[it.id].orEmpty() }
@@ -1027,11 +1031,12 @@ class MainActivity : Activity() {
                         async {
                             semaphore.withPermit {
                                 bucket.id to (
-                                    cachedByBucket[bucket.id] ?: runCatching {
+                                    cachedByBucket[bucket.id]?.takeIf { it.isNotEmpty() } ?: runCatching {
                                         val tracks = withContext(Dispatchers.IO) {
                                             catalog.search(bucket.query, bucket.scope)
                                         }
                                         filterHomeCandidates(tracks, bucket)
+                                            .filterNot { it.url in excludedIds }
                                             .distinctBy { it.url }
                                             .take(24)
                                     }.getOrDefault(emptyList())
@@ -1055,11 +1060,11 @@ class MainActivity : Activity() {
                         tasteTracks = tasteTracks,
                         genreTracks = accumulated,
                         seed = Random.nextLong(),
-                        excludedIds = historyIds + displayedRecommendationIds,
+                        excludedIds = excludedIds,
                         limit = 20
                     )
                 }
-                renderDiscoveryResults(shelves, accumulated, generation, initialForYou)
+                renderDiscoveryResults(shelves, accumulated, generation, initialForYou, excludedIds)
 
                 if (BuildConfig.DEBUG) {
                     val populated = firstResults.values.count { it.isNotEmpty() }
@@ -1105,17 +1110,18 @@ class MainActivity : Activity() {
                                 libraryStore.savedTracks().take(60)
                             ).distinctBy { it.url }
                     } + tasteSearches
+                    val currentExcludedIds = excludedIds + displayedRecommendationIds.toSet()
                     val forYou = withContext(Dispatchers.Default) {
                         RecommendationMixer.mix(
                             tasteTracks = expandedTaste.distinctBy { it.url },
                             genreTracks = accumulated,
                             seed = Random.nextLong(),
-                            excludedIds = historyIds + displayedRecommendationIds,
+                            excludedIds = currentExcludedIds,
                             limit = 20
                         )
                     }
                     if (forYou.isNotEmpty()) {
-                        renderDiscoveryResults(shelves, accumulated, generation, forYou)
+                        renderDiscoveryResults(shelves, accumulated, generation, forYou, excludedIds)
                     }
                 }
             } catch (error: CancellationException) {
@@ -1152,11 +1158,13 @@ class MainActivity : Activity() {
         shelves: List<DiscoveryShelf>,
         bucketResults: Map<String, List<CatalogTrack>>,
         generation: Long,
-        forYou: List<CatalogTrack>
+        forYou: List<CatalogTrack>,
+        excludedIds: Set<String>
     ) {
         if (generation != recommendationsGeneration || isFinishing || isDestroyed) return
         val shelfTracks = shelves.mapNotNull { shelf ->
             val tracks = shelf.buckets.flatMap { bucketResults[it.id].orEmpty() }
+                .filterNot { it.url in excludedIds }
                 .distinctBy { it.url }
                 .shuffled()
                 .take(18)
@@ -1298,11 +1306,12 @@ class MainActivity : Activity() {
             text("Discover", 21f, primaryText, bold = true),
             LinearLayout.LayoutParams(0, -2, 1f)
         )
-        recommendationStatusText = text("", 11f, secondaryText).apply {
+        val status = text("", 11f, secondaryText).apply {
             visibility = View.GONE
             setPadding(0, 0, dp(8), 0)
         }
-        header.addView(recommendationStatusText, LinearLayout.LayoutParams(-2, -2))
+        recommendationStatusText = status
+        header.addView(status, LinearLayout.LayoutParams(-2, -2))
         header.addView(
             NexusUi.actionButton(this, "Reroll", primary = false).apply {
                 setOnClickListener { loadHomeShelves(reroll = true) }
