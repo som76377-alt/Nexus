@@ -1,0 +1,7 @@
+# NEEDS_USER
+
+- **Blend persistence/migration approval:** The roadmap requires a separate Supabase table keyed by the partner pair. `AGENTS.md` prohibits SQL migration edits without proving the migration-first path. Waiting on an owner-approved migration-first route; meanwhile implement/test only a local taste-profile model and a stub repository interface. Do not share raw listening history.
+- **Real material assets:** If no suitable CC0 photographed scans can be downloaded and licence-verified, the exact Poly Haven/ambientCG material, resolution and map request must be supplied or approved by the owner. Meanwhile use the specified flat token placeholders; never generate textures.
+- **Visual LOOK CHECK:** At the end of Phase 1 and visual phases 3/5/8, owner device judgement is required. Until then, visual fidelity is **UNVERIFIED on device**. Provide the precise CI build/artifact and the two screens to inspect when the relevant branch is ready.
+- **Weak-device/performance evidence:** Scroll jank, memory, battery-saver behavior and Player tilt must be measured on the weaker physical phone; no such result was available in the repo audit. Continue with static tests and CI instrumentation only; label device outcomes **UNVERIFIED**.
+- **Final merge/release:** `AGENTS.md` forbids merges/releases by the implementing agent and requires owner authorization for changing its final-PR rule. A debug APK can be offered from a successful CI artifact on a PR branch; a public release APK or final merge requires explicit owner action.
