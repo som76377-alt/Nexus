@@ -42,6 +42,7 @@ import com.nexus.music.ui.YouView
 import com.nexus.music.ui.PlaylistHubView
 import com.nexus.music.ui.NexusExperienceSettings
 import com.nexus.music.ui.NexusHaptics
+import com.nexus.music.ui.MaterialSurface
 import com.nexus.music.recommendations.GenreBucket
 import com.nexus.music.recommendations.RecommendationMixer
 import com.nexus.music.recommendations.RecommendationHistoryStore
@@ -156,7 +157,7 @@ class MainActivity : Activity() {
         window.decorView.systemUiVisibility = 0
         window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
-        val root = FrameLayout(this).apply { setBackgroundColor(screenBackground) }
+        val root = MaterialSurface(this, MaterialSurface.Role.CANVAS)
         val base = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(screenBackground)
