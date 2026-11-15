@@ -122,6 +122,7 @@ class MainActivity : Activity() {
     private val recommendationHistory by lazy { RecommendationHistoryStore(this) }
     private val recommendationCache by lazy { RecommendationCacheStore(this) }
     private var recommendationsGeneration = 0L
+    private var lastHomeBucketIds: List<String> = emptyList()
     private var recommendationsJob: Job? = null
     private var recommendationPrefetchJob: Job? = null
     private val prefetchedAudio = mutableMapOf<String, ResolvedAudio>()
@@ -885,11 +886,20 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun loadHomeShelves() {
+    private fun loadHomeShelves(reroll: Boolean = false) {
         recommendationsJob?.cancel()
         val generation = ++recommendationsGeneration
-        val shelves = readDiscoveryShelves()
-        val buckets = shelves.flatMap { it.buckets }
+        val allBuckets = readDiscoveryShelves().flatMap { it.buckets }
+        val longFormIds = setOf("study", "ambient", "nature")
+        val regular = allBuckets.filterNot { it.id in longFormIds }
+        val retained = if (reroll) lastHomeBucketIds.mapNotNull { id -> allBuckets.firstOrNull { it.id == id } }.shuffled().take(3) else emptyList()
+        val retainedRegular = retained.filterNot { it.id in longFormIds }
+        val regularSelection = (retainedRegular + regular.filterNot { it.id in retainedRegular.map { b -> b.id } }.shuffled().take((5 - retainedRegular.size).coerceAtLeast(0))).shuffled()
+        val longForm = allBuckets.filter { it.id in longFormIds }
+        val selected = (regularSelection + if (longForm.isNotEmpty() && (!reroll || Random.nextInt(3) == 0)) listOf(longForm.random()) else emptyList()).take(6)
+        lastHomeBucketIds = selected.map { it.id }
+        val shelves = selected.map { bucket -> DiscoveryShelf(bucket.id, bucket.label, listOf(bucket)) }
+        val buckets = selected
         homeShelvesContainer.removeAllViews()
 
         val header = LinearLayout(this).apply {
@@ -898,17 +908,17 @@ class MainActivity : Activity() {
         }
         header.addView(text("Discover", 21f, primaryText, bold = true), LinearLayout.LayoutParams(0, -2, 1f))
         header.addView(NexusUi.actionButton(this, "Reroll", primary = false).apply {
-            setOnClickListener { loadHomeShelves() }
+            setOnClickListener { loadHomeShelves(reroll = true) }
         }, LinearLayout.LayoutParams(-2, dp(42)))
         homeShelvesContainer.addView(header, verticalParams(12))
 
         // Paint persisted shelves immediately; network refresh must never block first content.
         val cachedByBucket = buckets.mapNotNull { bucket ->
-            recommendationCache.get(bucket.id)?.let { bucket.id to it }
+            recommendationCache.get(bucket.id)?.let { bucket.id to filterHomeCandidates(it, bucket) }
         }.toMap()
         val cachedShelves = shelves.mapNotNull { shelf ->
             val tracks = shelf.buckets.flatMap { cachedByBucket[it.id].orEmpty() }
-                .distinctBy { it.url }.take(18)
+                .distinctBy { it.url }.shuffled().take(18)
             if (tracks.isEmpty()) null else shelf.title to tracks
         }
         val cachedForYou = RecommendationMixer.mix(
@@ -934,7 +944,7 @@ class MainActivity : Activity() {
                         async {
                             semaphore.withPermit {
                                 bucket.id to (cachedByBucket[bucket.id] ?: runCatching {
-                                    repository.search(bucket.query, bucket.scope).distinctBy { it.url }.take(24)
+                                    filterHomeCandidates(repository.search(bucket.query, bucket.scope), bucket).distinctBy { it.url }.take(24)
                                 }.getOrDefault(emptyList()))
                             }
                         }
@@ -1034,10 +1044,23 @@ class MainActivity : Activity() {
         renderRecommendationTiles(forYou, shelfTracks)
     }
 
+    private fun filterHomeCandidates(tracks: List<CatalogTrack>, bucket: DiscoveryBucket): List<CatalogTrack> {
+        val longForm = bucket.id in setOf("study", "ambient", "nature")
+        val rejected = listOf("playlist", "compilation", "full album", "karaoke", "lyrics", "lyric video", "cover", "fan-made", "fan made", "ai generated", "ai-generated", "suno", "udio", "slowed", "sped up", "nightcore", "mashup", "remix")
+        return tracks.filter { track ->
+            val title = track.title.lowercase()
+            val duration = track.durationSeconds ?: return@filter false
+            val artist = track.artist?.trim().orEmpty()
+            val durationOk = if (longForm) duration >= 8L * 60L else duration in 70L..600L
+            durationOk && artist.isNotBlank() && artist.lowercase() !in setOf("unknown", "various artists", "youtube") &&
+                rejected.none(title::contains) && track.url.startsWith("https://")
+        }
+    }
+
     private fun prefetchRecommendationAudio(tracks: List<CatalogTrack>) {
         val candidates = tracks.distinctBy { it.url }
             .filter { it.url !in prefetchedAudio && it.url !in audioPrefetchInFlight }
-            .take(4)
+            .take(10)
         if (candidates.isEmpty() || recommendationPrefetchJob?.isActive == true) return
         recommendationPrefetchJob = activityScope.launch {
             val semaphore = Semaphore(2)
