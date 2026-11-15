@@ -922,7 +922,7 @@ class MainActivity : Activity() {
             if (tracks.isEmpty()) null else shelf.title to tracks
         }
         val cachedForYou = RecommendationMixer.mix(
-            tasteTracks = libraryStore.recentTracks().take(60) + libraryStore.savedTracks().take(60),
+            tasteTracks = (libraryStore.recentTracks().take(60) + libraryStore.savedTracks().take(60)).filter { track -> filterHomeCandidates(listOf(track), buckets.first()).isNotEmpty() },
             genreTracks = cachedByBucket,
             seed = Random.nextLong(),
             excludedIds = recommendationHistory.shownIds(),
@@ -938,7 +938,7 @@ class MainActivity : Activity() {
         recommendationsJob = activityScope.launch {
             try {
                 val semaphore = Semaphore(4)
-                val firstBuckets = shelves.mapNotNull { it.buckets.firstOrNull() }
+                val firstBuckets = shelves.take(1).mapNotNull { it.buckets.firstOrNull() }
                 val firstResults = coroutineScope {
                     firstBuckets.map { bucket ->
                         async {
@@ -965,7 +965,7 @@ class MainActivity : Activity() {
                         async {
                             semaphore.withPermit {
                                 bucket.id to (cachedByBucket[bucket.id] ?: runCatching {
-                                    repository.search(bucket.query, bucket.scope).distinctBy { it.url }.take(24)
+                                    filterHomeCandidates(repository.search(bucket.query, bucket.scope), bucket).distinctBy { it.url }.take(24)
                                 }.getOrDefault(emptyList()))
                             }
                         }
@@ -994,8 +994,11 @@ class MainActivity : Activity() {
                     }.awaitAll().flatten()
                 }
                 if (generation != recommendationsGeneration || isFinishing || isDestroyed) return@launch
+                val homePolicyBucket = buckets.firstOrNull() ?: return@launch
                 val tastePool = (libraryStore.recentTracks().take(60) +
-                    libraryStore.savedTracks().take(60) + tasteSearches).distinctBy { it.url }
+                    libraryStore.savedTracks().take(60) + filterHomeCandidates(tasteSearches, homePolicyBucket)).filter { track ->
+                    filterHomeCandidates(listOf(track), homePolicyBucket).isNotEmpty()
+                }.distinctBy { it.url }
                 val forYou = RecommendationMixer.mix(
                     tasteTracks = tastePool,
                     genreTracks = accumulated,
