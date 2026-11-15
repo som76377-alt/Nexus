@@ -113,7 +113,7 @@ object NexusUi {
         val bar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            background = rounded(context, Colors.surface, NexusDesignSystem.Shape.large)
+            background = MaterialSurface.background(context, MaterialSurface.Role.LARGE_SURFACE)
             setPadding(dp(context, 10), dp(context, 7), dp(context, 10), dp(context, 7))
         }
 
@@ -161,7 +161,7 @@ object NexusUi {
     ): MiniPlayerViews {
         val panel = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            background = rounded(context, Colors.raised, 16)
+            background = MaterialSurface.background(context, MaterialSurface.Role.LARGE_SURFACE)
             setPadding(dp(context, 14), dp(context, 5), dp(context, 14), dp(context, 12))
         }
         val progress = SeekBar(context).apply {
