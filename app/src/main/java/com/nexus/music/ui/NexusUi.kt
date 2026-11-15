@@ -1,6 +1,7 @@
 package com.nexus.music.ui
 
 import android.content.Context
+import android.content.res.ColorStateList
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -8,7 +9,9 @@ import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.view.Gravity
+import android.view.View
 import android.widget.Button
 import android.widget.ImageButton
 import android.widget.ImageView
@@ -98,6 +101,10 @@ object NexusUi {
         background = rounded(context, if (primary) Colors.accent else Colors.raised, 10)
     }
 
+    /**
+     * Four quiet, line-drawn destinations sit directly on the screen canvas.
+     * The selected state uses ink and a short rule rather than a filled button.
+     */
     fun bottomNavigation(
         context: Context,
         selected: NavigationTab,
@@ -109,24 +116,53 @@ object NexusUi {
         val bar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            background = rounded(context, Colors.surface, 18)
-            setPadding(dp(context, 10), dp(context, 7), dp(context, 10), dp(context, 7))
+            setBackgroundColor(Color.TRANSPARENT)
+            setPadding(dp(context, 4), dp(context, 2), dp(context, 4), dp(context, 2))
         }
 
-        fun tab(title: String, tab: NavigationTab, onClick: () -> Unit) =
-            Button(context).apply {
-                text = title
-                textSize = 12f
-                isAllCaps = false
-                minWidth = 0
-                minimumWidth = 0
-                    minimumHeight = dp(context, Spacing.controlHeight)
-                typeface = Typeface.create(NexusDesignSystem.Type.experimental(context), Typeface.BOLD)
-                val isSelected = selected == tab
-                setTextColor(if (isSelected) Colors.accentForeground else Colors.foreground)
-                background = rounded(context, if (isSelected) Colors.accent else Colors.raised, 12)
-                setOnClickListener { onClick() }
+        fun tab(title: String, destination: NavigationTab, callback: () -> Unit): LinearLayout {
+            val isSelected = selected == destination
+            val colour = if (isSelected) Colors.accent else Colors.muted
+            return LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                minimumHeight = dp(context, 52)
+                isClickable = true
+                isFocusable = true
+                contentDescription = title
+                background = RippleDrawable(
+                    ColorStateList.valueOf(Color.argb(28, 38, 33, 30)),
+                    null,
+                    null
+                )
+                setOnClickListener { callback() }
+
+                addView(ImageView(context).apply {
+                    setImageDrawable(NavigationGlyphDrawable(context, destination, colour))
+                    contentDescription = null
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                }, LinearLayout.LayoutParams(dp(context, 22), dp(context, 22)))
+
+                addView(TextView(context).apply {
+                    text = title
+                    textSize = 11f
+                    letterSpacing = 0.01f
+                    setTextColor(colour)
+                    typeface = Typeface.create(
+                        NexusDesignSystem.Type.interfaceText(context),
+                        if (isSelected) Typeface.BOLD else Typeface.NORMAL
+                    )
+                    gravity = Gravity.CENTER
+                    setPadding(0, dp(context, 3), 0, 0)
+                }, LinearLayout.LayoutParams(-2, -2))
+
+                addView(View(context).apply {
+                    setBackgroundColor(if (isSelected) Colors.accent else Color.TRANSPARENT)
+                }, LinearLayout.LayoutParams(dp(context, 16), dp(context, 2)).apply {
+                    topMargin = dp(context, 3)
+                })
             }
+        }
 
         val tabs = listOf(
             Triple("Home", NavigationTab.HOME, onHome),
@@ -134,12 +170,10 @@ object NexusUi {
             Triple("Room", NavigationTab.ROOM, onRoom),
             Triple("You", NavigationTab.YOU, onYou)
         )
-        tabs.forEachIndexed { index, (title, destination, callback) ->
+        tabs.forEach { (title, destination, callback) ->
             bar.addView(
                 tab(title, destination, callback),
-                LinearLayout.LayoutParams(0, dp(context, Spacing.controlHeight), 1f).apply {
-                    if (index != tabs.lastIndex) marginEnd = dp(context, 4)
-                }
+                LinearLayout.LayoutParams(0, dp(context, Spacing.navigationHeight), 1f)
             )
         }
         return bar
@@ -270,6 +304,84 @@ object NexusUi {
         @Deprecated("Deprecated in Android graphics API")
         override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
 
+        override fun getIntrinsicWidth(): Int = (24 * density).toInt()
+        override fun getIntrinsicHeight(): Int = (24 * density).toInt()
+    }
+
+    /** A compact, consistent stroke family drawn locally; no icon-font or library dependency. */
+    private class NavigationGlyphDrawable(
+        context: Context,
+        private val destination: NavigationTab,
+        colour: Int
+    ) : Drawable() {
+        private val density = context.resources.displayMetrics.density
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = colour
+            style = Paint.Style.STROKE
+            strokeWidth = 1.7f
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+        }
+
+        override fun draw(canvas: Canvas) {
+            val b = bounds
+            val save = canvas.save()
+            canvas.translate(b.left.toFloat(), b.top.toFloat())
+            canvas.scale(b.width() / 24f, b.height() / 24f)
+            when (destination) {
+                NavigationTab.HOME -> {
+                    val roof = Path().apply {
+                        moveTo(3.5f, 10.5f); lineTo(12f, 3.5f); lineTo(20.5f, 10.5f)
+                    }
+                    canvas.drawPath(roof, paint)
+                    canvas.drawRoundRect(5.5f, 10f, 18.5f, 20.5f, 1.2f, 1.2f, paint)
+                    canvas.drawLine(10f, 20.5f, 10f, 15.5f, paint)
+                    canvas.drawLine(10f, 15.5f, 14f, 15.5f, paint)
+                    canvas.drawLine(14f, 15.5f, 14f, 20.5f, paint)
+                }
+                NavigationTab.LIBRARY -> {
+                    val left = Path().apply {
+                        moveTo(12f, 6f); cubicTo(9f, 4.2f, 6f, 4.3f, 3.8f, 5.5f)
+                        lineTo(3.8f, 19f); cubicTo(6.7f, 17.7f, 9.6f, 18.2f, 12f, 20f)
+                    }
+                    val right = Path().apply {
+                        moveTo(12f, 6f); cubicTo(15f, 4.2f, 18f, 4.3f, 20.2f, 5.5f)
+                        lineTo(20.2f, 19f); cubicTo(17.3f, 17.7f, 14.4f, 18.2f, 12f, 20f)
+                    }
+                    canvas.drawPath(left, paint)
+                    canvas.drawPath(right, paint)
+                    canvas.drawLine(7f, 9f, 9.5f, 9.5f, paint)
+                    canvas.drawLine(14.5f, 9.5f, 17f, 9f, paint)
+                }
+                NavigationTab.ROOM -> {
+                    canvas.drawCircle(8.5f, 8.2f, 2.5f, paint)
+                    canvas.drawCircle(16.1f, 9f, 2.1f, paint)
+                    val leftPerson = Path().apply {
+                        moveTo(2.8f, 19.8f); cubicTo(3.4f, 15.8f, 5.2f, 13.8f, 8.7f, 13.8f)
+                        cubicTo(12.1f, 13.8f, 13.8f, 16f, 14.2f, 19.8f)
+                    }
+                    val rightPerson = Path().apply {
+                        moveTo(13.2f, 15f); cubicTo(17.3f, 13.7f, 20.3f, 16.1f, 21.2f, 19.8f)
+                    }
+                    canvas.drawPath(leftPerson, paint)
+                    canvas.drawPath(rightPerson, paint)
+                }
+                NavigationTab.YOU -> {
+                    canvas.drawCircle(12f, 8f, 3.1f, paint)
+                    val shoulders = Path().apply {
+                        moveTo(4f, 20f); cubicTo(4.7f, 15.5f, 7.2f, 13.7f, 12f, 13.7f)
+                        cubicTo(16.8f, 13.7f, 19.3f, 15.5f, 20f, 20f)
+                    }
+                    canvas.drawPath(shoulders, paint)
+                }
+            }
+            canvas.restoreToCount(save)
+        }
+
+        override fun setAlpha(alpha: Int) { paint.alpha = alpha }
+        override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) { paint.colorFilter = colorFilter }
+        @Deprecated("Deprecated in Android graphics API")
+        override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
         override fun getIntrinsicWidth(): Int = (24 * density).toInt()
         override fun getIntrinsicHeight(): Int = (24 * density).toInt()
     }
