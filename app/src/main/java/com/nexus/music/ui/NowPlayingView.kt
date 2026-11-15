@@ -57,8 +57,8 @@ class NowPlayingView(
                 return
             }
             val limit = dp(6).toFloat()
-            disc.translationX = -(event.values[0] * dp(0.35f)).coerceIn(-limit, limit)
-            disc.translationY = -(event.values[1] * dp(0.25f)).coerceIn(-limit, limit)
+            disc.translationX = -(event.values[0] * dp(1).toFloat() * 0.35f).coerceIn(-limit, limit)
+            disc.translationY = -(event.values[1] * dp(1).toFloat() * 0.25f).coerceIn(-limit, limit)
         }
         override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
     }
