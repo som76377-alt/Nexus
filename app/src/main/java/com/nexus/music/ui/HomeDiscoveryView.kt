@@ -122,7 +122,7 @@ class HomeDiscoveryView(
                 setTextColor(ink)
                 typeface = Typeface.create(
                     NexusDesignSystem.Type.interfaceText(context),
-                    Typeface.MEDIUM
+                    Typeface.NORMAL
                 )
                 gravity = Gravity.CENTER
                 setPadding(dp(12), 0, dp(12), 0)
