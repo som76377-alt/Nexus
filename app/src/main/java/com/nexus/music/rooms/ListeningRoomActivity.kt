@@ -86,7 +86,7 @@ class ListeningRoomActivity : Activity() {
     private val background = NexusDesignSystem.Palette.archiveIvory
     private val surface = NexusDesignSystem.Palette.sleeveWhite
     private val raised = NexusDesignSystem.Palette.raised
-    private val accent = NexusDesignSystem.Palette.deepVinylGreen
+    private val accent = NexusDesignSystem.Palette.muted
     private val foreground = NexusDesignSystem.Palette.carbonInk
     private val muted = NexusDesignSystem.Palette.muted
 
@@ -717,7 +717,12 @@ class ListeningRoomActivity : Activity() {
 
     private fun rounded(color: Int, radius: Int) = GradientDrawable().apply {
         setColor(color)
-        cornerRadius = dp(radius).toFloat()
+        val token = when {
+            radius <= 6 -> NexusDesignSystem.Shape.media
+            radius <= 12 -> NexusDesignSystem.Shape.control
+            else -> NexusDesignSystem.Shape.large
+        }
+        cornerRadius = dp(token).toFloat()
     }
 
     private fun actionButton(value: String, primary: Boolean) = Button(this).apply {
@@ -727,9 +732,9 @@ class ListeningRoomActivity : Activity() {
         minWidth = 0
         minimumWidth = 0
         setPadding(dp(12), 0, dp(12), 0)
-        setTextColor(if (primary) NexusDesignSystem.Palette.sleeveWhite else this@ListeningRoomActivity.foreground)
+        setTextColor(this@ListeningRoomActivity.foreground)
         typeface = Typeface.DEFAULT_BOLD
-        background = rounded(if (primary) accent else raised, 10)
+        background = rounded(raised, NexusDesignSystem.Shape.control)
         typeface = NexusDesignSystem.Type.experimental(this@ListeningRoomActivity)
         minHeight = dp(48)
     }
