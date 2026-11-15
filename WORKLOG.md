@@ -78,3 +78,9 @@
 | Task | Status | Commit | CI run | Learning |
 |---|---|---|---|---|
 | Upload debug APK immediately after assembleDebug; move release-variant compilation, Provider Lab build-type class inspection, and unsigned-release refusal test to a manually dispatched workflow with a 12-minute compile diagnostic limit | IN PROGRESS | pending | pending | The previous required Android CI assembled the debug APK successfully but did not upload it until after a release-only Kotlin compilation. That step remained in progress for over 45 minutes. Debug validation and release guard validation are now separate so a slow release variant cannot block the installable debug artifact. Release checks are preserved in `.github/workflows/release-validation.yml`, but are not claimed as passed by the debug CI. |
+
+
+## Nexus Blueprint v1 — owner-directed redesign branch
+| Task | Status | Commit | CI run | SPEC IDs | Net line delta | Learning |
+|---|---|---|---|---|---:|---|
+| Coordinated Nexus visual, Home/Search, local library, recommendations and Blend-domain pass | BLOCKED pending exact-head CI and owner review | redesign/nexus-blueprint-v1 (see branch head in PR) | Pending PR checks | None — S1–S8 playback contract untouched | Pending compare | Branch adds roadmap.md, native Views material tokens, four-tab destinations, local playlists/Watch later, genre presets, deterministic recommendations, local taste aggregation, Blend generator stub, haptics/Reduce effects, debug JankStats and device test checklist. No provider, PlaybackService, Media3 session or room transport behavior was changed. Room persistence remains SharedPreferences not Room; Blend sharing requires approved Supabase pair table/RLS; real CC0 scans unavailable; Rooms still separate Activity. Roadmap-only unit tests were deferred because no immutable S1–S8 SPEC ID truthfully applies. Automatic audio cache remains a separate prohibited playback-layer task. Visual/device behavior is UNVERIFIED. |
