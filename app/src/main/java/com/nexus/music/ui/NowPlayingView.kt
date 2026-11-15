@@ -560,7 +560,7 @@ class NowPlayingView(
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
-old runtime shadow    private class TransportGlyph(context: Context, private val playing: Boolean) : android.graphics.drawable.Drawable() {
+    private class TransportGlyph(context: Context, private val playing: Boolean) : android.graphics.drawable.Drawable() {
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = NexusDesignSystem.Palette.metalForeground }
         override fun draw(canvas: Canvas) {
             val b = bounds; val s = minOf(b.width(), b.height()) * .38f
