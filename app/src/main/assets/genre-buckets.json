@@ -1,0 +1,54 @@
+{
+  "buckets": [
+    {
+      "id": "pop",
+      "label": "Pop",
+      "query": "pop songs"
+    },
+    {
+      "id": "hiphop",
+      "label": "Hip hop",
+      "query": "hip hop music"
+    },
+    {
+      "id": "lofi",
+      "label": "Lo-fi",
+      "query": "lofi music"
+    },
+    {
+      "id": "rock",
+      "label": "Rock",
+      "query": "rock music"
+    },
+    {
+      "id": "bollywood",
+      "label": "Bollywood",
+      "query": "Bollywood songs"
+    },
+    {
+      "id": "punjabi",
+      "label": "Punjabi",
+      "query": "Punjabi music"
+    },
+    {
+      "id": "classical",
+      "label": "Classical",
+      "query": "Indian classical music"
+    },
+    {
+      "id": "electronic",
+      "label": "Electronic",
+      "query": "electronic dance music"
+    },
+    {
+      "id": "indie",
+      "label": "Indie",
+      "query": "independent alternative music"
+    },
+    {
+      "id": "ghazal",
+      "label": "Ghazal",
+      "query": "ghazal songs"
+    }
+  ]
+}
