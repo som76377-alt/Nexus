@@ -481,6 +481,8 @@ class MainActivity : Activity() {
             Intent(this, com.nexus.music.rooms.ListeningRoomActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
         )
+        @Suppress("DEPRECATION")
+        overridePendingTransition(0, 0)
     }
 
     /**
