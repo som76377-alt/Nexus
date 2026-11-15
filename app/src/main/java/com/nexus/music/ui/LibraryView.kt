@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
+import android.view.View
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -18,7 +19,8 @@ class LibraryView(
     tracks: List<CatalogTrack>,
     private val onPlay: (CatalogTrack) -> Unit,
     private val onRemove: ((CatalogTrack) -> Unit)?,
-    private val onBack: () -> Unit
+    private val onBack: () -> Unit,
+    private val onMore: ((View, CatalogTrack) -> Unit)? = null
 ) : LinearLayout(context) {
     private val ink = NexusDesignSystem.Palette.foreground
     private val muted = NexusDesignSystem.Palette.muted
@@ -124,6 +126,18 @@ class LibraryView(
                 minHeight = dp(48)
                 contentDescription = "Remove " + track.title
                 setOnClickListener { remove(track) }
+            }, LayoutParams(dp(48), dp(48)))
+        }
+        if (onMore != null) {
+            row.addView(TextView(context).apply {
+                text = "⋮"
+                textSize = 20f
+                setTextColor(muted)
+                gravity = Gravity.CENTER
+                minWidth = dp(48)
+                minHeight = dp(48)
+                contentDescription = "More actions for " + track.title
+                setOnClickListener { onMore.invoke(this, track) }
             }, LayoutParams(dp(48), dp(48)))
         }
         return row
