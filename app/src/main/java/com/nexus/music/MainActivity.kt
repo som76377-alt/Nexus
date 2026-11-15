@@ -39,14 +39,14 @@ import com.nexus.music.ui.NowPlayingView
 import com.nexus.music.ui.NexusDesignSystem
 import com.nexus.music.ui.SearchPanel
 import com.nexus.music.ui.YouView
+import com.nexus.music.ui.PlaylistHubView
+import com.nexus.music.ui.NexusExperienceSettings
 import com.nexus.music.catalog.ResolvedAudio
 import com.nexus.music.catalog.NexusCatalog
 import com.nexus.music.catalog.YoutubeSearchScope
 import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackSnapshot
-import com.nexus.music.playback.AudioCacheStore
 import com.nexus.music.playback.CachedAudioResolver
-import com.nexus.music.playback.PersistentAudioCacheLookup
 import com.nexus.music.update.GitHubReleaseUpdater
 import com.nexus.music.update.InstallPermissionRequiredException
 import com.nexus.music.update.NexusUpdate
@@ -87,7 +87,12 @@ class MainActivity : Activity() {
     private lateinit var nowPlayingView: NowPlayingView
     private lateinit var mainScroll: ScrollView
     private lateinit var homeContent: LinearLayout
+    private lateinit var searchContent: LinearLayout
     private lateinit var bottomNavigationHost: LinearLayout
+    private val experienceSettings by lazy { NexusExperienceSettings(this) }
+    private var activeContentKey = "home"
+    private var homeScrollPosition = 0
+    private var searchScrollPosition = 0
 
     private var playbackConnection: PlaybackConnection? = null
     private var updateCheckJob: Job? = null
@@ -106,12 +111,12 @@ class MainActivity : Activity() {
     private var currentSort = SearchSort.RELEVANCE
     private var backInvokedCallback: android.window.OnBackInvokedCallback? = null
 
-    private val screenBackground = NexusDesignSystem.Palette.archiveIvory
-    private val surface = NexusDesignSystem.Palette.sleeveWhite
-    private val surfaceRaised = NexusDesignSystem.Palette.sleeveWhite
-    private val accent = NexusDesignSystem.Palette.terracotta
-    private val primaryText = NexusDesignSystem.Palette.carbonInk
-    private val secondaryText = Color.rgb(104, 94, 82)
+    private val screenBackground = NexusDesignSystem.Palette.canvas
+    private val surface = NexusDesignSystem.Palette.surface
+    private val surfaceRaised = NexusDesignSystem.Palette.raised
+    private val accent = NexusDesignSystem.Palette.metal
+    private val primaryText = NexusDesignSystem.Palette.foreground
+    private val secondaryText = NexusDesignSystem.Palette.muted
 
     private val progressTicker = object : Runnable {
         override fun run() {
@@ -132,7 +137,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         window.statusBarColor = screenBackground
         window.navigationBarColor = screenBackground
-        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+        window.decorView.systemUiVisibility = 0
         window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
         val root = FrameLayout(this).apply { setBackgroundColor(screenBackground) }
@@ -153,16 +158,12 @@ class MainActivity : Activity() {
 
         content.addView(com.nexus.music.ui.HomeDiscoveryView(
             context = this,
-            onExplore = { query ->
-                searchPanel.queryInput.setText(query)
-                selectedScope = YoutubeSearchScope.MUSIC_SONGS
-                searchPanel.setSelectedScope(selectedScope)
-                performSearch()
-            },
-            onProviderLab = {
-                startActivity(Intent(this, com.nexus.music.diagnostics.ProviderLabActivity::class.java))
-            }
-        ), verticalParams(18))
+            onSaved = { showLibrary("Saved", libraryStore.savedTracks(), allowRemove = true) },
+            onHistory = { showLibrary("History", libraryStore.recentTracks(), allowRemove = false) },
+            onPlaylists = ::showPlaylists,
+            onBlend = ::showBlend,
+            partnerConnected = false
+        ), verticalParams(8))
 
         homeShelvesContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         content.addView(homeShelvesContainer, verticalParams(18))
@@ -225,18 +226,22 @@ class MainActivity : Activity() {
         }
         updateProgressContainer.addView(updateProgressBar, LinearLayout.LayoutParams(-1, dp(9)))
         updatePanel.addView(updateProgressContainer)
-        content.addView(updatePanel, verticalParams(14))
         searchPanel = SearchPanel(
             context = this,
             initialScope = selectedScope,
             onSearchRequested = ::performSearch,
             onScopeSelected = ::selectScope
         )
+        searchContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(22), dp(24), dp(22), dp(32))
+            addView(text("Search", 30f, primaryText, bold = true), verticalParams(8))
+        }
         val sortButton = NexusUi.actionButton(this, "Sort results", primary = false).apply {
             setOnClickListener { showSearchSortMenu(this) }
         }
-        content.addView(sortButton, verticalParams(8))
-        content.addView(searchPanel, verticalParams(18))
+        searchContent.addView(sortButton, verticalParams(8))
+        searchContent.addView(searchPanel, verticalParams(12))
 
         scroll.addView(content)
         base.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -257,7 +262,12 @@ class MainActivity : Activity() {
         }
         root.addView(nowPlayingView, FrameLayout.LayoutParams(-1, -1))
         setContentView(root)
-        if (intent.getBooleanExtra(EXTRA_OPEN_YOU, false)) showYou() else if (intent.getBooleanExtra(EXTRA_OPEN_LIBRARY, false)) showLibrary()
+        when {
+            intent.getBooleanExtra(EXTRA_OPEN_YOU, false) -> showYou()
+            intent.getBooleanExtra(EXTRA_OPEN_SEARCH, false) -> showSearch()
+            intent.getBooleanExtra(EXTRA_OPEN_LIBRARY, false) -> showLibrary("Saved", libraryStore.savedTracks(), allowRemove = true)
+            else -> showHome()
+        }
         loadHomeShelves()
         registerBackNavigation()
         applySystemBarInsets(base)
