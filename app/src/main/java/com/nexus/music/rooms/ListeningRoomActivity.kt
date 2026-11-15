@@ -12,6 +12,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import android.view.inputmethod.EditorInfo
@@ -108,7 +109,7 @@ class ListeningRoomActivity : Activity() {
                 this@ListeningRoomActivity,
                 MaterialSurface.Role.CANVAS
             )
-            setPadding(dp(22), dp(24), dp(22), dp(16))
+            setPadding(0, dp(24), 0, dp(16))
         }
         introPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -122,7 +123,10 @@ class ListeningRoomActivity : Activity() {
         introPanel.addView(label("Create or join a room", 22f, foreground, true).apply {
             typeface = NexusDesignSystem.Type.display(this@ListeningRoomActivity)
         }, params(14))
-        root.addView(introPanel)
+        root.addView(introPanel, LinearLayout.LayoutParams(-1, -2).apply {
+            marginStart = dp(22)
+            marginEnd = dp(22)
+        })
 
         status = label("Enter a room code or create a room.", 12f, muted)
         status.setPadding(dp(12), dp(12), dp(12), dp(12))
@@ -136,7 +140,10 @@ class ListeningRoomActivity : Activity() {
                 true
             }
         }
-        root.addView(status, params(16))
+        root.addView(status, params(16).apply {
+            marginStart = dp(22)
+            marginEnd = dp(22)
+        })
 
         roomActions = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -169,7 +176,10 @@ class ListeningRoomActivity : Activity() {
             setOnClickListener { joinRoom() }
         }
         roomActions.addView(joinButton, params(10))
-        root.addView(roomActions, params(16))
+        root.addView(roomActions, params(16).apply {
+            marginStart = dp(22)
+            marginEnd = dp(22)
+        })
 
         // Keep the shared navigation dock pinned to the bottom even before a room is joined.
         introSpacer = View(this)
@@ -258,6 +268,8 @@ class ListeningRoomActivity : Activity() {
         roomPanel.addView(sendRow, params(0))
         root.addView(roomPanel, LinearLayout.LayoutParams(-1, 0, 1f).apply {
             topMargin = dp(12)
+            marginStart = dp(22)
+            marginEnd = dp(22)
         })
         bottomNavigation = buildBottomNavigation()
         root.addView(bottomNavigation, LinearLayout.LayoutParams(-1, dp(62)))
@@ -275,7 +287,7 @@ class ListeningRoomActivity : Activity() {
             )
             insets
         }
-        setContentView(root)
+        setContentView(root, ViewGroup.LayoutParams(-1, -1))
         ViewCompat.requestApplyInsets(root)
         jankMonitor = DebugJankMonitor(window)
         jankMonitor?.setEnabled(false)
