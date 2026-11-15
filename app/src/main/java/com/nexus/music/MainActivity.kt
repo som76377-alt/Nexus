@@ -47,6 +47,7 @@ import com.nexus.music.catalog.YoutubeSearchScope
 import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackSnapshot
 import com.nexus.music.playback.CachedAudioResolver
+import com.nexus.music.playback.PersistentAudioCacheLookup
 import com.nexus.music.update.GitHubReleaseUpdater
 import com.nexus.music.update.InstallPermissionRequiredException
 import com.nexus.music.update.NexusUpdate
