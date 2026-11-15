@@ -8,7 +8,7 @@ internal object ProviderLabSurveyReportFormatter {
         val operation: String,
         val timestampEpochMs: Long,
         val transport: String,
-        val coldWarm: String,
+        val sampleContext: String,
         val pageIndex: Int,
         val elapsedMs: Long,
         val outcome: String,
@@ -38,12 +38,12 @@ internal object ProviderLabSurveyReportFormatter {
                     "p95=${percentile(healthy, 0.95)}ms"
             )
         }
-        appendLine("Columns: epochMs | operation | transport | cold/warm | page | elapsedMs | outcome | failureClass | query")
+        appendLine("Columns: epochMs | operation | transport | sample-context | page | elapsedMs | outcome | failureClass | query")
         records.forEach { sample ->
             val safeQuery = sample.query.replace(Regex("[\\r\\n|]"), " ").take(70)
             appendLine(
                 "${sample.timestampEpochMs} | ${sample.operation} | ${sample.transport.take(70)} | " +
-                    "${sample.coldWarm} | ${sample.pageIndex} | ${sample.elapsedMs.coerceAtLeast(0L)} | " +
+                    "${sample.sampleContext} | ${sample.pageIndex} | ${sample.elapsedMs.coerceAtLeast(0L)} | " +
                     "${sample.outcome} | ${sample.failureClass?.take(50) ?: "none"} | $safeQuery"
             )
         }

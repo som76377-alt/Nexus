@@ -11,7 +11,7 @@ class ProviderLabSurveyReportFormatterTest {
                 operation = "SEARCH",
                 timestampEpochMs = index.toLong(),
                 transport = "Wi-Fi",
-                coldWarm = if (index == 0) "first-in-process" else "warm",
+                sampleContext = if (index == 0) "first-in-process" else "repeat-in-process",
                 pageIndex = 1,
                 elapsedMs = elapsed,
                 outcome = "OK",
@@ -22,7 +22,7 @@ class ProviderLabSurveyReportFormatterTest {
             operation = "SEARCH",
             timestampEpochMs = 6L,
             transport = "Wi-Fi",
-            coldWarm = "warm",
+            sampleContext = "repeat-in-process",
             pageIndex = 1,
             elapsedMs = 9_999L,
             outcome = "FAIL",
@@ -36,6 +36,8 @@ class ProviderLabSurveyReportFormatterTest {
         assertTrue(report.contains("p50=30ms · p90=50ms · p95=50ms"))
         assertTrue(report.contains("IOException"))
         assertTrue(report.contains("first-in-process"))
+        assertTrue(report.contains("repeat-in-process"))
+        assertTrue(report.contains("sample-context"))
         assertTrue(report.contains("page | elapsedMs"))
     }
 
