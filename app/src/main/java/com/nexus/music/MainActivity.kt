@@ -1038,8 +1038,7 @@ class MainActivity : Activity() {
         val candidates = tracks.distinctBy { it.url }
             .filter { it.url !in prefetchedAudio && it.url !in audioPrefetchInFlight }
             .take(4)
-        if (candidates.isEmpty()) return
-        recommendationPrefetchJob?.cancel()
+        if (candidates.isEmpty() || recommendationPrefetchJob?.isActive == true) return
         recommendationPrefetchJob = activityScope.launch {
             val semaphore = Semaphore(2)
             candidates.map { track ->
