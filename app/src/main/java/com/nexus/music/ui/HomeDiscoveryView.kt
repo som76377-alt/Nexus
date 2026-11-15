@@ -40,7 +40,7 @@ class HomeDiscoveryView(
 ) : LinearLayout(context) {
     private val ink = NexusDesignSystem.Palette.foreground
     private val muted = NexusDesignSystem.Palette.muted
-    private val interfaceTypeface = interfaceTypeface
+    private val interfaceTypeface = NexusDesignSystem.Type.interfaceText(context)
     private val boldTypeface = Typeface.create(interfaceTypeface, Typeface.BOLD)
 
     init {
@@ -133,7 +133,7 @@ class HomeDiscoveryView(
         text = label
         textSize = 14f
         setTextColor(ink)
-        typeface = Typeface.create(interfaceTypeface, Typeface.BOLD)
+        typeface = boldTypeface
         gravity = Gravity.CENTER
         minWidth = dp(48)
         minHeight = dp(48)
