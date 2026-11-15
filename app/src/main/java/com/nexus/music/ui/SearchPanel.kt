@@ -3,6 +3,8 @@ package com.nexus.music.ui
 import android.graphics.Color
 import android.graphics.Typeface
 import android.view.Gravity
+import android.widget.HorizontalScrollView
+import org.json.JSONArray
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
@@ -95,7 +97,49 @@ class SearchPanel(
         searchRow.addView(queryInput, LayoutParams(0, NexusUi.dp(context, 54), 1f))
         searchRow.addView(scopeToggleButton, LayoutParams(-2, NexusUi.dp(context, 48)))
         addView(searchRow, LayoutParams(-1, -2).apply {
-            bottomMargin = NexusUi.dp(context, 18)
+            bottomMargin = NexusUi.dp(context, 8)
+        })
+
+        val presetScroll = HorizontalScrollView(context).apply {
+            isHorizontalScrollBarEnabled = false
+            clipToPadding = false
+        }
+        val presetRow = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+        }
+        val presets = runCatching {
+            val raw = context.assets.open("search-presets.json").bufferedReader().use { it.readText() }
+            val array = JSONArray(raw)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    val label = item.optString("label").trim()
+                    val query = item.optString("query").trim()
+                    if (label.isNotEmpty() && query.isNotEmpty()) add(label to query)
+                }
+            }
+        }.getOrDefault(emptyList())
+        presets.forEach { (label, query) ->
+            val preset = NexusUi.text(context, label, 13f, NexusUi.Colors.foreground).apply {
+                gravity = Gravity.CENTER
+                minHeight = NexusUi.dp(context, 44)
+                isClickable = true
+                isFocusable = true
+                background = NexusUi.rounded(context, NexusUi.Colors.surface, NexusDesignSystem.Shape.control)
+                setPadding(NexusUi.dp(context, 12), 0, NexusUi.dp(context, 12), 0)
+                setOnClickListener {
+                    queryInput.setText(query)
+                    queryInput.setSelection(queryInput.text.length)
+                    onSearchRequested()
+                }
+            }
+            presetRow.addView(preset, LayoutParams(-2, NexusUi.dp(context, 44)).apply {
+                marginEnd = NexusUi.dp(context, 8)
+            })
+        }
+        presetScroll.addView(presetRow)
+        addView(presetScroll, LayoutParams(-1, NexusUi.dp(context, 48)).apply {
+            bottomMargin = NexusUi.dp(context, 14)
         })
 
         addView(statusText, LayoutParams(-1, -2))
