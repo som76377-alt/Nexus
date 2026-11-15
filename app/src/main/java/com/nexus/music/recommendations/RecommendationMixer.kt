@@ -141,10 +141,11 @@ class RecommendationCacheStore(context: Context) {
         val storedAt = preferences.getLong(key + "_time", 0L)
         if (storedAt <= 0L || nowMs - storedAt >= CACHE_TTL_MS) return null
         val raw = preferences.getString(key + "_items", null) ?: return null
-        return decode(raw)
+        return decode(raw).takeIf { it.isNotEmpty() }
     }
 
     fun put(bucketId: String, tracks: List<CatalogTrack>, nowMs: Long = System.currentTimeMillis()) {
+        if (tracks.isEmpty()) return
         preferences.edit()
             .putLong(key(bucketId) + "_time", nowMs)
             .putString(key(bucketId) + "_items", encode(tracks))
