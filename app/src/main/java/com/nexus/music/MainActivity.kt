@@ -1013,7 +1013,7 @@ class MainActivity : Activity() {
                 ) {
                     homeShelvesContainer.addView(
                         text("Recommendations unavailable · Tap to retry", 13f, secondaryText).apply {
-                            setOnClickListener { loadHomeShelves() }
+                            setOnClickListener { loadHomeShelves(reroll = true) }
                         }, verticalParams(8)
                     )
                 }
@@ -1030,13 +1030,13 @@ class MainActivity : Activity() {
         if (generation != recommendationsGeneration || isFinishing || isDestroyed) return
         val shelfTracks = shelves.mapNotNull { shelf ->
             val tracks = shelf.buckets.flatMap { bucketResults[it.id].orEmpty() }
-                .distinctBy { it.url }.take(18)
+                .distinctBy { it.url }.shuffled().take(18)
             if (tracks.isEmpty()) null else shelf.title to tracks
         }
         val forYou = forYouOverride ?: RecommendationMixer.mix(
             tasteTracks = libraryStore.recentTracks().take(60) + libraryStore.savedTracks().take(60),
             genreTracks = bucketResults,
-            seed = 1L,
+            seed = Random.nextLong(),
             excludedIds = recommendationHistory.shownIds(),
             limit = 20
         )
