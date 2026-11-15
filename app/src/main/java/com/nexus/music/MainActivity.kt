@@ -198,7 +198,7 @@ class MainActivity : Activity() {
                 }
             }
         }
-        updateRow.addView(updateButton, LinearLayout.LayoutParams(-2, dp(36)).apply {
+        updateRow.addView(updateButton, LinearLayout.LayoutParams(-2, dp(48)).apply {
             marginStart = dp(10)
         })
         updatePanel.addView(updateRow)
