@@ -92,6 +92,7 @@ class MainActivity : Activity() {
     private lateinit var playerSubtitle: TextView
     private lateinit var playPauseButton: ImageButton
     private lateinit var playbackProgress: SeekBar
+    private lateinit var miniPlayerContainer: LinearLayout
     private lateinit var nowPlayingView: NowPlayingView
     private lateinit var mainScroll: ScrollView
     private lateinit var homeContent: LinearLayout
@@ -248,7 +249,8 @@ class MainActivity : Activity() {
 
         scroll.addView(content)
         base.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        base.addView(buildPlayerPanel(), LinearLayout.LayoutParams(-1, -2))
+        miniPlayerContainer = buildPlayerPanel().apply { visibility = View.GONE }
+        base.addView(miniPlayerContainer, LinearLayout.LayoutParams(-1, -2))
         bottomNavigationHost = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         bottomNavigationHost.addView(buildBottomNavigation(), LinearLayout.LayoutParams(-1, dp(62)))
         base.addView(bottomNavigationHost, LinearLayout.LayoutParams(-1, dp(62)))
@@ -675,6 +677,9 @@ class MainActivity : Activity() {
 
     private fun updatePlaybackUi(snapshot: PlaybackSnapshot) {
         lastPlaybackSnapshot = snapshot
+        if (::miniPlayerContainer.isInitialized) {
+            miniPlayerContainer.visibility = if (shouldShowMiniPlayer(snapshot)) View.VISIBLE else View.GONE
+        }
         if (::nowPlayingView.isInitialized) {
             nowPlayingView.setArtwork(snapshot.artworkUrl)
             if (nowPlayingView.visibility == View.VISIBLE) nowPlayingView.render(snapshot)
@@ -1076,3 +1081,9 @@ class MainActivity : Activity() {
         const val EXTRA_OPEN_YOU = "com.nexus.music.extra.OPEN_YOU"
     }
 }
+
+/** The mini-player exists only while a real media item is actively loaded. Paused items remain visible. */
+internal fun shouldShowMiniPlayer(snapshot: PlaybackSnapshot): Boolean =
+    snapshot.sourceId.isNotBlank() &&
+        snapshot.playbackState != Player.STATE_IDLE &&
+        snapshot.playbackState != Player.STATE_ENDED
