@@ -1030,7 +1030,7 @@ class MainActivity : Activity() {
             contentDescription = "More actions for " + track.title
             setOnClickListener { showTrackMenu(this, track) }
         })
-        tile.addView(detail, LayoutParams(-1, -2).apply { topMargin = dp(6) })
+        tile.addView(detail, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
         return tile
     }
 
