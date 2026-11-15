@@ -1,69 +1,88 @@
 # STATE
 
-Current: Phase 0, Task 0.1 — audit and stack confirmation
-Working branch: `redesign/nexus-blueprint-v1`
-Base branch: `integration/room-v2`
-Base commit: `ea2c51e5fe5bc995063d752d9bf400ce0442ad3e`
-Rule: check a task only after its approved change has been merged by the owner and its gates are satisfied. A PR or local/CI result alone does not mean merged.
+Current: implementation validation on redesign/nexus-blueprint-v1; no task is marked merged.
+Base: integration/room-v2 at ea2c51e5fe5bc995063d752d9bf400ce0442ad3e.
+Working branch: redesign/nexus-blueprint-v1.
 
-## Phase 0 — Audit
+**Status rule:** The branch contains a coordinated implementation pass, not an owner-merged completion. Original task checkboxes remain unchecked until the PR is merged by the owner and all required visual/device gates are satisfied. CI and device evidence are not yet available for this branch.
+
+## Implementation map
+
+| Blueprint area | Branch implementation | Remaining gate / deviation |
+|---|---|---|
+| Phase 0 audit | STACK, STATE, DECISIONS, NEEDS_USER and ASSET_REGISTER added; real Views stack and Rooms keyboard cause documented | Reconcile full roadmap against repo policy during review |
+| Phase 1 shell | Home/Search/Rooms/You tabs; Search separated from Home; Home/Search scroll positions retained; Rooms bar remains visible after joining | Rooms remains a separate Activity; one root host and identical-bounds test not complete |
+| Phase 2 foundations | Dark matte token palette, 3 radius roles, MaterialSurface placeholder, silent sound hook, haptics, Reduce effects, simplified You | Full string audit and anti-AI sweep pending CI/visual review |
+| Phase 3 material proof | Shared canvas applied to Home/Rooms/Player/nav/mini-player; Player metal play control; tilt lifecycle-gated; infinite vinyl loop removed | No scanned material or baked highlight/shadow assets; parallax and performance measurements pending |
+| Phase 4 library | Saved, History, Watch later, named playlists; Home shortcuts; list screens; track action menus | Still SharedPreferences, not Room; DB migration/tests incomplete; no queue actions exist in current UI API |
+| Phase 5 recommendations | JSON genre buckets; seeded 60/40 taste/exploration mixer; up to 3 concurrent searches; 6-hour cache; 300-item shown history; Reroll; diversity tests | Cache is SharedPreferences, not Room; thumbnail variant fallback and CI/device proof pending |
+| Phase 6 search | Separate Search screen with configurable genre/mood presets and existing catalogue interface | CI validation pending |
+| Phase 7 Blend | Local 30-day half-life top-100 taste aggregation; deterministic 50-track generator; tests; profile-only repository seam | Pair table, consent, partner profile download and Home visibility require approved Supabase migration/RLS and real partner identity |
+| Phase 8 material rollout | Shared material token system on canvas, Player, mini-player and nav | Scanned assets, baked lighting, contrast audit and full anti-AI gate pending |
+| Phase 9 feel | Haptics on playback and save/seek actions | Automatic audio cache policy skipped as separate playback-adjacent task under current no-playback-scope rules |
+| Phase 10 readiness | Recommendation and Blend tests added | JankStats, weak-device measurements, DEVICE_TEST owner run and asset/dead-code sweep pending |
+| Phase 11 spike | Not started | Conditional on owner saying baked lighting looks dead; no shader work started |
+
+## Original tasks (merge-gated)
+
+### Phase 0 — Audit
 - [ ] 0.1 Audit repo and write STACK.md
 - [ ] 0.2 Create tracking files
-- [ ] 0.3 Reconcile AGENTS.md with roadmap; log conflicts
-- [ ] 0.4 Confirm bottom-bar bug cause and record it in STACK.md
+- [ ] 0.3 Reconcile AGENTS.md with roadmap and log conflicts
+- [ ] 0.4 Confirm bottom-bar cause and record it in STACK.md
 
-## Phase 1 — Shell
-- [ ] 1.1 Single root navigation/content host, fixed bottom bar, tab state preservation
-- [ ] 1.2 Four tabs: Home, Search, Rooms, You; remove Library tab
+### Phase 1 — Shell
+- [ ] 1.1 Single root navigation/content host, fixed bottom bar and tab state preservation
+- [ ] 1.2 Four tabs Home, Search, Rooms, You; remove Library tab
 - [ ] 1.3 Bottom-bar bounds equality test across tabs and Rooms keyboard state; LOOK CHECK
 
-## Phase 2 — Foundations
-- [ ] 2.1 Design tokens: colour roles, three radii, spacing scale, type scale
-- [ ] 2.2 MaterialSurface flat placeholders, empty UiSoundPolicy, haptics helper, Reduce-effects setting
-- [ ] 2.3 Visible-string audit and filler removal
+### Phase 2 — Foundations
+- [ ] 2.1 Design tokens
+- [ ] 2.2 MaterialSurface, silent UiSoundPolicy, haptics and Reduce-effects
+- [ ] 2.3 String audit
 - [ ] 2.4 You tab cleanup
 
-## Phase 3 — Material proof slice
-- [ ] 3.1 Acquire licensed real scans or record exact owner asset requests; register assets
-- [ ] 3.2 Apply M1 canvas and Player body; M2 play knob; baked shadow/highlight layers and press state
-- [ ] 3.3 Scroll parallax and Player-only tilt
-- [ ] 3.4 Contrast/performance check; LOOK CHECK for Player and bottom bar
+### Phase 3 — Material proof
+- [ ] 3.1 Acquire/register licensed scans or owner asset requests
+- [ ] 3.2 Apply M1/M2 and baked shadow/highlight/press layers
+- [ ] 3.3 Parallax and Player-only tilt
+- [ ] 3.4 Contrast/performance check and LOOK CHECK
 
-## Phase 4 — Library and Home
-- [ ] 4.1 Local persistence for Saved, History, Playlists and Watch later
-- [ ] 4.2 Home library shortcuts and destination screens
-- [ ] 4.3 Three-dot menu and add-to-playlist flow
+### Phase 4 — Library/Home
+- [ ] 4.1 Room tables for Saved, History, Playlists and Watch later
+- [ ] 4.2 Home shortcuts and destination screens
+- [ ] 4.3 Three-dot menu and playlist flow
 
-## Phase 5 — Recommendations
-- [ ] 5.1 Genre-bucket config, seeded generator, dedupe store and cache
-- [ ] 5.2 Home recommendation UI and whole-batch Reroll
-- [ ] 5.3 Rounded-square tiles and sharp thumbnail fallback
-- [ ] 5.4 Diversity unit tests and LOOK CHECK
+### Phase 5 — Recommendations
+- [ ] 5.1 Config, seeded generator, dedupe and cache
+- [ ] 5.2 Home UI and Reroll
+- [ ] 5.3 Square tiles and thumbnail fallback
+- [ ] 5.4 Diversity tests and LOOK CHECK
 
-## Phase 6 — Search
-- [ ] 6.1 Dedicated Search screen and configurable genre/mood presets
-- [ ] 6.2 Results through the existing search/provider interface
+### Phase 6 — Search
+- [ ] 6.1 Dedicated Search and configurable presets
+- [ ] 6.2 Results through existing search interface
 
-## Phase 7 — Blend
-- [ ] 7.1 Local recency-weighted taste profile
-- [ ] 7.2 Pair-scoped sharing table and consent flow
-- [ ] 7.3 Blend generation and local playlist
-- [ ] 7.4 Home shortcut visibility only when partner is connected
+### Phase 7 — Blend
+- [ ] 7.1 Taste profile
+- [ ] 7.2 Pair-scoped sharing table and consent
+- [ ] 7.3 Blend generation and playlist
+- [ ] 7.4 Home shortcut visibility when partner is connected
 
-## Phase 8 — Material rollout
-- [ ] 8.1 Apply material system to mini-player and remaining hero surfaces only
-- [ ] 8.2 Contrast and anti-AI checklist sweep across all screens
+### Phase 8 — Material rollout
+- [ ] 8.1 Mini-player and remaining hero surfaces
+- [ ] 8.2 Contrast and anti-AI checklist sweep
 
-## Phase 9 — Feel
-- [ ] 9.1 Haptics on selected actions
-- [ ] 9.2 Automatic cache policy in a separately flagged, permitted change
+### Phase 9 — Feel
+- [ ] 9.1 Haptics
+- [ ] 9.2 Automatic cache in a separately flagged permitted change
 
-## Phase 10 — Performance and release readiness
+### Phase 10 — Performance/release readiness
 - [ ] 10.1 Debug JankStats and DEVICE_TEST.md
 - [ ] 10.2 Fix measured performance issues
 - [ ] 10.3 Remove dead code and unused assets
 
-## Phase 11 — Optional spike
-- [ ] 11.1 Only if the owner reports baked lighting looks dead: compare a Player-only, feature-flagged shader against the baked version
+### Phase 11 — Optional spike
+- [ ] 11.1 Conditional Player shader experiment only after owner feedback
 
-Last session: 2026-11-15 — created the canonical roadmap on the redesign branch and audited the real Android Views stack, local persistence, navigation ownership and CI baseline. No app behavior has been changed yet.
+Last session: 2026-11-15 — implemented the first coordinated UI/library/recommendation/Blend-domain pass on the redesign branch. CI, device appearance, performance and migration/asset gates remain unverified or blocked.
