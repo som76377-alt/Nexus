@@ -85,16 +85,22 @@ class ListeningRoomActivity : Activity() {
 
     private val background = NexusDesignSystem.Palette.archiveIvory
     private val surface = NexusDesignSystem.Palette.sleeveWhite
-    private val raised = Color.rgb(235, 225, 207)
+    private val raised = NexusDesignSystem.Palette.raised
     private val accent = NexusDesignSystem.Palette.deepVinylGreen
     private val foreground = NexusDesignSystem.Palette.carbonInk
-    private val muted = Color.rgb(104, 94, 82)
+    private val muted = NexusDesignSystem.Palette.muted
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.statusBarColor = background
         window.navigationBarColor = background
-        window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        window.setSoftInputMode(
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+            } else {
+                android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+            }
+        )
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -108,17 +114,14 @@ class ListeningRoomActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        header.addView(label("NEXUS  /  LISTENING ROOM", 11f, accent, true).apply {
-            letterSpacing = .12f
-            typeface = NexusDesignSystem.Type.technical(this@ListeningRoomActivity)
-        }, LinearLayout.LayoutParams(0, -2, 1f))
+        header.addView(label("Rooms", 28f, foreground, true), LinearLayout.LayoutParams(0, -2, 1f))
         introPanel.addView(header)
-        introPanel.addView(label("A room of your own.", 29f, foreground, true).apply {
+        introPanel.addView(label("Create or join a room", 22f, foreground, true).apply {
             typeface = NexusDesignSystem.Type.display(this@ListeningRoomActivity)
         }, params(14))
         root.addView(introPanel)
 
-        status = label("Ready when you are", 11f, muted)
+        status = label("Enter a room code or create a room.", 12f, muted)
         status.setPadding(dp(12), dp(12), dp(12), dp(12))
         status.background = rounded(surface, 8)
         status.maxLines = 1
@@ -142,7 +145,7 @@ class ListeningRoomActivity : Activity() {
         }
         roomActions.addView(createButton, params(0))
         codeInput = EditText(this).apply {
-            hint = "ENTER 5-CHARACTER CODE"
+            hint = "Room code"
             setHintTextColor(muted)
             setTextColor(this@ListeningRoomActivity.foreground)
             textSize = 14f
@@ -209,10 +212,7 @@ class ListeningRoomActivity : Activity() {
         })
         roomPanel.addView(playbackFailureRow, params(8))
 
-        roomPanel.addView(label("THE CONVERSATION", 10f, accent, true).apply {
-            letterSpacing = .14f
-            typeface = NexusDesignSystem.Type.technical(this@ListeningRoomActivity)
-        }, params(18))
+        roomPanel.addView(label("Chat", 17f, foreground, true), params(12))
         val chatScroll = ScrollView(this).apply {
             background = rounded(surface, 12)
             isFillViewport = false
@@ -255,6 +255,22 @@ class ListeningRoomActivity : Activity() {
         bottomNavigation = buildBottomNavigation()
         root.addView(bottomNavigation, LinearLayout.LayoutParams(-1, dp(62)))
 
+        // On Android 11+, keep the navigation bar at its original screen bounds.
+        // Only the chat composer follows the IME; the chat remains scrollable behind it.
+        root.setOnApplyWindowInsetsListener { _, insets ->
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                val imeBottom = insets.getInsets(android.view.WindowInsets.Type.ime()).bottom
+                sendRow.translationY = -imeBottom.toFloat()
+                chatScroll.setPadding(
+                    chatScroll.paddingLeft,
+                    chatScroll.paddingTop,
+                    chatScroll.paddingRight,
+                    imeBottom
+                )
+            }
+            insets
+        }
+        root.requestApplyInsets()
         setContentView(root)
         registerBackNavigation()
         playback = PlaybackConnection(
@@ -641,9 +657,9 @@ class ListeningRoomActivity : Activity() {
     private fun buildBottomNavigation(): LinearLayout =
         NexusUi.bottomNavigation(
             context = this,
-            selected = NexusUi.NavigationTab.ROOM,
+            selected = NexusUi.NavigationTab.ROOMS,
             onHome = ::navigateHome,
-            onLibrary = ::navigateLibrary,
+            onSearch = ::navigateSearch,
             onRoom = {},
             onYou = ::navigateYou
         )
@@ -656,10 +672,10 @@ class ListeningRoomActivity : Activity() {
         )
     }
 
-    private fun navigateLibrary() {
+    private fun navigateSearch() {
         startActivity(
             Intent(this, MainActivity::class.java)
-                .putExtra(MainActivity.EXTRA_OPEN_LIBRARY, true)
+                .putExtra(MainActivity.EXTRA_OPEN_SEARCH, true)
                 .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
         )
     }
