@@ -887,7 +887,7 @@ class MainActivity : Activity() {
         if (searchPanel.queryInput.text.toString().isNotBlank()) performSearch()
     }
 
-    private fun openDiscoveryCategory(bucket: DiscoveryBucket) {
+    private fun openDiscoveryCategory(bucket: HomeDiscoveryCategory) {
         ensureSearchContent()
         selectedScope = bucket.scope
         searchPanel.setSelectedScope(bucket.scope)
