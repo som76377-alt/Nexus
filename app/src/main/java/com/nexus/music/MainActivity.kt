@@ -270,8 +270,14 @@ class MainActivity : Activity() {
         nowPlayingView = NowPlayingView(
             context = this,
             onClose = { nowPlayingView.visibility = View.GONE },
-            onToggle = { playbackConnection?.togglePlayback() },
-            onSeek = { playbackConnection?.seekTo(it) }
+            onToggle = {
+                if (::nowPlayingView.isInitialized) NexusHaptics.confirm(nowPlayingView, experienceSettings)
+                playbackConnection?.togglePlayback()
+            },
+            onSeek = {
+                if (::nowPlayingView.isInitialized) NexusHaptics.seekStep(nowPlayingView, experienceSettings)
+                playbackConnection?.seekTo(it)
+            }
         ).apply {
             visibility = View.GONE
             render(lastPlaybackSnapshot)
@@ -712,13 +718,17 @@ class MainActivity : Activity() {
     private fun buildPlayerPanel(): LinearLayout {
         val player = NexusUi.miniPlayer(
             context = this,
-            onTogglePlayback = { playbackConnection?.togglePlayback() },
+            onTogglePlayback = {
+                if (::playPauseButton.isInitialized) NexusHaptics.confirm(playPauseButton, experienceSettings)
+                playbackConnection?.togglePlayback()
+            },
             onSeekStarted = { isSeeking = true },
             onSeekChanged = { isSeeking = true },
             onSeekFinished = { progress ->
                 val duration = lastPlaybackSnapshot.durationMs
                 if (duration > 0L) {
                     val target = duration * progress.toLong() / playbackProgress.max
+                    NexusHaptics.seekStep(player.progress, experienceSettings)
                     playbackConnection?.seekTo(target)
                 }
                 isSeeking = false
