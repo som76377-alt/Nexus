@@ -299,92 +299,167 @@ class MainActivity : Activity() {
             context = this,
             selected = selected,
             onHome = ::showHome,
-            onLibrary = ::showLibrary,
+            onSearch = ::showSearch,
             onRoom = ::openRoomPage,
             onYou = ::showYou
         )
 
+    private fun displayContent(view: View, key: String) {
+        if (mainScroll.childCount > 0) {
+            when (activeContentKey) {
+                "home" -> homeScrollPosition = mainScroll.scrollY
+                "search" -> searchScrollPosition = mainScroll.scrollY
+            }
+        }
+        activeContentKey = key
+        mainScroll.removeAllViews()
+        mainScroll.addView(view)
+        val restorePosition = when (key) {
+            "home" -> homeScrollPosition
+            "search" -> searchScrollPosition
+            else -> 0
+        }
+        mainScroll.post {
+            if (activeContentKey == key) mainScroll.scrollTo(0, restorePosition)
+        }
+    }
+
+    private fun renderBottomNavigation(selected: NexusUi.NavigationTab) {
+        bottomNavigationHost.removeAllViews()
+        bottomNavigationHost.addView(buildBottomNavigation(selected), LinearLayout.LayoutParams(-1, dp(62)))
+    }
+
     private fun showHome() {
         youRenderGeneration++
         if (!::mainScroll.isInitialized) return
-        mainScroll.removeAllViews()
-        mainScroll.addView(homeContent)
-        bottomNavigationHost.removeAllViews()
-        bottomNavigationHost.addView(buildBottomNavigation(NexusUi.NavigationTab.HOME), LinearLayout.LayoutParams(-1, dp(62)))
+        displayContent(homeContent, "home")
+        renderBottomNavigation(NexusUi.NavigationTab.HOME)
     }
 
-    private fun showLibrary() {
+    private fun showSearch() {
         youRenderGeneration++
         if (!::mainScroll.isInitialized) return
-        mainScroll.removeAllViews()
-        mainScroll.addView(
+        displayContent(searchContent, "search")
+        renderBottomNavigation(NexusUi.NavigationTab.SEARCH)
+    }
+
+    private fun showLibrary(
+        title: String,
+        tracks: List<CatalogTrack>,
+        allowRemove: Boolean,
+        onBack: () -> Unit = ::showHome
+    ) {
+        youRenderGeneration++
+        val removeAction: ((CatalogTrack) -> Unit)? = if (allowRemove) ({ track ->
+            when (title) {
+                "Saved" -> libraryStore.remove(track)
+                "Watch later" -> libraryStore.removeFromWatchLater(track)
+                else -> libraryStore.removeFromPlaylist(track, title)
+            }
+            showLibrary(title, libraryStoreTracks(title), allowRemove, onBack)
+        }) else null
+        displayContent(
             LibraryView(
                 context = this,
-                saved = libraryStore.savedTracks(),
-                recent = libraryStore.recentTracks(),
+                title = title,
+                tracks = tracks,
                 onPlay = ::startResolvingTrack,
-                onRemove = { track -> libraryStore.remove(track); showLibrary() },
-                onBack = ::showHome
-            )
+                onRemove = removeAction,
+                onBack = onBack
+            ),
+            "library"
         )
-        bottomNavigationHost.removeAllViews()
-        bottomNavigationHost.addView(buildBottomNavigation(NexusUi.NavigationTab.LIBRARY), LinearLayout.LayoutParams(-1, dp(62)))
+        renderBottomNavigation(NexusUi.NavigationTab.HOME)
+    }
+
+    private fun libraryStoreTracks(title: String): List<CatalogTrack> = when (title) {
+        "Saved" -> libraryStore.savedTracks()
+        "History" -> libraryStore.recentTracks()
+        "Watch later" -> libraryStore.watchLaterTracks()
+        else -> libraryStore.playlistTracks(title)
+    }
+
+    private fun showPlaylists() {
+        youRenderGeneration++
+        val playlists = libraryStore.playlistNames().map { it to libraryStore.playlistTracks(it).size }
+        displayContent(
+            PlaylistHubView(
+                context = this,
+                watchLaterCount = libraryStore.watchLaterTracks().size,
+                playlists = playlists,
+                onOpen = ::showPlaylist,
+                onCreate = ::createPlaylist,
+                onBack = ::showHome
+            ),
+            "playlists"
+        )
+        renderBottomNavigation(NexusUi.NavigationTab.HOME)
+    }
+
+    private fun showPlaylist(name: String) {
+        showLibrary(
+            name,
+            libraryStore.playlistTracks(name),
+            allowRemove = true,
+            onBack = ::showPlaylists
+        )
+    }
+
+    private fun createPlaylist() {
+        val input = android.widget.EditText(this).apply {
+            hint = "Playlist name"
+            isSingleLine = true
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+        }
+        AlertDialog.Builder(this)
+            .setTitle("New playlist")
+            .setView(input)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Create") { _, _ ->
+                val name = input.text.toString().trim()
+                if (libraryStore.createPlaylist(name)) showPlaylists()
+                else Toast.makeText(this, "Enter a new playlist name.", Toast.LENGTH_SHORT).show()
+            }
+            .show()
+    }
+
+    private fun showBlend() {
+        Toast.makeText(this, "Blend appears when a partner is connected.", Toast.LENGTH_SHORT).show()
     }
 
     private fun showYou() {
         if (!::mainScroll.isInitialized) return
-        val generation = ++youRenderGeneration
-        activityScope.launch {
-            val usedBytes = withContext(Dispatchers.IO) {
-                AudioCacheStore.usedBytes(this@MainActivity)
-            }
-            if (generation != youRenderGeneration || isFinishing || isDestroyed) return@launch
-            mainScroll.removeAllViews()
-            mainScroll.addView(
-                YouView(
-                    context = this@MainActivity,
-                    savedCount = libraryStore.savedTracks().size,
-                    recentCount = libraryStore.recentTracks().size,
-                    onLibrary = ::showLibrary,
-                    onAbout = ::showAboutNexus,
-                    cacheUsedBytes = usedBytes,
-                    cacheMaxBytes = AudioCacheStore.maxBytes(this@MainActivity),
-                    onClearCache = {
-                        val requestedGeneration = youRenderGeneration
-                        activityScope.launch(Dispatchers.IO) {
-                            PersistentAudioCacheLookup(this@MainActivity).clear()
-                            withContext(Dispatchers.Main) {
-                                if (requestedGeneration == youRenderGeneration) showYou()
-                            }
-                        }
-                    },
-                    onCacheLimitChanged = { bytes ->
-                        val requestedGeneration = youRenderGeneration
-                        activityScope.launch(Dispatchers.IO) {
-                            AudioCacheStore.setMaxBytes(this@MainActivity, bytes)
-                            withContext(Dispatchers.Main) {
-                                if (requestedGeneration == youRenderGeneration) showYou()
-                            }
-                        }
-                    }
-                )
-            )
-            bottomNavigationHost.removeAllViews()
-            bottomNavigationHost.addView(
-                buildBottomNavigation(NexusUi.NavigationTab.YOU),
-                LinearLayout.LayoutParams(-1, dp(62))
-            )
+        youRenderGeneration++
+        val youContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(screenBackground)
         }
+        youContent.addView(
+            YouView(
+                context = this,
+                savedCount = libraryStore.savedTracks().size,
+                historyCount = libraryStore.recentTracks().size,
+                partnerStatus = "Not connected",
+                roomStatus = "Open Rooms to connect",
+                reduceEffects = experienceSettings.reduceEffects || experienceSettings.effectsShouldBeReduced(),
+                hapticsEnabled = experienceSettings.hapticsEnabled,
+                onReduceEffectsChanged = { experienceSettings.reduceEffects = it },
+                onHapticsChanged = { experienceSettings.hapticsEnabled = it },
+                onAbout = ::showAboutNexus
+            ),
+            LinearLayout.LayoutParams(-1, -2)
+        )
+        youContent.addView(updatePanel, LinearLayout.LayoutParams(-1, -2).apply {
+            setMargins(dp(22), dp(10), dp(22), dp(24))
+        })
+        displayContent(youContent, "you")
+        renderBottomNavigation(NexusUi.NavigationTab.YOU)
     }
 
     private fun showAboutNexus() {
         AlertDialog.Builder(this)
             .setTitle("Nexus")
-            .setMessage(
-                "The art of listening.\n\nDiscover music, keep a personal collection, " +
-                    "listen in the background and share listening rooms.\n\n" +
-                    "Official project and releases: github.com/som76377-alt/Nexus"
-            )
+            .setMessage("Music discovery and listening rooms.\n\nOfficial project: github.com/som76377-alt/Nexus")
             .setPositiveButton("Close", null)
             .show()
     }
