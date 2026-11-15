@@ -71,4 +71,4 @@
 ## Final consolidation conflict resolution
 | Task | Status | Commit | CI run | Learning |
 |---|---|---|---|---|
-| Preserve current Home discovery design while reconciling branch divergence | DONE — pending exact-head CI | pending | pending | Kept main's newer neutral category-row/ripple redesign and its 48dp targets instead of restoring integration's superseded coloured-chip layout. Other overlapping MainActivity and NowPlayingView edits were identical on both branches. |
+| Preserve current Home discovery design while reconciling branch divergence | DONE — implementation CI passed | `9f70f66f8cab574ff0dc94ae5e2397836b82a7f5` | [Android CI #43697290730](https://github.com/som76377-alt/Nexus/actions/runs/43697290730) — success | Kept main's newer neutral category-row/ripple redesign and its 48dp targets instead of restoring integration's superseded coloured-chip layout. Other overlapping MainActivity and NowPlayingView edits were identical on both branches. The final combined main/integration PR still requires its own exact-head checks. |
