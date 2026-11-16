@@ -137,9 +137,11 @@ class MainActivity : Activity() {
     private var recommendationsGeneration = 0L
     private var lastHomeBucketIds: List<String> = emptyList()
     private var recommendationsJob: Job? = null
-    private var recommendationPrefetchJob: Job? = null
-    private val prefetchedAudio = mutableMapOf<String, ResolvedAudio>()
-    private val audioPrefetchInFlight = mutableSetOf<String>()
+    private val prefetchedAudio = java.util.concurrent.ConcurrentHashMap<String, ResolvedAudio>()
+    private val audioPrefetchJobs = java.util.concurrent.ConcurrentHashMap<String, Job>()
+    private val audioPrefetchSemaphore = Semaphore(2)
+    private var playbackResolutionJob: Job? = null
+    private var playbackSelectionGeneration = 0L
     private var activeContentKey = "home"
     private var homeScrollPosition = 0
     private var searchScrollPosition = 0
@@ -152,7 +154,6 @@ class MainActivity : Activity() {
     private var selectedScope = YoutubeSearchScope.MUSIC_SONGS
     private var searchJob: Job? = null
     private var searchGeneration = 0L
-    private var isResolving = false
     private var youRenderGeneration = 0L
     private var isSeeking = false
     private var isActivityStarted = false
@@ -957,9 +958,8 @@ class MainActivity : Activity() {
 
     private fun loadHomeShelves(reroll: Boolean = false) {
         recommendationsJob?.cancel()
-        recommendationPrefetchJob?.cancel()
-        recommendationPrefetchJob = null
-        audioPrefetchInFlight.clear()
+        audioPrefetchJobs.values.forEach { it.cancel() }
+        audioPrefetchJobs.clear()
 
         val generation = ++recommendationsGeneration
         val allBuckets = discoveryShelves.flatMap { it.buckets }
@@ -1249,45 +1249,47 @@ class MainActivity : Activity() {
 
     private fun prefetchRecommendationAudio(tracks: List<CatalogTrack>) {
         val candidates = tracks.distinctBy { it.url }
-            .filter { it.url !in prefetchedAudio && it.url !in audioPrefetchInFlight }
+            .filter { track ->
+                !prefetchedAudio.containsKey(track.url) &&
+                    audioPrefetchJobs[track.url]?.isActive != true
+            }
             .take(8)
-        if (candidates.isEmpty() || recommendationPrefetchJob?.isActive == true) return
+        if (candidates.isEmpty()) return
 
-        recommendationPrefetchJob = activityScope.launch {
-            val semaphore = Semaphore(2)
-            val catalog = withContext(Dispatchers.IO) { repository }
-            candidates.map { track ->
-                async {
-                    audioPrefetchInFlight.add(track.url)
-                    try {
-                        val prefetchStartedAtMs = SystemClock.elapsedRealtime()
-                        semaphore.withPermit {
-                            val resolved = withContext(Dispatchers.IO) {
-                                CachedAudioResolver(
-                                    PersistentAudioCacheLookup(this@MainActivity),
-                                    catalog::resolveAudio
-                                ).resolve(track.url)
-                            }
-                            if (BuildConfig.DEBUG) {
-                                android.util.Log.d(
-                                    "NexusPerformance",
-                                    "audio_prefetch_track_ms=${SystemClock.elapsedRealtime() - prefetchStartedAtMs}"
-                                )
-                            }
-                            prefetchedAudio[track.url] = resolved
-                            while (prefetchedAudio.size > 12) {
-                                prefetchedAudio.remove(prefetchedAudio.keys.first())
-                            }
+        // Prefetches are tracked per track, not behind one global job. Home warming can no
+        // longer silently suppress Search warming. The shared semaphore keeps background
+        // resolution bounded, while a tapped track bypasses this queue.
+        candidates.forEach { track ->
+            val job = activityScope.launch {
+                try {
+                    val prefetchStartedAtMs = SystemClock.elapsedRealtime()
+                    audioPrefetchSemaphore.withPermit {
+                        val catalog = withContext(Dispatchers.IO) { repository }
+                        val resolved = withContext(Dispatchers.IO) {
+                            CachedAudioResolver(
+                                PersistentAudioCacheLookup(this@MainActivity),
+                                catalog::resolveAudio
+                            ).resolve(track.url)
                         }
-                    } catch (_: CancellationException) {
-                        throw CancellationException()
-                    } catch (_: Exception) {
-                        // A failed prefetch is harmless; tapping the track retries normally.
-                    } finally {
-                        audioPrefetchInFlight.remove(track.url)
+                        if (BuildConfig.DEBUG) {
+                            android.util.Log.d(
+                                "NexusPerformance",
+                                "audio_prefetch_track_ms=${SystemClock.elapsedRealtime() - prefetchStartedAtMs}"
+                            )
+                        }
+                        prefetchedAudio[track.url] = resolved
+                        while (prefetchedAudio.size > 12) {
+                            prefetchedAudio.remove(prefetchedAudio.keys.first())
+                        }
                     }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // A failed prefetch is harmless; tapping the track resolves it on demand.
                 }
-            }.awaitAll()
+            }
+            audioPrefetchJobs[track.url] = job
+            job.invokeOnCompletion { audioPrefetchJobs.remove(track.url, job) }
         }
     }
 
@@ -1655,15 +1657,24 @@ class MainActivity : Activity() {
     }
 
     private fun startResolvingTrack(track: CatalogTrack) {
-        if (isResolving) return
+        // A newer tap replaces an older unresolved selection. Never discard the user's
+        // latest choice just because a previous provider request is still running.
+        playbackResolutionJob?.cancel()
+        playbackResolutionJob = null
+        val selection = ++playbackSelectionGeneration
+
         prefetchedAudio.remove(track.url)?.let { readyAudio ->
+            audioPrefetchJobs.remove(track.url)?.cancel()
             showResolved(readyAudio)
             return
         }
-        isResolving = true
+
+        // If this item was only waiting in the background prefetch queue, promote it to a
+        // foreground request instead of making the tap wait behind unrelated tracks.
+        audioPrefetchJobs.remove(track.url)?.cancel()
         playerSubtitle.text = "Preparing audio…"
         val resolutionStartedAtMs = SystemClock.elapsedRealtime()
-        activityScope.launch {
+        playbackResolutionJob = activityScope.launch {
             try {
                 val catalog = withContext(Dispatchers.IO) { repository }
                 val audio = withContext(Dispatchers.IO) {
@@ -1672,6 +1683,7 @@ class MainActivity : Activity() {
                         catalog::resolveAudio
                     ).resolve(track.url)
                 }
+                if (selection != playbackSelectionGeneration) return@launch
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "NexusPerformance",
@@ -1682,11 +1694,15 @@ class MainActivity : Activity() {
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                val message = "Could not prepare audio. Try another result or retry."
-                playerSubtitle.text = "Couldn't prepare audio"
-                Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
+                if (selection == playbackSelectionGeneration) {
+                    val message = "Could not prepare audio. Try another result or retry."
+                    playerSubtitle.text = "Couldn't prepare audio"
+                    Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
+                }
             } finally {
-                isResolving = false
+                if (selection == playbackSelectionGeneration) {
+                    playbackResolutionJob = null
+                }
             }
         }
     }
@@ -1802,8 +1818,10 @@ class MainActivity : Activity() {
         searchJob = null
         recommendationsJob?.cancel()
         recommendationsJob = null
-        recommendationPrefetchJob?.cancel()
-        recommendationPrefetchJob = null
+        playbackResolutionJob?.cancel()
+        playbackResolutionJob = null
+        audioPrefetchJobs.values.forEach { it.cancel() }
+        audioPrefetchJobs.clear()
         recommendationsGeneration++
         progressHandler.removeCallbacks(progressTicker)
         playbackConnection?.close()
