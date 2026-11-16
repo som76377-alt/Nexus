@@ -18,6 +18,7 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -188,6 +189,9 @@ abstract class JsonApiStreamProviderAdapter(
 ) : StreamProviderAdapter {
     @Volatile
     private var endpoints: List<HttpUrl> = parseEndpoints(endpoints)
+    @Volatile
+    private var preferredEndpoint: HttpUrl? = null
+    private val endpointCursor = AtomicInteger()
 
     /**
      * Replaces the current instance pool after trusted directory discovery.
@@ -195,7 +199,10 @@ abstract class JsonApiStreamProviderAdapter(
      */
     fun updateEndpoints(values: List<String>) {
         val parsed = parseEndpoints(values)
-        if (parsed.isNotEmpty()) endpoints = parsed
+        if (parsed.isNotEmpty()) {
+            endpoints = parsed
+            if (preferredEndpoint?.let { it !in parsed } == true) preferredEndpoint = null
+        }
     }
 
     private fun parseEndpoints(values: List<String>): List<HttpUrl> =
@@ -277,16 +284,33 @@ abstract class JsonApiStreamProviderAdapter(
         if (configuredEndpoints.isEmpty()) {
             throw IOException("No healthy ${provider.key} instance is configured.")
         }
-        configuredEndpoints.forEach { endpoint ->
+
+        // Never walk a directory of up to twenty public instances serially on the user path.
+        // Remember the last working instance and try at most one bounded fallback per request.
+        val preferred = preferredEndpoint?.takeIf { it in configuredEndpoints }
+        val startIndex = if (preferred != null) {
+            configuredEndpoints.indexOf(preferred)
+        } else {
+            Math.floorMod(endpointCursor.getAndIncrement(), configuredEndpoints.size)
+        }
+        val orderedEndpoints = (0 until configuredEndpoints.size)
+            .map { offset -> configuredEndpoints[(startIndex + offset) % configuredEndpoints.size] }
+            .take(MAX_INSTANCE_ATTEMPTS)
+
+        orderedEndpoints.forEach { endpoint ->
             try {
-                return block(endpoint)
+                val result = block(endpoint)
+                preferredEndpoint = endpoint
+                return result
             } catch (error: kotlinx.coroutines.CancellationException) {
                 throw error
             } catch (error: ProviderCapabilityException) {
                 throw error
             } catch (error: IOException) {
+                if (preferredEndpoint == endpoint) preferredEndpoint = null
                 lastError = error
             } catch (error: org.json.JSONException) {
+                if (preferredEndpoint == endpoint) preferredEndpoint = null
                 lastError = IOException("${provider.key} API returned an invalid response.", error)
             }
         }
@@ -297,6 +321,7 @@ abstract class JsonApiStreamProviderAdapter(
         private val LOOPBACK_HOSTS = setOf("localhost", "127.0.0.1", "::1")
         private const val USER_AGENT = "Nexus/0.1 (Android)"
         private const val MAX_API_RESPONSE_BYTES = 8_388_608L
+        private const val MAX_INSTANCE_ATTEMPTS = 2
 
         internal fun parseRetryAfterMillis(
             value: String?,
@@ -320,9 +345,9 @@ abstract class JsonApiStreamProviderAdapter(
 
         internal fun defaultApiClient(): OkHttpClient =
             OkHttpClient.Builder()
-                .connectTimeout(10, TimeUnit.SECONDS)
-                .readTimeout(20, TimeUnit.SECONDS)
-                .callTimeout(30, TimeUnit.SECONDS)
+                .connectTimeout(4, TimeUnit.SECONDS)
+                .readTimeout(5, TimeUnit.SECONDS)
+                .callTimeout(6, TimeUnit.SECONDS)
                 .followRedirects(true)
                 .followSslRedirects(false)
                 .build()

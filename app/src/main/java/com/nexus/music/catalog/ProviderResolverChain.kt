@@ -20,7 +20,12 @@ class ProviderResolverChain(
     private val maxAttempts: Int = providerOrder.size,
     private val hedgeDelayMs: Long = DEFAULT_HEDGE_DELAY_MS,
     private val nowEpochMs: () -> Long = System::currentTimeMillis,
-    private val validateResolvedAudio: suspend (ResolvedAudio) -> ResolvedAudio = { it }
+    private val validateResolvedAudio: suspend (ResolvedAudio) -> ResolvedAudio = { audio ->
+        if (!CatalogUrlValidator.isValidHttpsUrl(audio.audioUrl)) {
+            throw IOException("The provider returned an invalid HTTPS audio URL.")
+        }
+        audio
+    }
 ) {
     private val adaptersByProvider = adapters.associateBy { it.provider }
     @Volatile

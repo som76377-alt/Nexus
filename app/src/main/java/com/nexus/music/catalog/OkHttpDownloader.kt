@@ -68,10 +68,10 @@ class OkHttpDownloader(
 
         private fun defaultClient(): OkHttpClient =
             OkHttpClient.Builder()
-                .connectTimeout(15, TimeUnit.SECONDS)
-                .readTimeout(30, TimeUnit.SECONDS)
-                .writeTimeout(30, TimeUnit.SECONDS)
-                .callTimeout(45, TimeUnit.SECONDS)
+                .connectTimeout(5, TimeUnit.SECONDS)
+                .readTimeout(8, TimeUnit.SECONDS)
+                .writeTimeout(8, TimeUnit.SECONDS)
+                .callTimeout(12, TimeUnit.SECONDS)
                 .followRedirects(true)
                 .followSslRedirects(false)
                 .build()

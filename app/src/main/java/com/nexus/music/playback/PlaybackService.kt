@@ -14,6 +14,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
@@ -122,7 +123,20 @@ class PlaybackService : MediaSessionService() {
         val renderersFactory = DefaultRenderersFactory(this)
             .setEnableDecoderFallback(true)
 
+        // The Media3 default waits for about 1 second of buffered audio before first output.
+        // Start sooner when the first bytes arrive, while retaining a larger rebuffer threshold
+        // so brief network jitter is less likely to interrupt ongoing playback.
+        val playbackLoadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                /* minBufferMs = */ 15_000,
+                /* maxBufferMs = */ 50_000,
+                /* bufferForPlaybackMs = */ 250,
+                /* bufferForPlaybackAfterRebufferMs = */ 1_000
+            )
+            .build()
+
         val exoPlayer = ExoPlayer.Builder(this, renderersFactory)
+            .setLoadControl(playbackLoadControl)
             .setMediaSourceFactory(mediaSourceFactory)
             // Keep CPU and Wi-Fi available for streaming while background playback is active.
             .setWakeMode(PLAYER_WAKE_MODE)

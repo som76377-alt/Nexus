@@ -12,11 +12,13 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.net.Uri
 import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.DecelerateInterpolator
 import android.view.WindowInsets
 import android.widget.Button
 import android.widget.FrameLayout
@@ -45,12 +47,15 @@ import com.nexus.music.ui.NexusExperienceSettings
 import com.nexus.music.ui.NexusHaptics
 import com.nexus.music.ui.MaterialSurface
 import com.nexus.music.ui.DebugJankMonitor
+import com.nexus.music.ui.HomeDiscoveryCategory
+import com.nexus.music.ui.HomeDiscoveryGroup
 import com.nexus.music.recommendations.GenreBucket
 import com.nexus.music.recommendations.RecommendationMixer
 import com.nexus.music.recommendations.RecommendationHistoryStore
 import com.nexus.music.recommendations.RecommendationCacheStore
 import com.nexus.music.catalog.ResolvedAudio
 import com.nexus.music.catalog.NexusCatalog
+import com.nexus.music.catalog.YoutubeCatalogRepository
 import com.nexus.music.catalog.YoutubeSearchScope
 import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackSnapshot
@@ -63,6 +68,9 @@ import com.nexus.music.update.NexusUpdateInstaller
 import com.nexus.music.update.NexusUpdateScheduler
 import com.nexus.music.update.UpdateCheckResult
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
@@ -72,9 +80,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import kotlin.random.Random
 
@@ -98,6 +110,7 @@ class MainActivity : Activity() {
     private val updateChecker by lazy { GitHubReleaseUpdater() }
     private val progressHandler = Handler(Looper.getMainLooper())
 
+    private lateinit var rootContainer: FrameLayout
     private lateinit var searchPanel: SearchPanel
     private lateinit var homeShelvesContainer: LinearLayout
     private lateinit var updateButton: Button
@@ -121,12 +134,20 @@ class MainActivity : Activity() {
     private val experienceSettings by lazy { NexusExperienceSettings(this) }
     private val recommendationHistory by lazy { RecommendationHistoryStore(this) }
     private val recommendationCache by lazy { RecommendationCacheStore(this) }
+    private val discoveryShelves by lazy { readDiscoveryShelves() }
+    private var recommendationStatusText: TextView? = null
+    private var pickedForYouSection: LinearLayout? = null
+    private val displayedRecommendationIds = LinkedHashSet<String>()
+    private val searchResultCache = LinkedHashMap<String, List<CatalogTrack>>()
+    private val recommendationHistoryWriteMutex = Mutex()
     private var recommendationsGeneration = 0L
     private var lastHomeBucketIds: List<String> = emptyList()
     private var recommendationsJob: Job? = null
-    private var recommendationPrefetchJob: Job? = null
-    private val prefetchedAudio = mutableMapOf<String, ResolvedAudio>()
-    private val audioPrefetchInFlight = mutableSetOf<String>()
+    private val prefetchedAudio = java.util.concurrent.ConcurrentHashMap<String, ResolvedAudio>()
+    private val audioPrefetchJobs = java.util.concurrent.ConcurrentHashMap<String, Deferred<ResolvedAudio?>>()
+    private val audioPrefetchSemaphore = Semaphore(1)
+    private var playbackResolutionJob: Job? = null
+    private var playbackSelectionGeneration = 0L
     private var activeContentKey = "home"
     private var homeScrollPosition = 0
     private var searchScrollPosition = 0
@@ -139,7 +160,6 @@ class MainActivity : Activity() {
     private var selectedScope = YoutubeSearchScope.MUSIC_SONGS
     private var searchJob: Job? = null
     private var searchGeneration = 0L
-    private var isResolving = false
     private var youRenderGeneration = 0L
     private var isSeeking = false
     private var isActivityStarted = false
@@ -171,6 +191,7 @@ class MainActivity : Activity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        val startupStartedAtMs = SystemClock.elapsedRealtime()
         super.onCreate(savedInstanceState)
         window.statusBarColor = screenBackground
         window.navigationBarColor = screenBackground
@@ -178,6 +199,7 @@ class MainActivity : Activity() {
         window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
         val root = MaterialSurface(this, MaterialSurface.Role.CANVAS)
+        rootContainer = root
         val base = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(screenBackground)
@@ -199,7 +221,16 @@ class MainActivity : Activity() {
             onHistory = { showLibrary("History", libraryStore.recentTracks(), allowRemove = false) },
             onPlaylists = ::showPlaylists,
             onBlend = ::showBlend,
-            partnerConnected = false
+            partnerConnected = false,
+            categories = discoveryShelves.map { shelf ->
+                HomeDiscoveryGroup(
+                    title = shelf.title,
+                    categories = shelf.buckets.map { bucket ->
+                        HomeDiscoveryCategory(bucket.id, bucket.label, bucket.query, bucket.scope)
+                    }
+                )
+            },
+            onCategorySelected = ::openDiscoveryCategory
         ), verticalParams(8))
 
         homeShelvesContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -263,23 +294,6 @@ class MainActivity : Activity() {
         }
         updateProgressContainer.addView(updateProgressBar, LinearLayout.LayoutParams(-1, dp(9)))
         updatePanel.addView(updateProgressContainer)
-        searchPanel = SearchPanel(
-            context = this,
-            initialScope = selectedScope,
-            onSearchRequested = ::performSearch,
-            onScopeSelected = ::selectScope
-        )
-        searchContent = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(22), dp(24), dp(22), dp(32))
-            addView(text("Search", 30f, primaryText, bold = true), verticalParams(8))
-        }
-        val sortButton = NexusUi.actionButton(this, "Sort results", primary = false).apply {
-            setOnClickListener { showSearchSortMenu(this) }
-        }
-        searchContent.addView(sortButton, verticalParams(8))
-        searchContent.addView(searchPanel, verticalParams(12))
-
         scroll.addView(content)
         base.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         miniPlayerContainer = buildPlayerPanel().apply { visibility = View.GONE }
@@ -288,22 +302,6 @@ class MainActivity : Activity() {
         bottomNavigationHost.addView(buildBottomNavigation(), LinearLayout.LayoutParams(-1, dp(62)))
         base.addView(bottomNavigationHost, LinearLayout.LayoutParams(-1, dp(62)))
         root.addView(base, FrameLayout.LayoutParams(-1, -1))
-        nowPlayingView = NowPlayingView(
-            context = this,
-            onClose = { nowPlayingView.visibility = View.GONE },
-            onToggle = {
-                if (::nowPlayingView.isInitialized) NexusHaptics.confirm(nowPlayingView, experienceSettings)
-                playbackConnection?.togglePlayback()
-            },
-            onSeek = {
-                if (::nowPlayingView.isInitialized) NexusHaptics.seekStep(nowPlayingView, experienceSettings)
-                playbackConnection?.seekTo(it)
-            }
-        ).apply {
-            visibility = View.GONE
-            render(lastPlaybackSnapshot)
-        }
-        root.addView(nowPlayingView, FrameLayout.LayoutParams(-1, -1))
         setContentView(root)
         when {
             intent.getBooleanExtra(EXTRA_OPEN_YOU, false) -> showYou()
@@ -315,7 +313,20 @@ class MainActivity : Activity() {
         registerBackNavigation()
         applySystemBarInsets(base)
         connectPlaybackService()
-        NexusUpdateScheduler.disableBackgroundUpdates(this)
+        activityScope.launch(Dispatchers.IO) {
+            NexusUpdateScheduler.disableBackgroundUpdates(applicationContext)
+        }
+        root.post {
+            if (!isDestroyed) {
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                        "NexusPerformance",
+                        "activity_content_ready_ms=${SystemClock.elapsedRealtime() - startupStartedAtMs}"
+                    )
+                }
+                reportFullyDrawn()
+            }
+        }
     }
 
     private fun registerBackNavigation() {
@@ -346,6 +357,53 @@ class MainActivity : Activity() {
             onRoom = ::openRoomPage,
             onYou = ::showYou
         )
+
+    private fun ensureSearchContent() {
+        if (::searchContent.isInitialized) return
+
+        searchPanel = SearchPanel(
+            context = this,
+            initialScope = selectedScope,
+            onSearchRequested = ::performSearch,
+            onScopeSelected = ::selectScope
+        )
+        searchContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(22), dp(24), dp(22), dp(32))
+            addView(text("Search", 30f, primaryText, bold = true), verticalParams(8))
+        }
+        val sortButton = NexusUi.actionButton(this, "Sort results", primary = false).apply {
+            setOnClickListener { showSearchSortMenu(this) }
+        }
+        searchContent.addView(sortButton, verticalParams(8))
+        searchContent.addView(searchPanel, verticalParams(12))
+    }
+
+    private fun ensureNowPlayingView(): NowPlayingView {
+        if (!::nowPlayingView.isInitialized) {
+            nowPlayingView = NowPlayingView(
+                context = this,
+                onClose = { nowPlayingView.visibility = View.GONE },
+                onToggle = {
+                    if (::nowPlayingView.isInitialized) {
+                        NexusHaptics.confirm(nowPlayingView, experienceSettings)
+                    }
+                    playbackConnection?.togglePlayback()
+                },
+                onSeek = {
+                    if (::nowPlayingView.isInitialized) {
+                        NexusHaptics.seekStep(nowPlayingView, experienceSettings)
+                    }
+                    playbackConnection?.seekTo(it)
+                }
+            ).apply {
+                visibility = View.GONE
+                render(lastPlaybackSnapshot)
+            }
+            rootContainer.addView(nowPlayingView, FrameLayout.LayoutParams(-1, -1))
+        }
+        return nowPlayingView
+    }
 
     private fun displayContent(view: View, key: String) {
         if (mainScroll.childCount > 0) {
@@ -382,6 +440,7 @@ class MainActivity : Activity() {
     private fun showSearch() {
         youRenderGeneration++
         if (!::mainScroll.isInitialized) return
+        ensureSearchContent()
         displayContent(searchContent, "search")
         renderBottomNavigation(NexusUi.NavigationTab.SEARCH)
     }
@@ -758,9 +817,10 @@ class MainActivity : Activity() {
             }
         )
         player.container.setOnClickListener {
-            nowPlayingView.setArtwork(lastPlaybackSnapshot.artworkUrl)
-            nowPlayingView.render(lastPlaybackSnapshot)
-            nowPlayingView.visibility = View.VISIBLE
+            val nowPlaying = ensureNowPlayingView()
+            nowPlaying.setArtwork(lastPlaybackSnapshot.artworkUrl)
+            nowPlaying.render(lastPlaybackSnapshot)
+            nowPlaying.visibility = View.VISIBLE
         }
         playbackProgress = player.progress
         playerArtwork = player.artwork
@@ -835,6 +895,16 @@ class MainActivity : Activity() {
         if (searchPanel.queryInput.text.toString().isNotBlank()) performSearch()
     }
 
+    private fun openDiscoveryCategory(bucket: HomeDiscoveryCategory) {
+        ensureSearchContent()
+        selectedScope = bucket.scope
+        searchPanel.setSelectedScope(bucket.scope)
+        searchPanel.queryInput.setText(bucket.query)
+        searchPanel.queryInput.setSelection(searchPanel.queryInput.text.length)
+        showSearch()
+        performSearch()
+    }
+
     private fun performSearch() {
         val query = searchPanel.queryInput.text.toString().trim()
         if (query.isEmpty()) {
@@ -845,36 +915,69 @@ class MainActivity : Activity() {
             searchPanel.statusText.text = ""
             searchPanel.statusText.visibility = View.GONE
             searchPanel.statusText.setOnClickListener(null)
+            lastSearchResults = emptyList()
             searchPanel.resultsContainer.removeAllViews()
             return
         }
 
         // A newer query or scope always supersedes the previous request.
         searchJob?.cancel()
+        audioPrefetchJobs.values.forEach { it.cancel() }
+        audioPrefetchJobs.clear()
         searchPanel.queryInput.error = null
         val requestGeneration = ++searchGeneration
         val requestScope = selectedScope
-        searchPanel.statusText.text = ""
-        searchPanel.statusText.visibility = View.GONE
+        val cacheKey = "${requestScope.name}:${query.lowercase()}"
+        val cachedResults = searchResultCache[cacheKey]
         searchPanel.statusText.setOnClickListener(null)
-        searchPanel.resultsContainer.removeAllViews()
+        if (cachedResults != null) {
+            // Show recent results immediately, then refresh them in the background.
+            lastSearchResults = cachedResults
+            renderSearchResults()
+            searchPanel.statusText.text = "Refreshing saved results…"
+            searchPanel.statusText.visibility = View.VISIBLE
+        } else {
+            lastSearchResults = emptyList()
+            searchPanel.statusText.text = "Searching…"
+            searchPanel.statusText.visibility = View.VISIBLE
+            searchPanel.resultsContainer.removeAllViews()
+        }
 
         searchJob = activityScope.launch {
             try {
-                val results = repository.search(query, requestScope)
+                val catalog = withContext(Dispatchers.IO) { repository }
+                val results = withContext(Dispatchers.IO) { catalog.search(query, requestScope) }
                 if (requestGeneration != searchGeneration) return@launch
 
-                lastSearchResults = results
-                renderSearchResults()
-                if (results.isEmpty()) {
+                if (results.isNotEmpty()) {
+                    if (searchResultCache.size >= 24 && cacheKey !in searchResultCache) {
+                        searchResultCache.remove(searchResultCache.keys.first())
+                    }
+                    searchResultCache[cacheKey] = results
+                    lastSearchResults = results
+                    renderSearchResults()
+                    searchPanel.statusText.text = ""
+                    searchPanel.statusText.visibility = View.GONE
+                    // Warm one result only after the user-facing search has finished.
+                    prefetchRecommendationAudio(results.take(1))
+                } else if (cachedResults == null) {
+                    lastSearchResults = emptyList()
+                    renderSearchResults()
                     searchPanel.statusText.text = "No results"
+                    searchPanel.statusText.visibility = View.VISIBLE
+                } else {
+                    searchPanel.statusText.text = "Showing saved results"
                     searchPanel.statusText.visibility = View.VISIBLE
                 }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
                 if (requestGeneration == searchGeneration) {
-                    searchPanel.statusText.text = "Search unavailable · Retry"
+                    searchPanel.statusText.text = if (cachedResults != null) {
+                        "Refresh unavailable · Showing saved results · Retry"
+                    } else {
+                        "Search unavailable · Retry"
+                    }
                     searchPanel.statusText.visibility = View.VISIBLE
                     searchPanel.statusText.setOnClickListener { performSearch() }
                 }
@@ -888,210 +991,421 @@ class MainActivity : Activity() {
 
     private fun loadHomeShelves(reroll: Boolean = false) {
         recommendationsJob?.cancel()
+        audioPrefetchJobs.values.forEach { it.cancel() }
+        audioPrefetchJobs.clear()
+
         val generation = ++recommendationsGeneration
-        val allBuckets = readDiscoveryShelves().flatMap { it.buckets }
+        val allBuckets = discoveryShelves.flatMap { it.buckets }
         val longFormIds = setOf("study", "ambient", "nature")
         val regular = allBuckets.filterNot { it.id in longFormIds }
-        val retained = if (reroll) lastHomeBucketIds.mapNotNull { id -> allBuckets.firstOrNull { it.id == id } }.shuffled().take(3) else emptyList()
+        val retained = if (reroll) {
+            lastHomeBucketIds.mapNotNull { id -> allBuckets.firstOrNull { it.id == id } }
+                .shuffled()
+                .take(3)
+        } else {
+            emptyList()
+        }
         val retainedRegular = retained.filterNot { it.id in longFormIds }
-        val regularSelection = (retainedRegular + regular.filterNot { it.id in retainedRegular.map { b -> b.id } }.shuffled().take((5 - retainedRegular.size).coerceAtLeast(0))).shuffled()
+        val regularSelection = (
+            retainedRegular +
+                regular.filterNot { it.id in retainedRegular.map { bucket -> bucket.id } }
+                    .shuffled()
+                    .take((5 - retainedRegular.size).coerceAtLeast(0))
+            ).shuffled()
         val longForm = allBuckets.filter { it.id in longFormIds }
-        val selected = (regularSelection + if (longForm.isNotEmpty() && (!reroll || Random.nextInt(3) == 0)) listOf(longForm.random()) else emptyList()).take(6)
+        val selected = (
+            regularSelection +
+                if (longForm.isNotEmpty() && (!reroll || Random.nextInt(3) == 0)) {
+                    listOf(longForm.random())
+                } else {
+                    emptyList()
+                }
+            ).take(6)
+
         lastHomeBucketIds = selected.map { it.id }
         val shelves = selected.map { bucket -> DiscoveryShelf(bucket.id, bucket.label, listOf(bucket)) }
         val buckets = selected
-        homeShelvesContainer.removeAllViews()
 
-        val header = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        header.addView(text("Discover", 21f, primaryText, bold = true), LinearLayout.LayoutParams(0, -2, 1f))
-        header.addView(NexusUi.actionButton(this, "Reroll", primary = false).apply {
-            setOnClickListener { loadHomeShelves(reroll = true) }
-        }, LinearLayout.LayoutParams(-2, dp(42)))
-        homeShelvesContainer.addView(header, verticalParams(12))
-
-        // Paint persisted shelves immediately; network refresh must never block first content.
-        val cachedByBucket = buckets.mapNotNull { bucket ->
-            recommendationCache.get(bucket.id)?.let { bucket.id to filterHomeCandidates(it, bucket) }
-        }.toMap()
-        val cachedShelves = shelves.mapNotNull { shelf ->
-            val tracks = shelf.buckets.flatMap { cachedByBucket[it.id].orEmpty() }
-                .distinctBy { it.url }.shuffled().take(18)
-            if (tracks.isEmpty()) null else shelf.title to tracks
-        }
-        val cachedForYou = RecommendationMixer.mix(
-            tasteTracks = (libraryStore.recentTracks().take(60) + libraryStore.savedTracks().take(60)).filter { track -> filterHomeCandidates(listOf(track), buckets.first()).isNotEmpty() },
-            genreTracks = cachedByBucket,
-            seed = Random.nextLong(),
-            excludedIds = recommendationHistory.shownIds(),
-            limit = 20
-        )
-        if (cachedForYou.isNotEmpty() || cachedShelves.isNotEmpty()) {
-            renderRecommendationTiles(cachedForYou, cachedShelves)
-            prefetchRecommendationAudio((cachedForYou + cachedShelves.flatMap { it.second }).distinctBy { it.url })
+        if (homeShelvesContainer.childCount == 0) {
+            renderRecommendationLoading()
         } else {
-            homeShelvesContainer.addView(text("Finding music for you…", 13f, secondaryText), verticalParams(8))
+            recommendationStatusText?.apply {
+                text = "Updating"
+                visibility = View.VISIBLE
+            }
         }
 
+        val discoveryStartedAtMs = SystemClock.elapsedRealtime()
         recommendationsJob = activityScope.launch {
             try {
-                val semaphore = Semaphore(4)
-                val firstBuckets = shelves.take(1).mapNotNull { it.buckets.firstOrNull() }
-                val firstResults = coroutineScope {
-                    firstBuckets.map { bucket ->
-                        async {
-                            semaphore.withPermit {
-                                bucket.id to (cachedByBucket[bucket.id] ?: runCatching {
-                                    filterHomeCandidates(repository.search(bucket.query, bucket.scope), bucket).distinctBy { it.url }.take(24)
-                                }.getOrDefault(emptyList()))
-                            }
+                // Preferences, JSON decoding and lazy repository construction stay off the UI thread.
+                val catalog = withContext(Dispatchers.IO) { repository }
+                val inMemoryExcludedIds = displayedRecommendationIds.toSet()
+                val (cachedByBucket, tasteTracks, excludedIds) = withContext(Dispatchers.IO) {
+                    val historyIds = recommendationHistory.shownIds()
+                    val excluded = historyIds + inMemoryExcludedIds
+                    val cached = buckets.mapNotNull { bucket ->
+                        recommendationCache.get(bucket.id)?.let { cachedTracks ->
+                            val available = filterHomeCandidates(cachedTracks, bucket)
+                                .filterNot { it.url in excluded }
+                            if (available.isEmpty()) null else bucket.id to available
                         }
-                    }.awaitAll().toMap()
+                    }.toMap()
+                    val taste = (
+                        libraryStore.recentTracks().take(60) +
+                            libraryStore.savedTracks().take(60)
+                        ).distinctBy { it.url }
+                    Triple(cached, taste, excluded)
                 }
-                if (generation != recommendationsGeneration || isFinishing || isDestroyed) return@launch
-                firstResults.filterValues { it.isNotEmpty() }.forEach { (id, tracks) ->
-                    recommendationCache.put(id, tracks)
-                }
-                var accumulated = cachedByBucket + firstResults
-                renderDiscoveryResults(shelves, accumulated, generation)
-                prefetchRecommendationAudio(firstResults.values.flatten())
 
-                // Remaining genre/style buckets enrich the visible shelves after first paint.
-                val remaining = buckets.filterNot { it in firstBuckets }
-                val remainingResults = coroutineScope {
-                    remaining.map { bucket ->
-                        async {
-                            semaphore.withPermit {
-                                bucket.id to (cachedByBucket[bucket.id] ?: runCatching {
-                                    filterHomeCandidates(repository.search(bucket.query, bucket.scope), bucket).distinctBy { it.url }.take(24)
-                                }.getOrDefault(emptyList()))
-                            }
-                        }
-                    }.awaitAll().toMap()
+                if (generation != recommendationsGeneration || isFinishing || isDestroyed) {
+                    return@launch
                 }
-                if (generation != recommendationsGeneration || isFinishing || isDestroyed) return@launch
-                remainingResults.filterValues { it.isNotEmpty() }.forEach { (id, tracks) ->
-                    recommendationCache.put(id, tracks)
-                }
-                accumulated = accumulated + remainingResults
 
-                // Similar-artist discovery is optional enrichment; never delay the first screen.
-                val recentArtists = TasteProfileComputer.compute(
-                    events = libraryStore.playHistory(),
-                    nowMs = System.currentTimeMillis()
-                ).artists.take(2).map { it.artist }
-                val tasteSearches = coroutineScope {
-                    recentArtists.map { artist ->
-                        async {
-                            semaphore.withPermit {
-                                runCatching {
-                                    repository.search("$artist similar artists music", YoutubeSearchScope.MUSIC_SONGS)
-                                }.getOrDefault(emptyList())
+                val accumulated = LinkedHashMap(cachedByBucket)
+                var warmForYou = withContext(Dispatchers.Default) {
+                    RecommendationMixer.mix(
+                        tasteTracks = tasteTracks,
+                        genreTracks = accumulated,
+                        seed = Random.nextLong(),
+                        excludedIds = excludedIds,
+                        limit = 20
+                    )
+                }
+                var hasRenderedFeed = cachedByBucket.isNotEmpty() || warmForYou.isNotEmpty()
+                if (hasRenderedFeed) {
+                    // Cached shelves paint immediately; network refresh never gates the existing feed.
+                    renderDiscoveryResults(shelves, accumulated, generation, warmForYou, excludedIds)
+                }
+
+                val missingBuckets = buckets.filter { accumulated[it.id].isNullOrEmpty() }
+                val semaphore = Semaphore(3)
+                var discoveryTimedOut = false
+                if (missingBuckets.isNotEmpty()) {
+                    val results = Channel<Pair<DiscoveryBucket, List<CatalogTrack>>>(Channel.UNLIMITED)
+                    try {
+                        // One total budget covers all missing shelves, not one unbounded timeout per provider.
+                        withTimeout(DISCOVERY_SEARCH_BUDGET_MS) {
+                            coroutineScope {
+                                missingBuckets.forEach { bucket ->
+                                    launch {
+                                        val tracks = semaphore.withPermit {
+                                            searchDiscoveryBucket(catalog, bucket)
+                                        }
+                                        results.send(bucket to tracks)
+                                    }
+                                }
+                                repeat(missingBuckets.size) {
+                                    val (bucket, tracks) = results.receive()
+                                    if (generation != recommendationsGeneration || isFinishing || isDestroyed) {
+                                        return@coroutineScope
+                                    }
+                                    withContext(Dispatchers.IO) {
+                                        recommendationCache.put(bucket.id, tracks)
+                                    }
+                                    val currentExcluded = excludedIds + displayedRecommendationIds.toSet()
+                                    val freshTracks = tracks.distinctBy { it.url }
+                                        .filterNot { it.url in currentExcluded }
+                                        .take(24)
+                                    accumulated[bucket.id] = freshTracks
+
+                                    if (freshTracks.isNotEmpty()) {
+                                        if (!hasRenderedFeed) {
+                                            warmForYou = withContext(Dispatchers.Default) {
+                                                RecommendationMixer.mix(
+                                                    tasteTracks = tasteTracks,
+                                                    genreTracks = accumulated,
+                                                    seed = Random.nextLong(),
+                                                    excludedIds = currentExcluded,
+                                                    limit = 20
+                                                )
+                                            }
+                                            renderDiscoveryResults(
+                                                shelves,
+                                                accumulated,
+                                                generation,
+                                                warmForYou,
+                                                currentExcluded
+                                            )
+                                            hasRenderedFeed = true
+                                        } else {
+                                            val visibleTracks = freshTracks.shuffled().take(8)
+                                            addRecommendationShelf(bucket.label, visibleTracks)
+                                            rememberDisplayedRecommendations(visibleTracks)
+                                        }
+                                    }
+                                }
                             }
                         }
-                    }.awaitAll().flatten()
+                    } catch (_: TimeoutCancellationException) {
+                        discoveryTimedOut = true
+                    } finally {
+                        results.close()
+                    }
                 }
-                if (generation != recommendationsGeneration || isFinishing || isDestroyed) return@launch
-                val homePolicyBucket = buckets.firstOrNull() ?: return@launch
-                val tastePool = (libraryStore.recentTracks().take(60) +
-                    libraryStore.savedTracks().take(60) + filterHomeCandidates(tasteSearches, homePolicyBucket)).filter { track ->
-                    filterHomeCandidates(listOf(track), homePolicyBucket).isNotEmpty()
-                }.distinctBy { it.url }
-                val forYou = RecommendationMixer.mix(
-                    tasteTracks = tastePool,
-                    genreTracks = accumulated,
-                    seed = Random.nextLong(),
-                    excludedIds = recommendationHistory.shownIds(),
-                    limit = 20
+
+                if (generation != recommendationsGeneration || isFinishing || isDestroyed) {
+                    return@launch
+                }
+                if (!hasRenderedFeed) {
+                    // Do not erase a working feed just because every refresh provider failed.
+                    recommendationStatusText?.apply {
+                        text = if (discoveryTimedOut) "Showing previous results" else "No new results"
+                        visibility = View.VISIBLE
+                    }
+                    if (homeShelvesContainer.childCount <= 2) {
+                        homeShelvesContainer.addView(
+                            text("Recommendations unavailable · Tap to retry", 13f, secondaryText).apply {
+                                setOnClickListener { loadHomeShelves(reroll = true) }
+                            },
+                            verticalParams(8)
+                        )
+                    }
+                } else {
+                    val currentExcludedIds = excludedIds + displayedRecommendationIds.toSet()
+                    val refreshedForYou = withContext(Dispatchers.Default) {
+                        RecommendationMixer.mix(
+                            tasteTracks = tasteTracks,
+                            genreTracks = accumulated,
+                            seed = Random.nextLong(),
+                            excludedIds = currentExcludedIds,
+                            limit = 20
+                        )
+                    }
+                    if (refreshedForYou.isNotEmpty()) {
+                        warmForYou = refreshedForYou
+                        replacePickedForYouShelf(refreshedForYou, generation)
+                    }
+                    recommendationStatusText?.apply {
+                        text = if (discoveryTimedOut) "Showing available results" else ""
+                        visibility = if (discoveryTimedOut) View.VISIBLE else View.GONE
+                    }
+                }
+
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                        "NexusPerformance",
+                        "home_discovery_complete_ms=${SystemClock.elapsedRealtime() - discoveryStartedAtMs} cached_buckets=${cachedByBucket.size} selected_buckets=${buckets.size} timed_out=$discoveryTimedOut"
+                    )
+                }
+
+                // Similar-artist requests enrich personal picks only after category shelves are visible.
+                val recentArtists = withContext(Dispatchers.IO) {
+                    TasteProfileComputer.compute(
+                        events = libraryStore.playHistory(),
+                        nowMs = System.currentTimeMillis()
+                    ).artists.take(2).map { it.artist }
+                }
+                if (recentArtists.isNotEmpty()) {
+                    val tasteSearches = coroutineScope {
+                        recentArtists.map { artist ->
+                            async {
+                                semaphore.withPermit {
+                                    searchCatalogSafely(
+                                        catalog,
+                                        "$artist similar artists music",
+                                        YoutubeSearchScope.MUSIC_SONGS
+                                    )
+                                }
+                            }
+                        }.awaitAll().flatten()
+                    }
+                    if (generation != recommendationsGeneration || isFinishing || isDestroyed) {
+                        return@launch
+                    }
+                    val expandedTaste = withContext(Dispatchers.IO) {
+                        (
+                            libraryStore.recentTracks().take(60) +
+                                libraryStore.savedTracks().take(60)
+                            ).distinctBy { it.url }
+                    } + tasteSearches
+                    val currentExcludedIds = excludedIds + displayedRecommendationIds.toSet()
+                    val forYou = withContext(Dispatchers.Default) {
+                        RecommendationMixer.mix(
+                            tasteTracks = expandedTaste.distinctBy { it.url },
+                            genreTracks = accumulated,
+                            seed = Random.nextLong(),
+                            excludedIds = currentExcludedIds,
+                            limit = 20
+                        )
+                    }
+                    if (forYou.isNotEmpty()) {
+                        warmForYou = forYou
+                        // Enrichment changes only the personal rail; category shelves remain stable.
+                        replacePickedForYouShelf(forYou, generation)
+                    }
+                }
+
+                // Warm only after discovery's search work is finished; explicit user taps always win.
+                prefetchRecommendationAudio(
+                    (warmForYou.take(1) + accumulated.values.mapNotNull { it.firstOrNull() })
+                        .distinctBy { it.url }
                 )
-                renderDiscoveryResults(shelves, accumulated, generation, forYou)
-                prefetchRecommendationAudio(forYou + accumulated.values.flatten())
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Exception) {
-                if (generation == recommendationsGeneration && !isFinishing && !isDestroyed &&
-                    homeShelvesContainer.childCount <= 1
-                ) {
-                    homeShelvesContainer.addView(
-                        text("Recommendations unavailable · Tap to retry", 13f, secondaryText).apply {
-                            setOnClickListener { loadHomeShelves(reroll = true) }
-                        }, verticalParams(8)
-                    )
+                if (generation == recommendationsGeneration && !isFinishing && !isDestroyed) {
+                    recommendationStatusText?.apply {
+                        text = "Could not refresh"
+                        visibility = View.VISIBLE
+                    }
+                    if (homeShelvesContainer.childCount <= 2) {
+                        homeShelvesContainer.addView(
+                            text("Recommendations unavailable · Tap to retry", 13f, secondaryText).apply {
+                                setOnClickListener { loadHomeShelves(reroll = true) }
+                            },
+                            verticalParams(8)
+                        )
+                    }
                 }
             }
         }
+    }
+
+    private fun renderRecommendationLoading() {
+        homeShelvesContainer.removeAllViews()
+        addRecommendationHeader()
+        homeShelvesContainer.addView(
+            text("Finding music…", 12f, secondaryText),
+            verticalParams(8)
+        )
     }
 
     private fun renderDiscoveryResults(
         shelves: List<DiscoveryShelf>,
         bucketResults: Map<String, List<CatalogTrack>>,
         generation: Long,
-        forYouOverride: List<CatalogTrack>? = null
+        forYou: List<CatalogTrack>,
+        excludedIds: Set<String>
     ) {
         if (generation != recommendationsGeneration || isFinishing || isDestroyed) return
         val shelfTracks = shelves.mapNotNull { shelf ->
             val tracks = shelf.buckets.flatMap { bucketResults[it.id].orEmpty() }
-                .distinctBy { it.url }.shuffled().take(18)
+                .filterNot { it.url in excludedIds }
+                .distinctBy { it.url }
+                .shuffled()
+                .take(8)
             if (tracks.isEmpty()) null else shelf.title to tracks
         }
-        val homePolicyBucket = shelves.firstOrNull()?.buckets?.firstOrNull()
-        val safeTasteTracks = (libraryStore.recentTracks().take(60) + libraryStore.savedTracks().take(60))
-            .filter { track -> homePolicyBucket?.let { filterHomeCandidates(listOf(track), it).isNotEmpty() } == true }
-        val forYou = forYouOverride ?: RecommendationMixer.mix(
-            tasteTracks = safeTasteTracks,
-            genreTracks = bucketResults,
-            seed = Random.nextLong(),
-            excludedIds = recommendationHistory.shownIds(),
-            limit = 20
-        )
-        if (forYou.isNotEmpty()) recommendationHistory.remember(forYou)
         renderRecommendationTiles(forYou, shelfTracks)
     }
 
-    private fun filterHomeCandidates(tracks: List<CatalogTrack>, bucket: DiscoveryBucket): List<CatalogTrack> {
+    private suspend fun searchDiscoveryBucket(
+        catalog: YoutubeCatalogRepository,
+        bucket: DiscoveryBucket
+    ): List<CatalogTrack> {
+        val results = searchCatalogSafely(catalog, bucket.query, bucket.scope)
+        return filterHomeCandidates(results, bucket)
+            .distinctBy { it.url }
+    }
+
+    private suspend fun searchCatalogSafely(
+        catalog: YoutubeCatalogRepository,
+        query: String,
+        scope: YoutubeSearchScope
+    ): List<CatalogTrack> = try {
+        withContext(Dispatchers.IO) { catalog.search(query, scope) }
+    } catch (error: CancellationException) {
+        throw error
+    } catch (_: Exception) {
+        emptyList()
+    }
+
+    private fun filterHomeCandidates(
+        tracks: List<CatalogTrack>,
+        bucket: DiscoveryBucket
+    ): List<CatalogTrack> {
         val longForm = bucket.id in setOf("study", "ambient", "nature")
-        val rejected = listOf("playlist", "compilation", "full album", "karaoke", "lyrics", "lyric video", "cover", "fan-made", "fan made", "ai generated", "ai-generated", "suno", "udio", "slowed", "sped up", "nightcore", "mashup", "remix")
+        // Category queries already constrain the search. Do not require a second "official"
+        // marker here: that discarded ordinary catalogue results and left only Nature ambience.
+        // Keep real single-track results, including lyrics, covers and remixes.
+        val multiTrackTerms = listOf(
+            "full album",
+            "full albums",
+            "album playlist",
+            "playlist",
+            "compilation",
+            "continuous mix",
+            "karaoke"
+        )
         return tracks.filter { track ->
-            val title = track.title.lowercase()
+            val title = track.title.trim()
+            val normalizedTitle = title.lowercase()
             val duration = track.durationSeconds ?: return@filter false
-            val artist = track.artist?.trim().orEmpty()
-            val durationOk = if (longForm) duration >= 8L * 60L else duration in 70L..600L
-            val trustedReleaseMarker = artist.endsWith("- Topic", ignoreCase = true) ||
-                listOf("official audio", "official music video", "official video").any(title::contains)
-            durationOk && artist.isNotBlank() && artist.lowercase() !in setOf("unknown", "various artists", "youtube") &&
-                (longForm || trustedReleaseMarker) && rejected.none(title::contains) && track.url.startsWith("https://")
+            val durationOk = if (longForm) {
+                duration >= 8L * 60L
+            } else {
+                duration in 45L..900L
+            }
+            title.length >= 2 &&
+                durationOk &&
+                multiTrackTerms.none(normalizedTitle::contains) &&
+                track.url.startsWith("https://")
+        }
+    }
+
+    private fun rememberDisplayedRecommendations(tracks: List<CatalogTrack>) {
+        val distinct = tracks.distinctBy { it.url }.filter { it.url.isNotBlank() }
+        if (distinct.isEmpty()) return
+        distinct.forEach { displayedRecommendationIds.add(it.url) }
+        while (displayedRecommendationIds.size > 300) {
+            val iterator = displayedRecommendationIds.iterator()
+            if (iterator.hasNext()) {
+                iterator.next()
+                iterator.remove()
+            }
+        }
+        activityScope.launch(Dispatchers.IO) {
+            recommendationHistoryWriteMutex.withLock {
+                recommendationHistory.remember(distinct)
+            }
         }
     }
 
     private fun prefetchRecommendationAudio(tracks: List<CatalogTrack>) {
-        val candidates = tracks.distinctBy { it.url }
-            .filter { it.url !in prefetchedAudio && it.url !in audioPrefetchInFlight }
-            .take(10)
-        if (candidates.isEmpty() || recommendationPrefetchJob?.isActive == true) return
-        recommendationPrefetchJob = activityScope.launch {
-            val semaphore = Semaphore(2)
-            candidates.map { track ->
-                async {
-                    audioPrefetchInFlight.add(track.url)
-                    try {
-                        semaphore.withPermit {
-                            val resolved = CachedAudioResolver(
-                                PersistentAudioCacheLookup(this@MainActivity),
-                                repository::resolveAudio
-                            ).resolve(track.url)
-                            prefetchedAudio[track.url] = resolved
-                        }
-                    } catch (_: CancellationException) {
-                        throw CancellationException()
-                    } catch (_: Exception) {
-                        // A failed prefetch is harmless; tapping the track retries normally.
-                    } finally {
-                        audioPrefetchInFlight.remove(track.url)
+        // One background resolution at a time. Multiple warm-ups held NewPipe's shared
+        // extractor lock and made actual searches and taps wait behind speculative work.
+        if (audioPrefetchJobs.values.any { it.isActive }) return
+        val candidate = tracks.distinctBy { it.url }.firstOrNull { track ->
+            !prefetchedAudio.containsKey(track.url) &&
+                audioPrefetchJobs[track.url]?.isActive != true
+        } ?: return
+
+        val job = activityScope.async(start = CoroutineStart.LAZY) {
+            try {
+                val prefetchStartedAtMs = SystemClock.elapsedRealtime()
+                audioPrefetchSemaphore.withPermit {
+                    val catalog = withContext(Dispatchers.IO) { repository }
+                    val resolved = withContext(Dispatchers.IO) {
+                        CachedAudioResolver(
+                            PersistentAudioCacheLookup(this@MainActivity),
+                            catalog::resolveAudio
+                        ).resolve(candidate.url)
                     }
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d(
+                            "NexusPerformance",
+                            "audio_prefetch_track_ms=${SystemClock.elapsedRealtime() - prefetchStartedAtMs}"
+                        )
+                    }
+                    prefetchedAudio[candidate.url] = resolved
+                    while (prefetchedAudio.size > 12) {
+                        prefetchedAudio.remove(prefetchedAudio.keys.first())
+                    }
+                    resolved
                 }
-            }.awaitAll()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+        }
+        val existing = audioPrefetchJobs.putIfAbsent(candidate.url, job)
+        if (existing == null) {
+            job.invokeOnCompletion { audioPrefetchJobs.remove(candidate.url, job) }
+            job.start()
+        } else {
+            job.cancel()
         }
     }
 
@@ -1131,30 +1445,82 @@ class MainActivity : Activity() {
         }
     }.getOrDefault(emptyList())
 
+    private fun addRecommendationHeader() {
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        header.addView(
+            text("Discover", 21f, primaryText, bold = true),
+            LinearLayout.LayoutParams(0, -2, 1f)
+        )
+        val status = text("", 11f, secondaryText).apply {
+            visibility = View.GONE
+            setPadding(0, 0, dp(8), 0)
+        }
+        recommendationStatusText = status
+        header.addView(status, LinearLayout.LayoutParams(-2, -2))
+        header.addView(
+            NexusUi.actionButton(this, "Reroll", primary = false).apply {
+                setOnClickListener { loadHomeShelves(reroll = true) }
+            },
+            LinearLayout.LayoutParams(-2, dp(48))
+        )
+        homeShelvesContainer.addView(header, verticalParams(12))
+    }
+
     private fun renderRecommendationTiles(
         forYou: List<CatalogTrack>,
         shelves: List<Pair<String, List<CatalogTrack>>>
     ) {
         homeShelvesContainer.removeAllViews()
-        val header = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        header.addView(text("Discover", 21f, primaryText, bold = true), LinearLayout.LayoutParams(0, -2, 1f))
-        header.addView(NexusUi.actionButton(this, "Reroll", primary = false).apply {
-            setOnClickListener { loadHomeShelves() }
-        }, LinearLayout.LayoutParams(-2, dp(42)))
-        homeShelvesContainer.addView(header, verticalParams(12))
+        addRecommendationHeader()
 
-        if (forYou.isNotEmpty()) addRecommendationShelf("Picked for you", forYou)
+        pickedForYouSection = if (forYou.isNotEmpty()) {
+            addRecommendationShelf("Picked for you", forYou)
+        } else {
+            null
+        }
         shelves.forEach { (title, tracks) -> addRecommendationShelf(title, tracks) }
+
+        if (forYou.isEmpty() && shelves.isEmpty()) {
+            recommendationStatusText?.apply {
+                text = "No fresh results"
+                visibility = View.VISIBLE
+            }
+        }
+        rememberDisplayedRecommendations(
+            (forYou + shelves.flatMap { it.second }).distinctBy { it.url }
+        )
     }
 
-    private fun addRecommendationShelf(title: String, tracks: List<CatalogTrack>) {
-        if (tracks.isEmpty()) return
-        homeShelvesContainer.addView(
+    private fun replacePickedForYouShelf(
+        tracks: List<CatalogTrack>,
+        generation: Long
+    ) {
+        if (generation != recommendationsGeneration || isFinishing || isDestroyed) return
+        pickedForYouSection?.let(homeShelvesContainer::removeView)
+        pickedForYouSection = null
+        if (tracks.isNotEmpty()) {
+            val section = addRecommendationShelf("Picked for you", tracks)
+            if (section != null) {
+                homeShelvesContainer.removeView(section)
+                homeShelvesContainer.addView(section, 1.coerceAtMost(homeShelvesContainer.childCount))
+                pickedForYouSection = section
+            }
+        }
+        rememberDisplayedRecommendations(tracks)
+    }
+
+    private fun addRecommendationShelf(title: String, tracks: List<CatalogTrack>): LinearLayout? {
+        if (tracks.isEmpty()) return null
+
+        val section = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        section.addView(
             text(title, 17f, primaryText, bold = true),
-            verticalParams(20)
+            verticalParams(9)
         )
         val horizontal = android.widget.HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
@@ -1163,7 +1529,23 @@ class MainActivity : Activity() {
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         tracks.forEach { track -> row.addView(buildRecommendationTile(track)) }
         horizontal.addView(row)
-        homeShelvesContainer.addView(horizontal, verticalParams(9))
+        section.addView(horizontal, verticalParams(9))
+        homeShelvesContainer.addView(section, verticalParams(10))
+
+        // A brief, one-shot arrival transition only; no shimmer or background animation loop.
+        if (experienceSettings.effectsShouldBeReduced()) {
+            section.alpha = 1f
+        } else {
+            section.alpha = 0f
+            section.translationY = dp(3).toFloat()
+            section.animate()
+                .alpha(1f)
+                .translationY(0f)
+                .setDuration(140L)
+                .setInterpolator(DecelerateInterpolator())
+                .start()
+        }
+        return section
     }
 
     private fun highResolutionThumbnail(track: CatalogTrack): String? {
@@ -1391,28 +1773,71 @@ class MainActivity : Activity() {
     }
 
     private fun startResolvingTrack(track: CatalogTrack) {
-        if (isResolving) return
+        // Explicit playback has priority over background discovery and search work.
+        searchJob?.cancel()
+        searchJob = null
+        recommendationsJob?.cancel()
+        recommendationsJob = null
+
+        // A newer tap replaces an older unresolved selection. Reuse a matching prefetch
+        // instead of cancelling it and issuing the same provider extraction again.
+        playbackResolutionJob?.cancel()
+        playbackResolutionJob = null
+        val selection = ++playbackSelectionGeneration
+
         prefetchedAudio.remove(track.url)?.let { readyAudio ->
             showResolved(readyAudio)
             return
         }
-        isResolving = true
+
+        val matchingPrefetch = audioPrefetchJobs[track.url]?.takeIf { it.isActive }
+        // A different speculative track must not delay the user's explicit selection.
+        audioPrefetchJobs.forEach { (url, job) ->
+            if (url != track.url && job.isActive) job.cancel()
+        }
+
         playerSubtitle.text = "Preparing audio…"
-        activityScope.launch {
+        val resolutionStartedAtMs = SystemClock.elapsedRealtime()
+        playbackResolutionJob = activityScope.launch {
             try {
-                val audio = CachedAudioResolver(
-                    PersistentAudioCacheLookup(this@MainActivity),
-                    repository::resolveAudio
-                ).resolve(track.url)
+                val audio = matchingPrefetch?.let { pending ->
+                    try {
+                        pending.await()
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        null
+                    }
+                } ?: run {
+                    val catalog = withContext(Dispatchers.IO) { repository }
+                    withContext(Dispatchers.IO) {
+                        CachedAudioResolver(
+                            PersistentAudioCacheLookup(this@MainActivity),
+                            catalog::resolveAudio
+                        ).resolve(track.url)
+                    }
+                }
+                prefetchedAudio.remove(track.url)
+                if (selection != playbackSelectionGeneration) return@launch
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                        "NexusPerformance",
+                        "track_resolve_ms=${SystemClock.elapsedRealtime() - resolutionStartedAtMs}"
+                    )
+                }
                 showResolved(audio)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                val message = "Could not prepare audio. Try another result or retry."
-                playerSubtitle.text = "Couldn't prepare audio"
-                Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
+                if (selection == playbackSelectionGeneration) {
+                    val message = "Could not prepare audio. Try another result or retry."
+                    playerSubtitle.text = "Couldn't prepare audio"
+                    Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
+                }
             } finally {
-                isResolving = false
+                if (selection == playbackSelectionGeneration) {
+                    playbackResolutionJob = null
+                }
             }
         }
     }
@@ -1528,8 +1953,10 @@ class MainActivity : Activity() {
         searchJob = null
         recommendationsJob?.cancel()
         recommendationsJob = null
-        recommendationPrefetchJob?.cancel()
-        recommendationPrefetchJob = null
+        playbackResolutionJob?.cancel()
+        playbackResolutionJob = null
+        audioPrefetchJobs.values.forEach { it.cancel() }
+        audioPrefetchJobs.clear()
         recommendationsGeneration++
         progressHandler.removeCallbacks(progressTicker)
         playbackConnection?.close()
@@ -1543,6 +1970,7 @@ class MainActivity : Activity() {
     }
 
     companion object {
+        private const val DISCOVERY_SEARCH_BUDGET_MS = 10_000L
         const val EXTRA_OPEN_LIBRARY = "com.nexus.music.extra.OPEN_LIBRARY"
         const val EXTRA_OPEN_SEARCH = "com.nexus.music.extra.OPEN_SEARCH"
         const val EXTRA_OPEN_YOU = "com.nexus.music.extra.OPEN_YOU"
