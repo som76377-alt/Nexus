@@ -42,3 +42,4 @@
 
 
 2026-11-15 | Keep Home category shelves stable after the first complete batch | Rebuilding the entire feed for cache paint, initial results and optional taste enrichment caused repeated visual refreshes and partial category flashes | Revisit only if a measured state transition requires a full feed replacement; enrichment should update only the affected rail.
+2026-11-16 | Owner explicitly approved targeted cold-playback performance fixes inside the existing Home redesign stream (not a separate workstream) | Home/search taps were still paying avoidable resolution and first-play costs; the owner rejected splitting this into another stream | Keep the change narrow: remove only the redundant network preflight, retain HTTPS URL validation and existing Media3 recovery, and do not alter room transport or playback semantics.

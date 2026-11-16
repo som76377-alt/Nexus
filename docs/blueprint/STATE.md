@@ -93,3 +93,5 @@ Last session: 2026-11-15 — implemented the first coordinated UI/library/recomm
 
 
 2026-11-15 Home feed stability follow-up (pending CI/device review): remove the intermediate cache-only full-feed paint; the first complete cached-or-network bucket batch now produces the single category-feed render. Similar-artist enrichment updates only the Picked for you rail in place and no longer rebuilds category shelves. Physical reroll/restart behavior remains UNVERIFIED until owner device check.
+
+2026-11-16 in-stream playback performance correction (pending CI/device proof): remove the extra network ranged-GET validation from the critical resolution path while retaining cheap HTTPS URL validation and existing Media3 error recovery; prefetch the first visible item in each Home category rail plus two personal picks; add a debug-only tap-to-isPlaying timing. This is explicitly part of the existing redesign stream by owner instruction, not a separate workstream. Playback latency remains UNVERIFIED on physical devices.

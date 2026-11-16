@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -14,6 +15,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.nexus.music.BuildConfig
 import com.nexus.music.catalog.ResolvedAudio
 import java.util.concurrent.Executor
 
@@ -49,6 +51,7 @@ class PlaybackConnection(
     private var controller: MediaController? = null
     private var pendingRequest: ResolvedAudio? = null
     private var pendingPlayWhenReady = true
+    private var pendingPlaybackStartAtMs: Long? = null
 
     private val controllerFuture = MediaController.Builder(
         context,
@@ -57,6 +60,18 @@ class PlaybackConnection(
 
     private val playerListener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
+            if (player.isPlaying) {
+                val startedAt = pendingPlaybackStartAtMs
+                if (startedAt != null) {
+                    pendingPlaybackStartAtMs = null
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d(
+                            "NexusPerformance",
+                            "playback_is_playing_ms=${SystemClock.elapsedRealtime() - startedAt}"
+                        )
+                    }
+                }
+            }
             publishState()
         }
 
@@ -114,6 +129,7 @@ class PlaybackConnection(
         shouldPlay: Boolean
     ): Boolean {
         val activeController = controller ?: return false
+        pendingPlaybackStartAtMs = SystemClock.elapsedRealtime()
         return try {
             StreamRequestHeaders.replace(audio.audioUrl, audio.requestHeaders, audio.provider)
             val metadata = MediaMetadata.Builder()
@@ -135,6 +151,7 @@ class PlaybackConnection(
             publishState()
             true
         } catch (error: Exception) {
+            pendingPlaybackStartAtMs = null
             onError(error.message ?: "The selected audio could not be sent to the player.")
             false
         }
@@ -143,6 +160,7 @@ class PlaybackConnection(
     fun togglePlayback() {
         val activeController = controller ?: return
         if (activeController.playWhenReady) {
+            pendingPlaybackStartAtMs = null
             activeController.pause()
         } else {
             if (activeController.playbackState == Player.STATE_IDLE ||
@@ -198,6 +216,7 @@ class PlaybackConnection(
         controller?.removeListener(playerListener)
         controller = null
         pendingRequest = null
+        pendingPlaybackStartAtMs = null
         MediaController.releaseFuture(controllerFuture)
     }
 }

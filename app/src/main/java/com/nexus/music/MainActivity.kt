@@ -1074,8 +1074,11 @@ class MainActivity : Activity() {
                         "home_first_batch_ms=${SystemClock.elapsedRealtime() - discoveryStartedAtMs} populated_buckets=$populated selected_buckets=${buckets.size}"
                     )
                 }
+                // Warm the first visible item in every category rail, plus two personal picks.
+                // This keeps the first tap from paying the full cold resolver cost on Home.
+                val firstVisibleTracks = accumulated.values.mapNotNull { it.firstOrNull() }
                 prefetchRecommendationAudio(
-                    initialForYou.ifEmpty { accumulated.values.flatten() }
+                    (initialForYou.take(2) + firstVisibleTracks).distinctBy { it.url }
                 )
 
                 // Similar-artist requests enrich personal picks only after category shelves are visible.
@@ -1247,7 +1250,7 @@ class MainActivity : Activity() {
     private fun prefetchRecommendationAudio(tracks: List<CatalogTrack>) {
         val candidates = tracks.distinctBy { it.url }
             .filter { it.url !in prefetchedAudio && it.url !in audioPrefetchInFlight }
-            .take(4)
+            .take(8)
         if (candidates.isEmpty() || recommendationPrefetchJob?.isActive == true) return
 
         recommendationPrefetchJob = activityScope.launch {
