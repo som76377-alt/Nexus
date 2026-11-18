@@ -1,6 +1,7 @@
 package com.nexus.music.catalog
 
 import kotlinx.coroutines.CancellationException
+import com.nexus.music.performance.NexusPerformance
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
@@ -50,6 +51,7 @@ class ProviderResolverChain(
         query: String,
         scope: YoutubeSearchScope = YoutubeSearchScope.EVERYTHING
     ): List<CatalogTrack> = execute(
+        operationName = "provider_search",
         operation = { it.search(query, scope) },
         isEmptySearchResult = { it.isEmpty() }
     )
@@ -58,6 +60,7 @@ class ProviderResolverChain(
         videoUrl: String,
         excludingProviders: Set<StreamProvider> = emptySet()
     ): ResolvedAudio = execute(
+        operationName = "provider_resolve",
         operation = { it.resolveAudio(videoUrl) },
         validateResult = validateResolvedAudio,
         excludingProviders = excludingProviders,
@@ -65,6 +68,7 @@ class ProviderResolverChain(
     )
 
     private suspend fun <T> execute(
+        operationName: String,
         operation: suspend (StreamProviderAdapter) -> T,
         isEmptySearchResult: (T) -> Boolean = { false },
         validateResult: suspend (T) -> T = { it },
@@ -80,19 +84,29 @@ class ProviderResolverChain(
         val ordered = configured.sortedBy { (provider, _) ->
             if (healthStore.get(provider).cooldownUntilEpochMs > now) 1 else 0
         }.take(maxAttempts)
+        val trace = NexusPerformance.begin(operationName, foreground = true,
+            detail = "attempts=" + ordered.size + " providers=" +
+                ordered.joinToString(",") { it.first.key })
 
         return coroutineScope {
             val outcomes = Channel<Result<T>>(capacity = ordered.size)
             val jobs = ordered.mapIndexed { index, (provider, adapter) ->
                 async {
                     if (index > 0) delay(hedgeDelayMs * index)
+                    NexusPerformance.event(trace, "provider_attempt_start",
+                        "provider=" + provider.key + " attempt=" + (index + 1))
                     try {
                         val result = mapResult(provider, validateResult(operation(adapter)))
                         healthStore.recordSuccess(provider, nowEpochMs())
+                        NexusPerformance.event(trace, "provider_attempt_success", "provider=" + provider.key)
                         outcomes.send(Result.success(result))
                     } catch (error: CancellationException) {
+                        NexusPerformance.event(trace, "provider_attempt_cancelled", "provider=" + provider.key)
                         throw error
                     } catch (error: Exception) {
+                        NexusPerformance.event(trace, "provider_attempt_failure",
+                            "provider=" + provider.key + " error=" + error.javaClass.simpleName +
+                                " class=" + StreamErrorClassifier.classify(error))
                         if (
                             error !is ProviderCapabilityException &&
                             StreamErrorClassifier.classify(error) !in setOf(
@@ -121,6 +135,7 @@ class ProviderResolverChain(
                             sawEmptyResult = true
                             return@repeat
                         }
+                        NexusPerformance.finish(trace, "result=success")
                         jobs.forEach { it.cancel() }
                         return@coroutineScope result
                     }
@@ -136,6 +151,7 @@ class ProviderResolverChain(
                     @Suppress("UNCHECKED_CAST")
                     return@coroutineScope emptyResult as T
                 }
+                NexusPerformance.finish(trace, "result=failed")
                 throw lastError ?: IOException("No configured stream provider could be attempted.")
             } finally {
                 outcomes.close()

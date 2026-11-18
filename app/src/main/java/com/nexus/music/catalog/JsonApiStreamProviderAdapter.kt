@@ -1,6 +1,7 @@
 package com.nexus.music.catalog
 
 import kotlinx.coroutines.Dispatchers
+import com.nexus.music.performance.NexusPerformance
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.Call
@@ -277,16 +278,25 @@ abstract class JsonApiStreamProviderAdapter(
         if (configuredEndpoints.isEmpty()) {
             throw IOException("No healthy ${provider.key} instance is configured.")
         }
-        configuredEndpoints.forEach { endpoint ->
+        configuredEndpoints.forEachIndexed { index, endpoint ->
+            val endpointTrace = NexusPerformance.begin("provider_endpoint", foreground = true,
+                detail = "provider=" + provider.key + " attempt=" + (index + 1) +
+                    " host=" + endpoint.host)
             try {
-                return block(endpoint)
+                val result = block(endpoint)
+                NexusPerformance.finish(endpointTrace, "success")
+                return result
             } catch (error: kotlinx.coroutines.CancellationException) {
+                NexusPerformance.finish(endpointTrace, "cancelled")
                 throw error
             } catch (error: ProviderCapabilityException) {
+                NexusPerformance.finish(endpointTrace, "unsupported")
                 throw error
             } catch (error: IOException) {
+                NexusPerformance.finish(endpointTrace, "error=" + error.javaClass.simpleName)
                 lastError = error
             } catch (error: org.json.JSONException) {
+                NexusPerformance.finish(endpointTrace, "invalid_json")
                 lastError = IOException("${provider.key} API returned an invalid response.", error)
             }
         }
