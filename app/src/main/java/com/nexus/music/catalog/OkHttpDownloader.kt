@@ -1,6 +1,8 @@
 package com.nexus.music.catalog
 
 import okhttp3.OkHttpClient
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import com.nexus.music.performance.NexusPerformance
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.schabi.newpipe.extractor.downloader.Downloader
 import org.schabi.newpipe.extractor.downloader.Request as ExtractorRequest
@@ -42,20 +44,40 @@ class OkHttpDownloader(
             values.forEach { value -> builder.addHeader(name, value) }
         }
 
-        client.newCall(builder.build()).execute().use { response ->
-            if (response.code == HTTP_TOO_MANY_REQUESTS) {
-                throw ReCaptchaException(
-                    "The source temporarily rejected the request (HTTP 429). Retry later.",
-                    request.url()
+        val endpointHost = runCatching { request.url().toHttpUrl().host }.getOrDefault("unknown")
+        val trace = NexusPerformance.begin(
+            "newpipe_http",
+            foreground = NexusPerformance.isForeground(),
+            detail = "host=" + endpointHost + " method=" + method
+        )
+        var responseCode: Int? = null
+        var failure: String? = null
+        try {
+            client.newCall(builder.build()).execute().use { response ->
+                responseCode = response.code
+                if (response.code == HTTP_TOO_MANY_REQUESTS) {
+                    throw ReCaptchaException(
+                        "The source temporarily rejected the request (HTTP 429). Retry later.",
+                        request.url()
+                    )
+                }
+
+                return ExtractorResponse(
+                    response.code,
+                    response.message,
+                    response.headers.toMultimap(),
+                    response.body?.string().orEmpty(),
+                    response.request.url.toString()
                 )
             }
-
-            return ExtractorResponse(
-                response.code,
-                response.message,
-                response.headers.toMultimap(),
-                response.body?.string().orEmpty(),
-                response.request.url.toString()
+        } catch (error: IOException) {
+            failure = error.javaClass.simpleName
+            throw error
+        } finally {
+            NexusPerformance.finish(
+                trace,
+                "http_code=" + (responseCode?.toString() ?: "none") +
+                    " failure=" + (failure ?: "none")
             )
         }
     }

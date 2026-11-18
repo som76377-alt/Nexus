@@ -53,6 +53,7 @@ import com.nexus.music.update.NexusUpdate
 import com.nexus.music.update.NexusUpdateInstaller
 import com.nexus.music.update.NexusUpdateScheduler
 import com.nexus.music.update.UpdateCheckResult
+import com.nexus.music.performance.NexusPerformance
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -105,6 +106,9 @@ class MainActivity : Activity() {
     private var lastSearchResults: List<CatalogTrack> = emptyList()
     private var currentSort = SearchSort.RELEVANCE
     private var backInvokedCallback: android.window.OnBackInvokedCallback? = null
+    private var lastPlaybackSourceId: String = ""
+    private var lastPlaybackPositionMs: Long = 0L
+    private var lastPlaybackState: Int = Player.STATE_IDLE
 
     private val screenBackground = NexusDesignSystem.Palette.archiveIvory
     private val surface = NexusDesignSystem.Palette.sleeveWhite
@@ -135,7 +139,16 @@ class MainActivity : Activity() {
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
         window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
+        val startupTrace = NexusPerformance.begin("app_startup", foreground = true)
         val root = FrameLayout(this).apply { setBackgroundColor(screenBackground) }
+        root.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                if (root.viewTreeObserver.isAlive) root.viewTreeObserver.removeOnPreDrawListener(this)
+                NexusPerformance.event(startupTrace, "first_ui_draw")
+                NexusPerformance.finish(startupTrace)
+                return true
+            }
+        })
         val base = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(screenBackground)
@@ -668,6 +681,24 @@ class MainActivity : Activity() {
 
     private fun updatePlaybackUi(snapshot: PlaybackSnapshot) {
         lastPlaybackSnapshot = snapshot
+        if (snapshot.sourceId != lastPlaybackSourceId) {
+            lastPlaybackSourceId = snapshot.sourceId
+            lastPlaybackPositionMs = 0L
+            lastPlaybackState = Player.STATE_IDLE
+        }
+        if (snapshot.sourceId.isNotBlank()) {
+            if (snapshot.playbackState == Player.STATE_READY && lastPlaybackState != Player.STATE_READY) {
+                NexusPerformance.playbackEvent(snapshot.sourceId, "player_ready")
+            }
+            if (snapshot.positionMs > 0L && lastPlaybackPositionMs <= 0L) {
+                NexusPerformance.playbackEvent(
+                    snapshot.sourceId, "ui_position_advance_observed",
+                    "position_ms=" + snapshot.positionMs
+                )
+            }
+        }
+        lastPlaybackPositionMs = snapshot.positionMs
+        lastPlaybackState = snapshot.playbackState
         if (::miniPlayerContainer.isInitialized) {
             miniPlayerContainer.visibility = if (shouldShowMiniPlayer(snapshot)) View.VISIBLE else View.GONE
         }
@@ -736,6 +767,11 @@ class MainActivity : Activity() {
         searchPanel.queryInput.error = null
         val requestGeneration = ++searchGeneration
         val requestScope = selectedScope
+        val trace = NexusPerformance.begin(
+            "catalog_search", foreground = isActivityStarted,
+            detail = "generation=" + requestGeneration + " scope=" + requestScope +
+                " query_length=" + query.length
+        )
         searchPanel.statusText.text = ""
         searchPanel.statusText.visibility = View.GONE
         searchPanel.statusText.setOnClickListener(null)
@@ -744,17 +780,25 @@ class MainActivity : Activity() {
         searchJob = activityScope.launch {
             try {
                 val results = repository.search(query, requestScope)
-                if (requestGeneration != searchGeneration) return@launch
+                NexusPerformance.event(trace, "results_received", "count=" + results.size)
+                if (requestGeneration != searchGeneration) {
+                    NexusPerformance.finish(trace, "superseded")
+                    return@launch
+                }
 
                 lastSearchResults = results
                 renderSearchResults()
+                NexusPerformance.event(trace, "first_results_displayed", "count=" + results.size)
+                NexusPerformance.finish(trace)
                 if (results.isEmpty()) {
                     searchPanel.statusText.text = "No results"
                     searchPanel.statusText.visibility = View.VISIBLE
                 }
             } catch (error: CancellationException) {
+                NexusPerformance.finish(trace, "cancelled")
                 throw error
             } catch (error: Exception) {
+                NexusPerformance.finish(trace, "error=" + error.javaClass.simpleName)
                 if (requestGeneration == searchGeneration) {
                     searchPanel.statusText.text = "Search unavailable · Retry"
                     searchPanel.statusText.visibility = View.VISIBLE
@@ -776,22 +820,36 @@ class MainActivity : Activity() {
             "Instrumental focus" to "Indian instrumental music"
         )
         homeShelvesContainer.removeAllViews()
+        val homeTrace = NexusPerformance.begin(
+            "home_shelves", foreground = isActivityStarted,
+            detail = "shelf_count=" + shelves.size
+        )
         activityScope.launch {
-            shelves.forEach { (title, query) ->
+            shelves.forEachIndexed { index, (title, query) ->
+                val shelfTrace = NexusPerformance.begin(
+                    "home_shelf", foreground = isActivityStarted,
+                    detail = "index=" + index + " query_length=" + query.length
+                )
                 try {
                     val tracks = repository.search(query, YoutubeSearchScope.MUSIC_SONGS)
                         .distinctBy { it.url }
                         .sortedByDescending { it.viewCount ?: -1L }
                         .take(8)
+                    NexusPerformance.event(shelfTrace, "results_received", "count=" + tracks.size)
                     if (tracks.isNotEmpty() && !isFinishing && !isDestroyed) {
                         homeShelvesContainer.addView(buildHomeShelf(title, tracks), verticalParams(20))
+                        NexusPerformance.event(shelfTrace, "shelf_displayed", "count=" + tracks.size)
                     }
+                    NexusPerformance.finish(shelfTrace)
                 } catch (error: CancellationException) {
+                    NexusPerformance.finish(shelfTrace, "cancelled")
                     throw error
-                } catch (_: Exception) {
+                } catch (error: Exception) {
+                    NexusPerformance.finish(shelfTrace, "error=" + error.javaClass.simpleName)
                     // A single unavailable discovery query must not hide other Home content.
                 }
             }
+            NexusPerformance.finish(homeTrace)
         }
     }
 
@@ -923,6 +981,10 @@ class MainActivity : Activity() {
     private fun startResolvingTrack(track: CatalogTrack) {
         if (isResolving) return
         isResolving = true
+        val trace = NexusPerformance.begin(
+            "track_resolve", foreground = isActivityStarted,
+            detail = "source_id_hash=" + track.url.hashCode().toUInt().toString(16)
+        )
         playerSubtitle.text = "Preparing audio…"
         activityScope.launch {
             try {
@@ -930,10 +992,13 @@ class MainActivity : Activity() {
                     PersistentAudioCacheLookup(this@MainActivity),
                     repository::resolveAudio
                 ).resolve(track.url)
-                showResolved(audio)
+                NexusPerformance.event(trace, "audio_resolved", "provider=" + audio.provider)
+                showResolved(audio, trace)
             } catch (error: CancellationException) {
+                NexusPerformance.finish(trace, "cancelled")
                 throw error
             } catch (error: Exception) {
+                NexusPerformance.finish(trace, "error=" + error.javaClass.simpleName)
                 val message = "Could not prepare audio. Try another result or retry."
                 playerSubtitle.text = "Couldn't prepare audio"
                 Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
@@ -943,17 +1008,21 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun showResolved(audio: ResolvedAudio) {
+    private fun showResolved(audio: ResolvedAudio, trace: NexusPerformance.Trace) {
         playerTitle.text = audio.title
         playerSubtitle.text = "Sending audio to player…"
         playerArtwork.load(audio.thumbnailUrl?.takeIf(String::isNotBlank))
         if (::nowPlayingView.isInitialized) nowPlayingView.setArtwork(audio.thumbnailUrl)
         playPauseButton.isEnabled = true
+        NexusPerformance.registerPlayback(audio.sourceUrl, trace)
         if (playbackConnection?.play(audio) != true) {
+            NexusPerformance.finish(trace, "player_rejected")
+            NexusPerformance.forgetPlayback(audio.sourceUrl)
             playerSubtitle.text = "Player unavailable"
             Toast.makeText(this, "The player could not accept this track. Try selecting it again.", Toast.LENGTH_LONG).show()
             return
         }
+        NexusPerformance.event(trace, "player_command_sent", "provider=" + audio.provider)
         playerSubtitle.text = "Starting playback…"
         libraryStore.recordPlayed(
             CatalogTrack(
@@ -1026,12 +1095,16 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         isActivityStarted = true
+        NexusPerformance.setForeground(true)
+        NexusPerformance.logEvent("app_foreground")
         if (::updateStatusText.isInitialized) checkForUpdates()
         updatePlaybackUi(playbackConnection?.snapshot() ?: lastPlaybackSnapshot)
     }
 
     override fun onStop() {
         isActivityStarted = false
+        NexusPerformance.setForeground(false)
+        NexusPerformance.logEvent("app_background")
         progressHandler.removeCallbacks(progressTicker)
         super.onStop()
     }
