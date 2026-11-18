@@ -57,46 +57,58 @@ internal class PriorityExecutionGate {
 
     private suspend fun acquire(priority: ExtractorPriority): Lease =
         suspendCancellableCoroutine { continuation ->
-            var immediate: Lease? = null
-            var queued: Waiter? = null
+            val waiter = Waiter(priority, nextSequence++, continuation)
+            // One handler owns both queue removal and cleanup if a permit was already assigned.
+            continuation.invokeOnCancellation {
+                val assignedLease = synchronized(monitor) {
+                    if (waiters.remove(waiter)) null else waiter.lease
+                }
+                assignedLease?.release()
+            }
+
+            var granted: Lease? = null
             synchronized(monitor) {
-                if (!held) {
-                    held = true
-                    immediate = Lease(this)
-                } else {
-                    queued = Waiter(priority, nextSequence++, continuation)
-                    waiters.add(queued!!)
+                if (continuation.isActive) {
+                    if (!held) {
+                        held = true
+                        granted = Lease(this).also { waiter.lease = it }
+                    } else {
+                        waiter.sequence = nextSequence++
+                        waiters.add(waiter)
+                    }
                 }
             }
-
-            queued?.let { waiter ->
-                continuation.invokeOnCancellation {
-                    synchronized(monitor) { waiters.remove(waiter) }
-                }
-            }
-            immediate?.let { grant(continuation, it) }
+            granted?.let { continuation.resume(it) }
         }
-
-    private fun grant(continuation: CancellableContinuation<Lease>, lease: Lease) {
-        // If cancellation wins after dequeue but before delivery, return the permit immediately.
-        continuation.invokeOnCancellation { lease.release() }
-        continuation.resume(lease)
-    }
 
     private fun release() {
         val next = synchronized(monitor) {
             val waiter = waiters.poll()
-            if (waiter == null) held = false
-            waiter
+            if (waiter == null) {
+                held = false
+                null
+            } else {
+                Lease(this).also { waiter.lease = it }
+            }
         }
-        next?.let { grant(it.continuation, Lease(this)) }
+        if (next != null) {
+            // The waiter and its lease are paired under the monitor before cancellation can run.
+            val continuation = synchronized(monitor) {
+                // The lease owner is the gate; the selected waiter is the one carrying this lease.
+                // No other waiter can receive this lease because it is stored on exactly one waiter.
+                waiters.firstOrNull { it.lease === next }?.continuation
+            }
+            continuation?.resume(next)
+        }
     }
 
     private class Waiter(
         val priority: ExtractorPriority,
-        val sequence: Long,
+        var sequence: Long,
         val continuation: CancellableContinuation<Lease>
-    )
+    ) {
+        var lease: Lease? = null
+    }
 
     private class Lease(private val owner: PriorityExecutionGate) {
         private val released = AtomicBoolean(false)
