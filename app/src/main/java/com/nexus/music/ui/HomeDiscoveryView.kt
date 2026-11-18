@@ -10,6 +10,7 @@ import android.view.Gravity
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.nexus.music.catalog.YoutubeSearchScope
 
 /**
  * Editorial Home discovery header. It only emits search intents; catalogue and playback
@@ -17,7 +18,7 @@ import android.widget.TextView
  */
 class HomeDiscoveryView(
     context: Context,
-    private val onExplore: (String) -> Unit,
+    private val onExplore: (String, YoutubeSearchScope) -> Unit,
     private val onProviderLab: () -> Unit
 ) : LinearLayout(context) {
     private val ink = NexusDesignSystem.Palette.carbonInk
@@ -60,7 +61,7 @@ class HomeDiscoveryView(
                 cornerRadius = dp(4).toFloat()
             }
             setPadding(dp(18), dp(16), dp(18), dp(18))
-            setOnClickListener { onExplore("Indian independent music") }
+            setOnClickListener { onExplore("Indian independent music", YoutubeSearchScope.MUSIC_SONGS) }
             isClickable = true
             isFocusable = true
             minimumHeight = dp(132)
@@ -107,39 +108,33 @@ class HomeDiscoveryView(
             orientation = HORIZONTAL
             setPadding(0, dp(6), dp(4), dp(2))
         }
-        val categories = listOf(
-            "Ghazal" to "ghazal classics",
-            "Indian indie" to "Indian independent music",
-            "Classical" to "Indian classical music",
-            "Instrumental" to "instrumental music",
-            "New voices" to "new Indian music",
-            "Evergreen" to "evergreen Hindi songs"
-        )
-        categories.forEach { (label, query) ->
-            val category = TextView(context).apply {
-                text = label
-                textSize = 13f
-                setTextColor(ink)
-                typeface = Typeface.create(
-                    NexusDesignSystem.Type.interfaceText(context),
-                    Typeface.NORMAL
-                )
-                gravity = Gravity.CENTER
-                setPadding(dp(12), 0, dp(12), 0)
-                minimumHeight = dp(48)
-                isClickable = true
-                isFocusable = true
-                background = RippleDrawable(
-                    ColorStateList.valueOf(Color.argb(24, 38, 33, 30)),
-                    null,
-                    null
-                )
-                setOnClickListener { onExplore(query) }
+        HomeDiscoveryCategoryCatalog.load(context)
+            .flatMap { it.categories }
+            .forEach { category ->
+                val categoryView = TextView(context).apply {
+                    text = category.label
+                    textSize = 13f
+                    setTextColor(ink)
+                    typeface = Typeface.create(
+                        NexusDesignSystem.Type.interfaceText(context),
+                        Typeface.NORMAL
+                    )
+                    gravity = Gravity.CENTER
+                    setPadding(dp(12), 0, dp(12), 0)
+                    minimumHeight = dp(48)
+                    isClickable = true
+                    isFocusable = true
+                    background = RippleDrawable(
+                        ColorStateList.valueOf(Color.argb(24, 38, 33, 30)),
+                        null,
+                        null
+                    )
+                    setOnClickListener { onExplore(category.query, category.scope) }
+                }
+                categoriesRow.addView(categoryView, LayoutParams(-2, dp(48)).apply {
+                    marginEnd = dp(4)
+                })
             }
-            categoriesRow.addView(category, LayoutParams(-2, dp(48)).apply {
-                marginEnd = dp(4)
-            })
-        }
         scroll.addView(categoriesRow)
         addView(scroll, LayoutParams(-1, -2))
 
