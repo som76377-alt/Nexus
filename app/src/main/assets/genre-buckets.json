@@ -1,6 +1,48 @@
 {
   "shelves": [
     {
+      "id": "quick-picks",
+      "title": "Quick picks",
+      "buckets": [
+        [
+          "ghazal",
+          "Ghazal",
+          "ghazal classics",
+          "MUSIC_SONGS"
+        ],
+        [
+          "indian-indie",
+          "Indian indie",
+          "Indian independent music",
+          "MUSIC_SONGS"
+        ],
+        [
+          "indian-classical",
+          "Classical",
+          "Indian classical music",
+          "MUSIC_SONGS"
+        ],
+        [
+          "instrumental",
+          "Instrumental",
+          "instrumental music",
+          "MUSIC_SONGS"
+        ],
+        [
+          "new-voices",
+          "New voices",
+          "new Indian music",
+          "MUSIC_SONGS"
+        ],
+        [
+          "evergreen",
+          "Evergreen",
+          "evergreen Hindi songs",
+          "MUSIC_SONGS"
+        ]
+      ]
+    },
+    {
       "id": "genres",
       "title": "Genres",
       "buckets": [
