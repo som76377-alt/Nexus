@@ -1,6 +1,5 @@
 package com.nexus.music.performance
 
-import android.os.SystemClock
 import android.util.Log
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
@@ -29,7 +28,7 @@ object NexusPerformance {
 
     fun begin(operation: String, foreground: Boolean, detail: String = ""): Trace {
         val trace = Trace("np-" + sequence.incrementAndGet(), operation,
-            SystemClock.elapsedRealtimeNanos(), foreground)
+            System.nanoTime(), foreground)
         log(trace, "begin", detail)
         return trace
     }
@@ -39,7 +38,7 @@ object NexusPerformance {
     fun finish(trace: Trace, result: String = "ok") = log(trace, "finish", "result=" + result)
 
     fun logEvent(event: String, detail: String = "") {
-        Log.i(TAG, ("event=" + event + " foreground=" + appForeground + " " + detail).trim())
+        runCatching { Log.i(TAG, ("event=" + event + " foreground=" + appForeground + " " + detail).trim()) }
     }
 
     fun registerPlayback(sourceId: String, trace: Trace) {
@@ -59,7 +58,9 @@ object NexusPerformance {
 
     private fun log(trace: Trace, event: String, detail: String) {
         val elapsedMs = (SystemClock.elapsedRealtimeNanos() - trace.startedAtNanos) / 1_000_000L
-        Log.i(TAG, "id=" + trace.id + " op=" + trace.operation + " event=" + event +
-            " elapsed_ms=" + elapsedMs + " foreground=" + trace.foreground + " " + detail.trim())
+        runCatching {
+            Log.i(TAG, "id=" + trace.id + " op=" + trace.operation + " event=" + event +
+                " elapsed_ms=" + elapsedMs + " foreground=" + trace.foreground + " " + detail.trim())
+        }
     }
 }
