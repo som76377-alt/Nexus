@@ -692,7 +692,7 @@ class MainActivity : Activity() {
             }
             if (snapshot.positionMs > 0L && lastPlaybackPositionMs <= 0L) {
                 NexusPerformance.playbackEvent(
-                    snapshot.sourceId, "first_position_advance",
+                    snapshot.sourceId, "ui_position_advance_observed",
                     "position_ms=" + snapshot.positionMs
                 )
             }

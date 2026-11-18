@@ -52,7 +52,7 @@ object NexusPerformance {
         val record = playbackTraces[sourceId] ?: return false
         if (!record.recordedEvents.add(event)) return false
         log(record.trace, event, detail)
-        if (record.recordedEvents.contains("first_frame_rendered") &&
+        if (record.recordedEvents.contains("player_ready") &&
             record.recordedEvents.contains("first_position_advance")
         ) {
             finish(record.trace, "playback_started")

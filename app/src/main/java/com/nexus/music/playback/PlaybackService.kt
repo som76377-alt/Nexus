@@ -229,14 +229,15 @@ class PlaybackService : MediaSessionService() {
             }
         }
         exoPlayer.addAnalyticsListener(object : AnalyticsListener {
-            override fun onRenderedFirstFrame(
+            override fun onAudioPositionAdvancing(
                 eventTime: AnalyticsListener.EventTime,
-                output: Any,
-                renderTimeMs: Long
+                playoutStartSystemTimeMs: Long
             ) {
                 exoPlayer.currentMediaItem?.mediaId?.let { sourceId ->
-                    NexusPerformance.playbackEvent(sourceId, "first_frame_rendered",
-                        "render_time_ms=" + renderTimeMs)
+                    NexusPerformance.playbackEvent(
+                        sourceId, "first_position_advance",
+                        "playout_start_system_time_ms=" + playoutStartSystemTimeMs
+                    )
                 }
             }
         })
