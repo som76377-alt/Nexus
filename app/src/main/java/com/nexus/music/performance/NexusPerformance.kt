@@ -52,12 +52,17 @@ object NexusPerformance {
         val record = playbackTraces[sourceId] ?: return false
         if (!record.recordedEvents.add(event)) return false
         log(record.trace, event, detail)
-        if (event == "first_position_advance") playbackTraces.remove(sourceId, record)
+        if (record.recordedEvents.contains("first_frame_rendered") &&
+            record.recordedEvents.contains("first_position_advance")
+        ) {
+            finish(record.trace, "playback_started")
+            playbackTraces.remove(sourceId, record)
+        }
         return true
     }
 
     private fun log(trace: Trace, event: String, detail: String) {
-        val elapsedMs = (SystemClock.elapsedRealtimeNanos() - trace.startedAtNanos) / 1_000_000L
+        val elapsedMs = (System.nanoTime() - trace.startedAtNanos) / 1_000_000L
         runCatching {
             Log.i(TAG, "id=" + trace.id + " op=" + trace.operation + " event=" + event +
                 " elapsed_ms=" + elapsedMs + " foreground=" + trace.foreground + " " + detail.trim())
