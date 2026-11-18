@@ -1017,6 +1017,7 @@ class MainActivity : Activity() {
         NexusPerformance.registerPlayback(audio.sourceUrl, trace)
         if (playbackConnection?.play(audio) != true) {
             NexusPerformance.finish(trace, "player_rejected")
+            NexusPerformance.forgetPlayback(audio.sourceUrl)
             playerSubtitle.text = "Player unavailable"
             Toast.makeText(this, "The player could not accept this track. Try selecting it again.", Toast.LENGTH_LONG).show()
             return
@@ -1094,6 +1095,7 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         isActivityStarted = true
+        NexusPerformance.setForeground(true)
         NexusPerformance.logEvent("app_foreground")
         if (::updateStatusText.isInitialized) checkForUpdates()
         updatePlaybackUi(playbackConnection?.snapshot() ?: lastPlaybackSnapshot)
@@ -1101,6 +1103,7 @@ class MainActivity : Activity() {
 
     override fun onStop() {
         isActivityStarted = false
+        NexusPerformance.setForeground(false)
         NexusPerformance.logEvent("app_background")
         progressHandler.removeCallbacks(progressTicker)
         super.onStop()
