@@ -279,7 +279,7 @@ abstract class JsonApiStreamProviderAdapter(
             throw IOException("No healthy ${provider.key} instance is configured.")
         }
         configuredEndpoints.forEachIndexed { index, endpoint ->
-            val endpointTrace = NexusPerformance.begin("provider_endpoint", foreground = true,
+            val endpointTrace = NexusPerformance.begin("provider_endpoint", foreground = NexusPerformance.isForeground(),
                 detail = "provider=" + provider.key + " attempt=" + (index + 1) +
                     " host=" + endpoint.host)
             try {

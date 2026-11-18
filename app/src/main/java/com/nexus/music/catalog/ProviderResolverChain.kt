@@ -84,7 +84,7 @@ class ProviderResolverChain(
         val ordered = configured.sortedBy { (provider, _) ->
             if (healthStore.get(provider).cooldownUntilEpochMs > now) 1 else 0
         }.take(maxAttempts)
-        val trace = NexusPerformance.begin(operationName, foreground = true,
+        val trace = NexusPerformance.begin(operationName, foreground = NexusPerformance.isForeground(),
             detail = "attempts=" + ordered.size + " providers=" +
                 ordered.joinToString(",") { it.first.key })
 
