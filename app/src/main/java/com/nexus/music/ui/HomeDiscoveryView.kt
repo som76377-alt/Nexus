@@ -10,6 +10,7 @@ import android.view.Gravity
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.nexus.music.catalog.YoutubeSearchScope
 
 /**
  * Editorial Home discovery header. It only emits search intents; catalogue and playback
@@ -60,7 +61,7 @@ class HomeDiscoveryView(
                 cornerRadius = dp(4).toFloat()
             }
             setPadding(dp(18), dp(16), dp(18), dp(18))
-            setOnClickListener { onExplore("Indian independent music") }
+            setOnClickListener { onExplore("Indian independent music", YoutubeSearchScope.MUSIC_SONGS) }
             isClickable = true
             isFocusable = true
             minimumHeight = dp(132)
