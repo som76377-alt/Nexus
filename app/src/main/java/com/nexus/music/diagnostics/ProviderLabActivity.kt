@@ -33,8 +33,9 @@ import com.nexus.music.catalog.StreamProvider
 import com.nexus.music.catalog.StreamProviderAdapter
 import com.nexus.music.catalog.ProviderInstanceDiscovery
 import com.nexus.music.catalog.ProviderHttpException as CatalogProviderHttpException
-import com.nexus.music.catalog.ExtractorRuntime
 import com.nexus.music.catalog.NewPipeStreamProviderAdapter
+import com.nexus.music.catalog.ExtractorPriority
+import com.nexus.music.catalog.withExtractorPriority
 import com.nexus.music.catalog.YoutubeSearchScope
 import com.nexus.music.playback.AudioCacheStore
 import kotlinx.coroutines.CancellationException
@@ -42,7 +43,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -169,10 +169,12 @@ class ProviderLabActivity : Activity() {
                 providerOrder = listOf(provider),
                 hedgeDelayMs = 0L
             )
-            val found = resolver.search(sample.id, YoutubeSearchScope.EVERYTHING)
-                .firstOrNull { videoId(it.url) == sample.id }
-                ?: throw IllegalStateException("Search did not return the fixed sample ID")
-            val audio = resolver.resolveAudio(found.url)
+            val (found, audio) = withExtractorPriority(ExtractorPriority.BACKGROUND) {
+                val selected = resolver.search(sample.id, YoutubeSearchScope.EVERYTHING)
+                    .firstOrNull { videoId(it.url) == sample.id }
+                    ?: throw IllegalStateException("Search did not return the fixed sample ID")
+                selected to resolver.resolveAudio(selected.url)
+            }
 
             httpCode = withContext(Dispatchers.IO) {
                 client.newCall(
@@ -207,11 +209,6 @@ class ProviderLabActivity : Activity() {
                 error::class.java.simpleName + error.message?.let { ": ${it.take(90)}" }.orEmpty(),
                 httpCode, elapsedMs(started)
             )
-        } finally {
-            // Restore the ordinary downloader after the diagnostic route override.
-            withContext(NonCancellable + Dispatchers.IO) {
-                ExtractorRuntime.withDownloader(OkHttpDownloader()) { Unit }
-            }
         }
     }
 
