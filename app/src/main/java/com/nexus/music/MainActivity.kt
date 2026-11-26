@@ -325,7 +325,7 @@ class MainActivity : Activity() {
 
     private fun traceHomeInteractive() {
         if (!::mainScroll.isInitialized || isFinishing || isDestroyed) return
-        val trace = NexusPerformance.begin("home_interactive", foreground = isActivityStarted)
+        val trace = NexusPerformance.begin("home_interactive", foreground = NexusPerformance.isForeground())
         val observer = mainScroll.viewTreeObserver
         observer.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
             override fun onPreDraw(): Boolean {
@@ -848,14 +848,14 @@ class MainActivity : Activity() {
         )
         homeShelvesContainer.removeAllViews()
         val homeTrace = NexusPerformance.begin(
-            "home_shelves", foreground = isActivityStarted,
+            "home_shelves", foreground = NexusPerformance.isForeground(),
             detail = "shelf_count=" + shelves.size
         )
         activityScope.launch {
             var firstUsableHomeRecorded = false
             shelves.forEachIndexed { index, (title, query) ->
                 val shelfTrace = NexusPerformance.begin(
-                    "home_shelf", foreground = isActivityStarted,
+                    "home_shelf", foreground = NexusPerformance.isForeground(),
                     detail = "index=" + index + " query_length=" + query.length
                 )
                 try {
