@@ -23,7 +23,7 @@ internal class ExtractorPriorityContext(
 }
 
 private class ExtractorLeaseContext(
-    val downloader: Downloader
+    var downloader: Downloader
 ) : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<ExtractorLeaseContext>
 }
@@ -120,14 +120,19 @@ internal class PriorityAdmissionQueue {
 }
 
 internal object ExtractorRuntime {
+    internal val normalDownloader: OkHttpDownloader by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        OkHttpDownloader()
+    }
+
     private val admission = PriorityAdmissionQueue()
     private var activeDownloader: Downloader? = null
 
     suspend fun <T> withDownloader(downloader: Downloader, block: () -> T): T {
         val lease = currentCoroutineContext()[ExtractorLeaseContext]
         if (lease != null) {
-            check(lease.downloader === downloader) {
-                "A NewPipe downloader cannot be switched inside an active exclusive lease."
+            if (lease.downloader !== downloader) {
+                initializeDownloader(downloader)
+                lease.downloader = downloader
             }
             return runExtraction(block)
         }
