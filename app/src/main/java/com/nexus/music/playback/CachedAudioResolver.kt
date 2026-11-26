@@ -54,7 +54,13 @@ internal class CachedAudioResolver(
         stageStartedAt = if (tracing) NexusPerformance.nowMs() else 0L
         if (tracing) NexusPerformance.event(trace!!, "provider_resolution_begin")
         val resolved = try {
-            resolveFromProviders(sourceUrl)
+            if (tracing) {
+                kotlinx.coroutines.withContext(NexusPerformance.TraceContext(trace!!)) {
+                    resolveFromProviders(sourceUrl)
+                }
+            } else {
+                resolveFromProviders(sourceUrl)
+            }
         } catch (cancelled: CancellationException) {
             if (tracing) NexusPerformance.event(trace!!, "provider_resolution_cancelled")
             throw cancelled
