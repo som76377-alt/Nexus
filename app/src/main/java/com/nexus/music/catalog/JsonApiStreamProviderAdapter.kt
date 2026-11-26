@@ -9,6 +9,7 @@ import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.EventListener
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -340,6 +341,9 @@ abstract class JsonApiStreamProviderAdapter(
 
         internal fun defaultApiClient(): OkHttpClient =
             OkHttpClient.Builder()
+                .eventListenerFactory {
+                    if (NexusPerformance.isEnabled()) NexusOkHttpEventListener() else EventListener.NONE
+                }
                 .connectTimeout(10, TimeUnit.SECONDS)
                 .readTimeout(20, TimeUnit.SECONDS)
                 .callTimeout(30, TimeUnit.SECONDS)
