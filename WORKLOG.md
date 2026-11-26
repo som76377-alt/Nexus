@@ -78,3 +78,8 @@
 | Task | Status | Commit | CI run | Learning |
 |---|---|---|---|---|
 | Upload debug APK immediately after assembleDebug; move release-variant compilation, Provider Lab build-type class inspection, and unsigned-release refusal test to a manually dispatched workflow with a 12-minute compile diagnostic limit | IN PROGRESS | pending | pending | The previous required Android CI assembled the debug APK successfully but did not upload it until after a release-only Kotlin compilation. That step remained in progress for over 45 minutes. Debug validation and release guard validation are now separate so a slow release variant cannot block the installable debug artifact. Release checks are preserved in `.github/workflows/release-validation.yml`, but are not claimed as passed by the debug CI. |
+
+## P1 — performance instrumentation
+| Task | Status | Branch head | CI | SPEC IDs | Net line delta | Learning |
+|---|---|---|---|---|---:|---|
+| P1 debug-only startup, Home, search, cache, provider, NewPipe, DNS and Media3 playback tracing | PENDING EXACT-HEAD CI | `5bd228c7b47e31d1cd0b978ad125db0126329397` | Android CI and Web Room Test pending for final head | S1–S8 unchanged; no SPEC edits | Pending | Adds monotonic elapsed-realtime trace IDs and correlated repository/provider/NewPipe/cache/Media3 milestones; release builds skip trace clocks, IDs, context propagation and log writes. Search text and complete stream URLs are not logged. No scheduling, timeout, provider policy, cache policy, playback decision, room, updater or UI behavior was changed. Device measurements remain UNVERIFIED. |
