@@ -46,6 +46,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import okhttp3.Dns
 import okhttp3.OkHttpClient
@@ -199,7 +200,7 @@ class ProviderLabActivity : Activity() {
             }
             val audio = resolveSample()
 
-            httpCode = withContext(Dispatchers.IO) {
+            httpCode = runInterruptible(Dispatchers.IO) {
                 client.newCall(
                     Request.Builder().url(audio.audioUrl).header("Range", "bytes=0-1023").build()
                 ).execute().use { response ->
