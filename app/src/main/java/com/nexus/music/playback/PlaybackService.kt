@@ -6,6 +6,7 @@ import android.net.NetworkCapabilities
 import androidx.media3.common.AudioAttributes
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import com.nexus.music.performance.NexusPerformance
+import com.nexus.music.performance.NexusOkHttpEventListener
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
