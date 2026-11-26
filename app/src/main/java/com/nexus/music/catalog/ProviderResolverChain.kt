@@ -9,6 +9,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Bounded, health-aware hedged failover shared by catalogue search and stream resolution.
@@ -88,6 +89,7 @@ class ProviderResolverChain(
         val trace = NexusPerformance.begin(operationName, foreground = NexusPerformance.isForeground(),
             detail = "attempts=" + ordered.size + " providers=" +
                 ordered.joinToString(",") { it.first.key })
+        val firstNonEmptySearchObserved = AtomicBoolean(false)
 
         return coroutineScope {
             val outcomes = Channel<Result<T>>(capacity = ordered.size)
@@ -100,8 +102,16 @@ class ProviderResolverChain(
                         val result = withContext(NexusPerformance.TraceContext(trace)) {
                             mapResult(provider, validateResult(operation(adapter)))
                         }
+                        val resultCount = (result as? Collection<*>)?.size
+                        if (operationName == "provider_search" && resultCount != null && resultCount > 0 &&
+                            firstNonEmptySearchObserved.compareAndSet(false, true)
+                        ) {
+                            NexusPerformance.event(trace, "first_nonempty_provider_result",
+                                "provider=" + provider.key + " count=" + resultCount)
+                        }
                         healthStore.recordSuccess(provider, nowEpochMs())
-                        NexusPerformance.event(trace, "provider_attempt_success", "provider=" + provider.key)
+                        NexusPerformance.event(trace, "provider_attempt_success",
+                            "provider=" + provider.key + " result_count=" + (resultCount?.toString() ?: "n/a"))
                         outcomes.send(Result.success(result))
                     } catch (error: CancellationException) {
                         NexusPerformance.event(trace, "provider_attempt_cancelled", "provider=" + provider.key)
