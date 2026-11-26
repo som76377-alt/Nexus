@@ -102,9 +102,10 @@ class PlaybackService : MediaSessionService() {
 
         val playbackHttpClient = OkHttpClient.Builder()
             .dns(StreamAddressFamily.dns)
-            .eventListenerFactory {
-                if (NexusPerformance.isEnabled()) NexusOkHttpEventListener() else EventListener.NONE
-            }
+            .eventListenerFactory(object : EventListener.Factory {
+                override fun create(call: okhttp3.Call): EventListener =
+                    if (NexusPerformance.isEnabled()) NexusOkHttpEventListener() else EventListener.NONE
+            })
             .addInterceptor { chain ->
                 chain.proceed(
                     chain.request().newBuilder().header("User-Agent", USER_AGENT).build()
