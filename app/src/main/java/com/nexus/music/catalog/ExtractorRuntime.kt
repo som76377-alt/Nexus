@@ -11,24 +11,29 @@ internal object ExtractorRuntime {
         trace: NexusPerformance.Trace? = null,
         block: () -> T
     ): T {
-        val waitStarted = NexusPerformance.nowMs()
+        val tracing = NexusPerformance.isEnabled()
+        val waitStarted = if (tracing) NexusPerformance.nowMs() else 0L
         return synchronized(this) {
-            val acquiredAt = NexusPerformance.nowMs()
-            val waitMs = acquiredAt - waitStarted
-            if (trace != null) {
-                NexusPerformance.event(trace, "newpipe_lock_acquired", "wait_ms=" + waitMs)
-            } else {
-                NexusPerformance.logEvent("newpipe_lock_acquired", "wait_ms=" + waitMs)
+            val acquiredAt = if (tracing) NexusPerformance.nowMs() else 0L
+            if (tracing) {
+                val waitMs = acquiredAt - waitStarted
+                if (trace != null) {
+                    NexusPerformance.event(trace, "newpipe_lock_acquired", "wait_ms=" + waitMs)
+                } else {
+                    NexusPerformance.logEvent("newpipe_lock_acquired", "wait_ms=" + waitMs)
+                }
             }
             NewPipe.init(downloader)
             try {
                 block()
             } finally {
-                val holdMs = NexusPerformance.nowMs() - acquiredAt
-                if (trace != null) {
-                    NexusPerformance.event(trace, "newpipe_lock_released", "hold_ms=" + holdMs)
-                } else {
-                    NexusPerformance.logEvent("newpipe_lock_released", "hold_ms=" + holdMs)
+                if (tracing) {
+                    val holdMs = NexusPerformance.nowMs() - acquiredAt
+                    if (trace != null) {
+                        NexusPerformance.event(trace, "newpipe_lock_released", "hold_ms=" + holdMs)
+                    } else {
+                        NexusPerformance.logEvent("newpipe_lock_released", "hold_ms=" + holdMs)
+                    }
                 }
             }
         }
