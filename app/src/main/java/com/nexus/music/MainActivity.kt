@@ -109,6 +109,7 @@ class MainActivity : Activity() {
     private var lastPlaybackSourceId: String = ""
     private var lastPlaybackPositionMs: Long = 0L
     private var lastPlaybackState: Int = Player.STATE_IDLE
+    private var lastPlaybackIsPlaying = false
 
     private val screenBackground = NexusDesignSystem.Palette.archiveIvory
     private val surface = NexusDesignSystem.Palette.sleeveWhite
@@ -705,6 +706,7 @@ class MainActivity : Activity() {
             lastPlaybackSourceId = snapshot.sourceId
             lastPlaybackPositionMs = 0L
             lastPlaybackState = Player.STATE_IDLE
+            lastPlaybackIsPlaying = false
         }
         if (snapshot.sourceId.isNotBlank()) {
             if (snapshot.playbackState == Player.STATE_READY && lastPlaybackState != Player.STATE_READY) {
@@ -716,9 +718,13 @@ class MainActivity : Activity() {
                     "position_ms=" + snapshot.positionMs
                 )
             }
+            if (snapshot.isPlaying && !lastPlaybackIsPlaying) {
+                NexusPerformance.playbackEvent(snapshot.sourceId, "is_playing")
+            }
         }
         lastPlaybackPositionMs = snapshot.positionMs
         lastPlaybackState = snapshot.playbackState
+        lastPlaybackIsPlaying = snapshot.isPlaying
         if (::miniPlayerContainer.isInitialized) {
             miniPlayerContainer.visibility = if (shouldShowMiniPlayer(snapshot)) View.VISIBLE else View.GONE
         }
@@ -807,12 +813,11 @@ class MainActivity : Activity() {
                 }
 
                 lastSearchResults = results
-                renderSearchResults()
-                NexusPerformance.event(trace, "first_results_displayed", "count=" + results.size)
-                NexusPerformance.finish(trace)
+                renderSearchResults(trace)
                 if (results.isEmpty()) {
                     searchPanel.statusText.text = "No results"
                     searchPanel.statusText.visibility = View.VISIBLE
+                    NexusPerformance.finish(trace, "empty")
                 }
             } catch (error: CancellationException) {
                 NexusPerformance.finish(trace, "cancelled")
@@ -933,7 +938,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun renderSearchResults() {
+    private fun renderSearchResults(trace: NexusPerformance.Trace? = null) {
         searchPanel.resultsContainer.removeAllViews()
         val sorted = when (currentSort) {
             SearchSort.RELEVANCE -> lastSearchResults
@@ -943,6 +948,23 @@ class MainActivity : Activity() {
         }
         sorted.forEachIndexed { index, track ->
             searchPanel.resultsContainer.addView(resultCard(track), verticalParams(if (index == 0) 0 else 10))
+            if (index == 0) {
+                trace?.let {
+                    NexusPerformance.event(it, "first_result_view_created")
+                }
+            }
+        }
+        trace?.let { activeTrace ->
+            NexusPerformance.event(activeTrace, "all_result_views_created", "count=" + sorted.size)
+            val observer = searchPanel.resultsContainer.viewTreeObserver
+            observer.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+                override fun onPreDraw(): Boolean {
+                    if (observer.isAlive) observer.removeOnPreDrawListener(this)
+                    NexusPerformance.event(activeTrace, "search_results_first_draw")
+                    NexusPerformance.finish(activeTrace)
+                    return true
+                }
+            })
         }
     }
 
