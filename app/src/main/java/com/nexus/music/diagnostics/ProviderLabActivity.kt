@@ -34,6 +34,7 @@ import com.nexus.music.catalog.StreamProviderAdapter
 import com.nexus.music.catalog.ProviderInstanceDiscovery
 import com.nexus.music.catalog.ProviderHttpException as CatalogProviderHttpException
 import com.nexus.music.catalog.ExtractorRuntime
+import com.nexus.music.catalog.ExtractorWorkPriority
 import com.nexus.music.catalog.NewPipeStreamProviderAdapter
 import com.nexus.music.catalog.YoutubeSearchScope
 import com.nexus.music.playback.AudioCacheStore
@@ -42,7 +43,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -161,7 +161,8 @@ class ProviderLabActivity : Activity() {
         var httpCode: Int? = null
         return try {
             val client = clientFor(family)
-            val baseAdapter = adapterFor(provider, client)
+            val newPipeDownloader = if (provider == StreamProvider.NEWPIPE) OkHttpDownloader(client) else null
+            val baseAdapter = adapterFor(provider, client, newPipeDownloader)
             val testAdapter = chaos?.wrap(baseAdapter, provider, failure) ?: baseAdapter
             val resolver = ProviderResolverChain(
                 adapters = listOf(testAdapter),
@@ -169,10 +170,20 @@ class ProviderLabActivity : Activity() {
                 providerOrder = listOf(provider),
                 hedgeDelayMs = 0L
             )
-            val found = resolver.search(sample.id, YoutubeSearchScope.EVERYTHING)
-                .firstOrNull { videoId(it.url) == sample.id }
-                ?: throw IllegalStateException("Search did not return the fixed sample ID")
-            val audio = resolver.resolveAudio(found.url)
+            suspend fun resolveSample(): Pair<String, com.nexus.music.catalog.ResolvedAudio> {
+                val sourceUrl = resolver.search(sample.id, YoutubeSearchScope.EVERYTHING)
+                    .firstOrNull { videoId(it.url) == sample.id }?.url
+                    ?: throw IllegalStateException("Search did not return the fixed sample ID")
+                return sourceUrl to resolver.resolveAudio(sourceUrl)
+            }
+            val (sourceUrl, audio) = if (newPipeDownloader != null) {
+                ExtractorRuntime.withExclusiveDownloader(
+                    newPipeDownloader,
+                    ExtractorWorkPriority.DIAGNOSTIC
+                ) { resolveSample() }
+            } else {
+                resolveSample()
+            }
 
             httpCode = withContext(Dispatchers.IO) {
                 client.newCall(
@@ -207,11 +218,6 @@ class ProviderLabActivity : Activity() {
                 error::class.java.simpleName + error.message?.let { ": ${it.take(90)}" }.orEmpty(),
                 httpCode, elapsedMs(started)
             )
-        } finally {
-            // Restore the ordinary downloader after the diagnostic route override.
-            withContext(NonCancellable + Dispatchers.IO) {
-                ExtractorRuntime.withDownloader(OkHttpDownloader()) { Unit }
-            }
         }
     }
 
@@ -245,10 +251,14 @@ class ProviderLabActivity : Activity() {
         }
     }
 
-    private fun adapterFor(provider: StreamProvider, client: OkHttpClient): StreamProviderAdapter {
+    private fun adapterFor(
+        provider: StreamProvider,
+        client: OkHttpClient,
+        newPipeDownloader: OkHttpDownloader?
+    ): StreamProviderAdapter {
         val discovery = ProviderInstanceDiscovery(this)
         return when (provider) {
-            StreamProvider.NEWPIPE -> NewPipeStreamProviderAdapter(OkHttpDownloader(client))
+            StreamProvider.NEWPIPE -> NewPipeStreamProviderAdapter(newPipeDownloader ?: OkHttpDownloader(client))
             StreamProvider.PIPED -> PipedStreamProviderAdapter(
                 (BuildConfig.PIPED_API_ENDPOINTS.split(',').filter(String::isNotBlank) +
                     discovery.cachedEndpoints(StreamProvider.PIPED)).distinct(),
