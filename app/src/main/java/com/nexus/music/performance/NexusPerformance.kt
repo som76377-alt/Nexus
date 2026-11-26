@@ -5,6 +5,8 @@ import android.util.Log
 import com.nexus.music.BuildConfig
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
 
 /** Lightweight debug-only monotonic tracing. It records timings only; it never changes app work. */
 object NexusPerformance {
@@ -20,6 +22,10 @@ object NexusPerformance {
         internal val startedAtElapsedMs: Long,
         internal val foreground: Boolean
     )
+
+    class TraceContext(val trace: Trace) : AbstractCoroutineContextElement(Key) {
+        companion object Key : CoroutineContext.Key<TraceContext>
+    }
 
     private data class PlaybackTrace(
         val trace: Trace,
