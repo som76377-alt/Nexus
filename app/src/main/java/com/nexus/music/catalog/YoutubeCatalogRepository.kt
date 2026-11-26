@@ -1,5 +1,7 @@
 package com.nexus.music.catalog
 
+import kotlinx.coroutines.withContext
+
 /**
  * Search and stream-resolution facade used by the app and playback service.
  *
@@ -12,17 +14,26 @@ class YoutubeCatalogRepository(
 ) {
     suspend fun search(
         query: String,
-        scope: YoutubeSearchScope = YoutubeSearchScope.EVERYTHING
-    ): List<CatalogTrack> = adapter.search(query, scope)
+        scope: YoutubeSearchScope = YoutubeSearchScope.EVERYTHING,
+        priority: ExtractorWorkPriority = ExtractorWorkPriority.FOREGROUND
+    ): List<CatalogTrack> = withContext(ExtractorPriorityContext(priority)) {
+        adapter.search(query, scope)
+    }
 
-    suspend fun resolveAudio(videoUrl: String): ResolvedAudio = adapter.resolveAudio(videoUrl)
+    suspend fun resolveAudio(
+        videoUrl: String,
+        priority: ExtractorWorkPriority = ExtractorWorkPriority.FOREGROUND
+    ): ResolvedAudio = withContext(ExtractorPriorityContext(priority)) {
+        adapter.resolveAudio(videoUrl)
+    }
 
     suspend fun resolveAudioExcluding(
         videoUrl: String,
-        providers: Set<StreamProvider>
-    ): ResolvedAudio {
+        providers: Set<StreamProvider>,
+        priority: ExtractorWorkPriority = ExtractorWorkPriority.FOREGROUND
+    ): ResolvedAudio = withContext(ExtractorPriorityContext(priority)) {
         val chainAdapter = adapter as? ResolverChainStreamProviderAdapter
             ?: throw IllegalStateException("Provider failover is unavailable for this catalogue adapter.")
-        return chainAdapter.resolveAudioExcluding(videoUrl, providers)
+        chainAdapter.resolveAudioExcluding(videoUrl, providers)
     }
 }
