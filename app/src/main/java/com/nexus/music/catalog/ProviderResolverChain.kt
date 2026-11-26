@@ -99,7 +99,11 @@ class ProviderResolverChain(
                     NexusPerformance.event(trace, "provider_attempt_start",
                         "provider=" + provider.key + " attempt=" + (index + 1))
                     try {
-                        val result = withContext(NexusPerformance.TraceContext(trace)) {
+                        val result = if (NexusPerformance.isEnabled()) {
+                            withContext(NexusPerformance.TraceContext(trace)) {
+                                mapResult(provider, validateResult(operation(adapter)))
+                            }
+                        } else {
                             mapResult(provider, validateResult(operation(adapter)))
                         }
                         val resultCount = (result as? Collection<*>)?.size
