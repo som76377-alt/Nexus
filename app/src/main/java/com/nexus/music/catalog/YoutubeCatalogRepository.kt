@@ -1,5 +1,8 @@
 package com.nexus.music.catalog
 
+import com.nexus.music.performance.NexusPerformance
+import kotlinx.coroutines.currentCoroutineContext
+
 /**
  * Search and stream-resolution facade used by the app and playback service.
  *
@@ -13,9 +16,23 @@ class YoutubeCatalogRepository(
     suspend fun search(
         query: String,
         scope: YoutubeSearchScope = YoutubeSearchScope.EVERYTHING
-    ): List<CatalogTrack> = adapter.search(query, scope)
+    ): List<CatalogTrack> {
+        if (NexusPerformance.isEnabled()) {
+            currentCoroutineContext()[NexusPerformance.TraceContext]?.trace?.let {
+                NexusPerformance.event(it, "repository_search_entry", "scope=" + scope)
+            }
+        }
+        return adapter.search(query, scope)
+    }
 
-    suspend fun resolveAudio(videoUrl: String): ResolvedAudio = adapter.resolveAudio(videoUrl)
+    suspend fun resolveAudio(videoUrl: String): ResolvedAudio {
+        if (NexusPerformance.isEnabled()) {
+            currentCoroutineContext()[NexusPerformance.TraceContext]?.trace?.let {
+                NexusPerformance.event(it, "repository_resolve_entry")
+            }
+        }
+        return adapter.resolveAudio(videoUrl)
+    }
 
     suspend fun resolveAudioExcluding(
         videoUrl: String,
