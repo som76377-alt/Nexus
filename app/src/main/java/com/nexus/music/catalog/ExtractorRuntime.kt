@@ -48,10 +48,10 @@ internal class PriorityAdmissionQueue {
 
     suspend fun <T> withLease(
         priority: ExtractorWorkPriority,
-        ownerJob: Job? = currentCoroutineContext()[Job],
+        ownerJob: Job? = null,
         block: suspend () -> T
     ): T {
-        acquire(priority, ownerJob)
+        acquire(priority, ownerJob ?: currentCoroutineContext()[Job])
         try {
             currentCoroutineContext().ensureActive()
             return block()
@@ -144,9 +144,9 @@ internal object ExtractorRuntime {
     suspend fun <T> withExclusiveDownloader(
         downloader: Downloader,
         priority: ExtractorWorkPriority,
-        ownerJob: Job? = currentCoroutineContext()[Job],
+        ownerJob: Job? = null,
         block: suspend () -> T
-    ): T = admission.withLease(priority, ownerJob) {
+    ): T = admission.withLease(priority, ownerJob ?: currentCoroutineContext()[Job]) {
         initializeDownloader(downloader)
         withContext(ExtractorLeaseContext(downloader)) { block() }
     }
