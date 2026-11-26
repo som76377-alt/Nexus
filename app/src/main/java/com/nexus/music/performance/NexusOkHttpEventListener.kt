@@ -1,40 +1,40 @@
 package com.nexus.music.performance
 
 import okhttp3.Call
-import okhttp3.Connection
 import okhttp3.EventListener
 import okhttp3.Protocol
 import java.io.IOException
 import java.net.Inet4Address
 import java.net.Inet6Address
+import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Proxy
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicInteger
 
 /** Debug-only DNS and socket timing. IP addresses and request paths are deliberately omitted. */
 internal class NexusOkHttpEventListener : EventListener() {
-    private var dnsStartedAtMs = 0L
-    private var connectStartedAtMs = 0L
-    private var connectFailures = 0
+    private val dnsStartTimes = ConcurrentHashMap<String, ConcurrentLinkedQueue<Long>>()
+    private val connectStartTimes = ConcurrentHashMap<InetSocketAddress, ConcurrentLinkedQueue<Long>>()
+    private val connectFailures = AtomicInteger()
 
     override fun dnsStart(call: Call, domainName: String) {
         if (!NexusPerformance.isEnabled()) return
-        dnsStartedAtMs = NexusPerformance.nowMs()
+        dnsStartTimes.computeIfAbsent(domainName) { ConcurrentLinkedQueue() }
+            .add(NexusPerformance.nowMs())
         NexusPerformance.logEvent("dns_start", "host=" + domainName)
     }
 
-    override fun dnsEnd(call: Call, domainName: String, inetAddressList: List<java.net.InetAddress>) {
+    override fun dnsEnd(call: Call, domainName: String, inetAddressList: List<InetAddress>) {
         if (!NexusPerformance.isEnabled()) return
-        val families = inetAddressList.mapNotNull {
-            when (it) {
-                is Inet4Address -> "IPv4"
-                is Inet6Address -> "IPv6"
-                else -> null
-            }
-        }.distinct().joinToString(",")
+        val startedAt = dnsStartTimes[domainName]?.poll()
+        if (dnsStartTimes[domainName]?.isEmpty() == true) dnsStartTimes.remove(domainName)
+        val families = inetAddressList.mapNotNull(::addressFamily).distinct().joinToString(",")
         NexusPerformance.logEvent(
             "dns_complete",
             "host=" + domainName +
-                " duration_ms=" + (NexusPerformance.nowMs() - dnsStartedAtMs) +
+                " duration_ms=" + (startedAt?.let { NexusPerformance.nowMs() - it } ?: -1L) +
                 " address_count=" + inetAddressList.size +
                 " families=" + families
         )
@@ -46,14 +46,15 @@ internal class NexusOkHttpEventListener : EventListener() {
         proxy: Proxy
     ) {
         if (!NexusPerformance.isEnabled()) return
-        connectStartedAtMs = NexusPerformance.nowMs()
-        val family = addressFamily(inetSocketAddress)
-        val event = if (connectFailures > 0) "connect_fallback_start" else "connect_start"
+        connectStartTimes.computeIfAbsent(inetSocketAddress) { ConcurrentLinkedQueue() }
+            .add(NexusPerformance.nowMs())
+        val failures = connectFailures.get()
+        val event = if (failures > 0) "connect_fallback_start" else "connect_start"
         NexusPerformance.logEvent(
             event,
             "host=" + call.request().url.host +
-                " family=" + family +
-                " attempt=" + (connectFailures + 1)
+                " family=" + addressFamily(inetSocketAddress.address) +
+                " attempt=" + (failures + 1)
         )
     }
 
@@ -64,11 +65,12 @@ internal class NexusOkHttpEventListener : EventListener() {
         protocol: Protocol?
     ) {
         if (!NexusPerformance.isEnabled()) return
+        val duration = takeConnectDuration(inetSocketAddress)
         NexusPerformance.logEvent(
             "connect_complete",
             "host=" + call.request().url.host +
-                " family=" + addressFamily(inetSocketAddress) +
-                " duration_ms=" + (NexusPerformance.nowMs() - connectStartedAtMs) +
+                " family=" + addressFamily(inetSocketAddress.address) +
+                " duration_ms=" + duration +
                 " protocol=" + (protocol?.toString() ?: "unknown")
         )
     }
@@ -81,12 +83,14 @@ internal class NexusOkHttpEventListener : EventListener() {
         ioe: IOException
     ) {
         if (!NexusPerformance.isEnabled()) return
-        connectFailures += 1
+        val failures = connectFailures.incrementAndGet()
+        val duration = takeConnectDuration(inetSocketAddress)
         NexusPerformance.logEvent(
             "connect_failed",
             "host=" + call.request().url.host +
-                " family=" + addressFamily(inetSocketAddress) +
-                " duration_ms=" + (NexusPerformance.nowMs() - connectStartedAtMs) +
+                " family=" + addressFamily(inetSocketAddress.address) +
+                " attempt=" + failures +
+                " duration_ms=" + duration +
                 " error=" + ioe.javaClass.simpleName
         )
     }
@@ -100,8 +104,15 @@ internal class NexusOkHttpEventListener : EventListener() {
         )
     }
 
-    private fun addressFamily(address: InetSocketAddress): String =
-        when (address.address) {
+    private fun takeConnectDuration(address: InetSocketAddress): Long {
+        val queue = connectStartTimes[address] ?: return -1L
+        val startedAt = queue.poll() ?: return -1L
+        if (queue.isEmpty()) connectStartTimes.remove(address, queue)
+        return NexusPerformance.nowMs() - startedAt
+    }
+
+    private fun addressFamily(address: InetAddress?): String =
+        when (address) {
             is Inet4Address -> "IPv4"
             is Inet6Address -> "IPv6"
             else -> "unknown"
