@@ -42,6 +42,7 @@ import com.nexus.music.ui.YouView
 import com.nexus.music.catalog.ResolvedAudio
 import com.nexus.music.catalog.NexusCatalog
 import com.nexus.music.catalog.YoutubeSearchScope
+import com.nexus.music.catalog.ExtractorWorkPriority
 import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackSnapshot
 import com.nexus.music.playback.AudioCacheStore
