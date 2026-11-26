@@ -41,6 +41,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.EventListener
 import okhttp3.OkHttpClient
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -101,6 +102,9 @@ class PlaybackService : MediaSessionService() {
 
         val playbackHttpClient = OkHttpClient.Builder()
             .dns(StreamAddressFamily.dns)
+            .eventListenerFactory {
+                if (NexusPerformance.isEnabled()) NexusOkHttpEventListener() else EventListener.NONE
+            }
             .addInterceptor { chain ->
                 chain.proceed(
                     chain.request().newBuilder().header("User-Agent", USER_AGENT).build()
