@@ -956,15 +956,18 @@ class MainActivity : Activity() {
         }
         trace?.let { activeTrace ->
             NexusPerformance.event(activeTrace, "all_result_views_created", "count=" + sorted.size)
-            val observer = searchPanel.resultsContainer.viewTreeObserver
-            observer.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
-                override fun onPreDraw(): Boolean {
-                    if (observer.isAlive) observer.removeOnPreDrawListener(this)
-                    NexusPerformance.event(activeTrace, "search_results_first_draw")
-                    NexusPerformance.finish(activeTrace)
-                    return true
-                }
-            })
+            if (sorted.isNotEmpty()) {
+                val observer = searchPanel.resultsContainer.viewTreeObserver
+                observer.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+                    override fun onPreDraw(): Boolean {
+                        if (observer.isAlive) observer.removeOnPreDrawListener(this)
+                        NexusPerformance.event(activeTrace, "first_results_displayed")
+                        NexusPerformance.event(activeTrace, "search_results_first_draw")
+                        NexusPerformance.finish(activeTrace)
+                        return true
+                    }
+                })
+            }
         }
     }
 
