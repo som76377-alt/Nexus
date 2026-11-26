@@ -805,7 +805,9 @@ class MainActivity : Activity() {
 
         searchJob = activityScope.launch {
             try {
-                val results = repository.search(query, requestScope)
+                val results = withContext(NexusPerformance.TraceContext(trace)) {
+                    repository.search(query, requestScope)
+                }
                 NexusPerformance.event(trace, "results_received", "count=" + results.size)
                 if (requestGeneration != searchGeneration) {
                     NexusPerformance.finish(trace, "superseded")
@@ -857,8 +859,9 @@ class MainActivity : Activity() {
                     detail = "index=" + index + " query_length=" + query.length
                 )
                 try {
-                    val tracks = repository.search(query, YoutubeSearchScope.MUSIC_SONGS)
-                        .distinctBy { it.url }
+                    val tracks = withContext(NexusPerformance.TraceContext(shelfTrace)) {
+                        repository.search(query, YoutubeSearchScope.MUSIC_SONGS)
+                    }.distinctBy { it.url }
                         .sortedByDescending { it.viewCount ?: -1L }
                         .take(8)
                     NexusPerformance.event(shelfTrace, "results_received", "count=" + tracks.size)
