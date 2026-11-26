@@ -38,7 +38,7 @@ class NewPipeStreamProviderAdapter(
         query: String,
         scope: YoutubeSearchScope
     ): List<CatalogTrack> {
-        val trace = currentCoroutineContext()[NexusPerformance.TraceContext]?.trace
+        val trace = if (NexusPerformance.isEnabled()) currentCoroutineContext()[NexusPerformance.TraceContext]?.trace else null
         return withContext(Dispatchers.IO) {
         require(query.trim().isNotEmpty()) { "Search query must not be blank." }
         ExtractorRuntime.withDownloader(downloader, trace) {
