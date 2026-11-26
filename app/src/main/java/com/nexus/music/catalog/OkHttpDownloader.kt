@@ -44,12 +44,23 @@ class OkHttpDownloader(
             values.forEach { value -> builder.addHeader(name, value) }
         }
 
-        val endpointHost = runCatching { request.url().toHttpUrl().host }.getOrDefault("unknown")
-        val trace = NexusPerformance.begin(
-            "newpipe_http",
-            foreground = NexusPerformance.isForeground(),
-            detail = "host=" + endpointHost + " method=" + method
-        )
+        val tracing = NexusPerformance.isEnabled()
+        val endpointHost = if (tracing) {
+            runCatching { request.url().toHttpUrl().host }.getOrDefault("unknown")
+        } else ""
+        val operationTrace = if (tracing) ExtractorRuntime.currentTrace() else null
+        val standaloneTrace = if (tracing && operationTrace == null) {
+            NexusPerformance.begin(
+                "newpipe_http",
+                foreground = NexusPerformance.isForeground(),
+                detail = "host=" + endpointHost + " method=" + method
+            )
+        } else null
+        val requestStartedAt = if (tracing) NexusPerformance.nowMs() else 0L
+        if (operationTrace != null) {
+            NexusPerformance.event(operationTrace, "newpipe_http_begin",
+                "host=" + endpointHost + " method=" + method)
+        }
         var responseCode: Int? = null
         var failure: String? = null
         try {
@@ -74,11 +85,17 @@ class OkHttpDownloader(
             failure = error.javaClass.simpleName
             throw error
         } finally {
-            NexusPerformance.finish(
-                trace,
-                "http_code=" + (responseCode?.toString() ?: "none") +
+            if (tracing) {
+                val detail = "host=" + endpointHost + " method=" + method +
+                    " duration_ms=" + (NexusPerformance.nowMs() - requestStartedAt) +
+                    " http_code=" + (responseCode?.toString() ?: "none") +
                     " failure=" + (failure ?: "none")
-            )
+                if (operationTrace != null) {
+                    NexusPerformance.event(operationTrace, "newpipe_http_complete", detail)
+                } else {
+                    NexusPerformance.finish(standaloneTrace!!, detail)
+                }
+            }
         }
     }
 
