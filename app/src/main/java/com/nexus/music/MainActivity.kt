@@ -1068,6 +1068,11 @@ class MainActivity : Activity() {
         playerArtwork.load(audio.thumbnailUrl?.takeIf(String::isNotBlank))
         if (::nowPlayingView.isInitialized) nowPlayingView.setArtwork(audio.thumbnailUrl)
         playPauseButton.isEnabled = true
+        // A replay of the same source is a new playback attempt and needs fresh UI milestones.
+        lastPlaybackSourceId = audio.sourceUrl
+        lastPlaybackPositionMs = 0L
+        lastPlaybackState = Player.STATE_IDLE
+        lastPlaybackIsPlaying = false
         NexusPerformance.registerPlayback(audio.sourceUrl, trace)
         if (playbackConnection?.play(audio) != true) {
             NexusPerformance.finish(trace, "player_rejected")
