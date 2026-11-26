@@ -4,6 +4,7 @@ import okhttp3.EventListener
 import okhttp3.OkHttpClient
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import com.nexus.music.performance.NexusPerformance
+import com.nexus.music.performance.NexusOkHttpEventListener
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.schabi.newpipe.extractor.downloader.Downloader
 import org.schabi.newpipe.extractor.downloader.Request as ExtractorRequest
