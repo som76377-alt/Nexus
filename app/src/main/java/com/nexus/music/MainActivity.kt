@@ -825,6 +825,7 @@ class MainActivity : Activity() {
             detail = "shelf_count=" + shelves.size
         )
         activityScope.launch {
+            var firstUsableHomeRecorded = false
             shelves.forEachIndexed { index, (title, query) ->
                 val shelfTrace = NexusPerformance.begin(
                     "home_shelf", foreground = isActivityStarted,
@@ -839,6 +840,11 @@ class MainActivity : Activity() {
                     if (tracks.isNotEmpty() && !isFinishing && !isDestroyed) {
                         homeShelvesContainer.addView(buildHomeShelf(title, tracks), verticalParams(20))
                         NexusPerformance.event(shelfTrace, "shelf_displayed", "count=" + tracks.size)
+                        if (!firstUsableHomeRecorded) {
+                            firstUsableHomeRecorded = true
+                            NexusPerformance.event(homeTrace, "first_usable_home",
+                                "shelf_index=" + index + " track_count=" + tracks.size)
+                        }
                     }
                     NexusPerformance.finish(shelfTrace)
                 } catch (error: CancellationException) {
@@ -991,7 +997,7 @@ class MainActivity : Activity() {
                 val audio = CachedAudioResolver(
                     PersistentAudioCacheLookup(this@MainActivity),
                     repository::resolveAudio
-                ).resolve(track.url)
+                ).resolve(track.url, trace)
                 NexusPerformance.event(trace, "audio_resolved", "provider=" + audio.provider)
                 showResolved(audio, trace)
             } catch (error: CancellationException) {
