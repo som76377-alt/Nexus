@@ -29,7 +29,7 @@ internal object ExtractorRuntime {
             }
             val previousTrace = activeTrace.get()
             try {
-                if (trace != null) activeTrace.set(trace) else activeTrace.remove()
+                if (tracing && trace != null) activeTrace.set(trace) else activeTrace.remove()
                 NewPipe.init(downloader)
                 block()
             } finally {
