@@ -6,18 +6,30 @@ import org.schabi.newpipe.extractor.downloader.Downloader
 
 /** Serializes access to NewPipe's process-wide downloader while providers are being switched. */
 internal object ExtractorRuntime {
-    fun <T> withDownloader(downloader: Downloader, block: () -> T): T {
+    fun <T> withDownloader(
+        downloader: Downloader,
+        trace: NexusPerformance.Trace? = null,
+        block: () -> T
+    ): T {
         val waitStarted = NexusPerformance.nowMs()
         return synchronized(this) {
             val acquiredAt = NexusPerformance.nowMs()
-            NexusPerformance.logEvent("newpipe_lock_acquired",
-                "wait_ms=" + (acquiredAt - waitStarted))
+            val waitMs = acquiredAt - waitStarted
+            if (trace != null) {
+                NexusPerformance.event(trace, "newpipe_lock_acquired", "wait_ms=" + waitMs)
+            } else {
+                NexusPerformance.logEvent("newpipe_lock_acquired", "wait_ms=" + waitMs)
+            }
             NewPipe.init(downloader)
             try {
                 block()
             } finally {
-                NexusPerformance.logEvent("newpipe_lock_released",
-                    "hold_ms=" + (NexusPerformance.nowMs() - acquiredAt))
+                val holdMs = NexusPerformance.nowMs() - acquiredAt
+                if (trace != null) {
+                    NexusPerformance.event(trace, "newpipe_lock_released", "hold_ms=" + holdMs)
+                } else {
+                    NexusPerformance.logEvent("newpipe_lock_released", "hold_ms=" + holdMs)
+                }
             }
         }
     }
