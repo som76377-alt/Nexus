@@ -7,6 +7,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import java.io.IOException
 
 /**
@@ -96,7 +97,9 @@ class ProviderResolverChain(
                     NexusPerformance.event(trace, "provider_attempt_start",
                         "provider=" + provider.key + " attempt=" + (index + 1))
                     try {
-                        val result = mapResult(provider, validateResult(operation(adapter)))
+                        val result = withContext(NexusPerformance.TraceContext(trace)) {
+                            mapResult(provider, validateResult(operation(adapter)))
+                        }
                         healthStore.recordSuccess(provider, nowEpochMs())
                         NexusPerformance.event(trace, "provider_attempt_success", "provider=" + provider.key)
                         outcomes.send(Result.success(result))
