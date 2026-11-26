@@ -143,14 +143,16 @@ class MainActivity : Activity() {
 
         val startupTrace = NexusPerformance.begin("app_startup", foreground = true)
         val root = FrameLayout(this).apply { setBackgroundColor(screenBackground) }
-        root.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
-            override fun onPreDraw(): Boolean {
-                if (root.viewTreeObserver.isAlive) root.viewTreeObserver.removeOnPreDrawListener(this)
-                NexusPerformance.event(startupTrace, "first_ui_draw")
-                NexusPerformance.finish(startupTrace)
-                return true
-            }
-        })
+        if (NexusPerformance.isEnabled()) {
+            root.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+                override fun onPreDraw(): Boolean {
+                    if (root.viewTreeObserver.isAlive) root.viewTreeObserver.removeOnPreDrawListener(this)
+                    NexusPerformance.event(startupTrace, "first_ui_draw")
+                    NexusPerformance.finish(startupTrace)
+                    return true
+                }
+            })
+        }
         val base = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(screenBackground)
@@ -324,7 +326,7 @@ class MainActivity : Activity() {
     }
 
     private fun traceHomeInteractive() {
-        if (!::mainScroll.isInitialized || isFinishing || isDestroyed) return
+        if (!NexusPerformance.isEnabled() || !::mainScroll.isInitialized || isFinishing || isDestroyed) return
         val trace = NexusPerformance.begin("home_interactive", foreground = NexusPerformance.isForeground())
         val observer = mainScroll.viewTreeObserver
         observer.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
@@ -805,7 +807,11 @@ class MainActivity : Activity() {
 
         searchJob = activityScope.launch {
             try {
-                val results = withContext(NexusPerformance.TraceContext(trace)) {
+                val results = if (NexusPerformance.isEnabled()) {
+                    withContext(NexusPerformance.TraceContext(trace)) {
+                        repository.search(query, requestScope)
+                    }
+                } else {
                     repository.search(query, requestScope)
                 }
                 NexusPerformance.event(trace, "results_received", "count=" + results.size)
@@ -859,9 +865,14 @@ class MainActivity : Activity() {
                     detail = "index=" + index + " query_length=" + query.length
                 )
                 try {
-                    val tracks = withContext(NexusPerformance.TraceContext(shelfTrace)) {
+                    val shelfResults = if (NexusPerformance.isEnabled()) {
+                        withContext(NexusPerformance.TraceContext(shelfTrace)) {
+                            repository.search(query, YoutubeSearchScope.MUSIC_SONGS)
+                        }
+                    } else {
                         repository.search(query, YoutubeSearchScope.MUSIC_SONGS)
-                    }.distinctBy { it.url }
+                    }
+                    val tracks = shelfResults.distinctBy { it.url }
                         .sortedByDescending { it.viewCount ?: -1L }
                         .take(8)
                     NexusPerformance.event(shelfTrace, "results_received", "count=" + tracks.size)
@@ -951,13 +962,12 @@ class MainActivity : Activity() {
         }
         sorted.forEachIndexed { index, track ->
             searchPanel.resultsContainer.addView(resultCard(track), verticalParams(if (index == 0) 0 else 10))
-            if (index == 0) {
-                trace?.let {
-                    NexusPerformance.event(it, "first_result_view_created")
-                }
+            if (index == 0 && trace != null && NexusPerformance.isEnabled()) {
+                NexusPerformance.event(trace, "first_result_view_created")
             }
         }
-        trace?.let { activeTrace ->
+        if (trace != null && NexusPerformance.isEnabled()) {
+            val activeTrace = trace
             NexusPerformance.event(activeTrace, "all_result_views_created", "count=" + sorted.size)
             if (sorted.isNotEmpty()) {
                 val observer = searchPanel.resultsContainer.viewTreeObserver
