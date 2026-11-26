@@ -119,13 +119,27 @@ internal class PriorityAdmissionQueue {
     }
 }
 
+/** Identity-based downloader switching; callers must hold the exclusive admission lease. */
+internal class DownloaderInitializationState<T : Any>(
+    private val initialize: (T) -> Unit
+) {
+    private var active: T? = null
+
+    fun ensureInitialized(downloader: T) {
+        if (active !== downloader) {
+            initialize(downloader)
+            active = downloader
+        }
+    }
+}
+
 internal object ExtractorRuntime {
     internal val normalDownloader: OkHttpDownloader by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         OkHttpDownloader()
     }
 
     private val admission = PriorityAdmissionQueue()
-    private var activeDownloader: Downloader? = null
+    private val downloaderState = DownloaderInitializationState<Downloader> { NewPipe.init(it) }
 
     suspend fun <T> withDownloader(downloader: Downloader, block: () -> T): T {
         val lease = currentCoroutineContext()[ExtractorLeaseContext]
@@ -157,12 +171,7 @@ internal object ExtractorRuntime {
     }
 
     private suspend fun initializeDownloader(downloader: Downloader) {
-        runInterruptible(Dispatchers.IO) {
-            if (activeDownloader !== downloader) {
-                NewPipe.init(downloader)
-                activeDownloader = downloader
-            }
-        }
+        runInterruptible(Dispatchers.IO) { downloaderState.ensureInitialized(downloader) }
     }
 
     private suspend fun <T> runExtraction(block: () -> T): T =
