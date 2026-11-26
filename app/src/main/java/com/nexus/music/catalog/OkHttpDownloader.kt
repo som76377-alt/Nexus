@@ -1,5 +1,6 @@
 package com.nexus.music.catalog
 
+import okhttp3.EventListener
 import okhttp3.OkHttpClient
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import com.nexus.music.performance.NexusPerformance
@@ -107,6 +108,9 @@ class OkHttpDownloader(
 
         private fun defaultClient(): OkHttpClient =
             OkHttpClient.Builder()
+                .eventListenerFactory {
+                    if (NexusPerformance.isEnabled()) NexusOkHttpEventListener() else EventListener.NONE
+                }
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(30, TimeUnit.SECONDS)
                 .writeTimeout(30, TimeUnit.SECONDS)
