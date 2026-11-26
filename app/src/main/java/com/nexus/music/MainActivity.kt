@@ -134,6 +134,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        NexusPerformance.setForeground(true)
         window.statusBarColor = screenBackground
         window.navigationBarColor = screenBackground
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
@@ -270,7 +271,11 @@ class MainActivity : Activity() {
         }
         root.addView(nowPlayingView, FrameLayout.LayoutParams(-1, -1))
         setContentView(root)
-        if (intent.getBooleanExtra(EXTRA_OPEN_YOU, false)) showYou() else if (intent.getBooleanExtra(EXTRA_OPEN_LIBRARY, false)) showLibrary()
+        when {
+            intent.getBooleanExtra(EXTRA_OPEN_YOU, false) -> showYou()
+            intent.getBooleanExtra(EXTRA_OPEN_LIBRARY, false) -> showLibrary()
+            else -> traceHomeInteractive()
+        }
         loadHomeShelves()
         registerBackNavigation()
         applySystemBarInsets(base)
@@ -314,6 +319,21 @@ class MainActivity : Activity() {
         mainScroll.addView(homeContent)
         bottomNavigationHost.removeAllViews()
         bottomNavigationHost.addView(buildBottomNavigation(NexusUi.NavigationTab.HOME), LinearLayout.LayoutParams(-1, dp(62)))
+        traceHomeInteractive()
+    }
+
+    private fun traceHomeInteractive() {
+        if (!::mainScroll.isInitialized || isFinishing || isDestroyed) return
+        val trace = NexusPerformance.begin("home_interactive", foreground = isActivityStarted)
+        val observer = mainScroll.viewTreeObserver
+        observer.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                if (observer.isAlive) observer.removeOnPreDrawListener(this)
+                NexusPerformance.event(trace, "home_ready_for_input")
+                NexusPerformance.finish(trace)
+                return true
+            }
+        })
     }
 
     private fun showLibrary() {
