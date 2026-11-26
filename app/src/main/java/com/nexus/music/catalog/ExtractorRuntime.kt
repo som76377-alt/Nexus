@@ -3,7 +3,9 @@ package com.nexus.music.catalog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.NewPipe
@@ -11,16 +13,11 @@ import org.schabi.newpipe.extractor.downloader.Downloader
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
 
-/** Admission class for work that must use NewPipe's process-wide mutable runtime. */
-internal enum class ExtractorWorkPriority {
-    FOREGROUND,
-    DIAGNOSTIC,
-    BACKGROUND
-}
+internal enum class ExtractorWorkPriority { FOREGROUND, DIAGNOSTIC, BACKGROUND }
 
-/** Carries an explicit lane through repositories, resolver children and provider adapters. */
 internal class ExtractorPriorityContext(
-    val priority: ExtractorWorkPriority
+    val priority: ExtractorWorkPriority,
+    val ownerJob: Job?
 ) : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<ExtractorPriorityContext>
 }
@@ -31,14 +28,11 @@ private class ExtractorLeaseContext(
     companion object Key : CoroutineContext.Key<ExtractorLeaseContext>
 }
 
-/**
- * NewPipe's Downloader and service localization are process-wide mutable state. Keep extraction
- * exclusive until the complete NewPipe pipeline is proven concurrency-safe. Foreground waiters
- * are admitted before queued diagnostic/background work; same-lane waiters remain FIFO.
- */
-internal object ExtractorRuntime {
+/** Exclusive, priority-aware admission for NewPipe's process-wide mutable runtime. */
+internal class PriorityAdmissionQueue {
     private data class Waiter(
         val priority: ExtractorWorkPriority,
+        val ownerJob: Job?,
         val signal: CompletableDeferred<Unit> = CompletableDeferred(),
         var granted: Boolean = false
     )
@@ -46,43 +40,35 @@ internal object ExtractorRuntime {
     private val monitor = Any()
     private val waiters = mutableListOf<Waiter>()
     private var occupied = false
-    private var activeDownloader: Downloader? = null
+    private var activePriority = ExtractorWorkPriority.BACKGROUND
+    private var activeJob: Job? = null
 
-    suspend fun <T> withDownloader(
-        downloader: Downloader,
-        block: () -> T
-    ): T {
-        val lease = currentCoroutineContext()[ExtractorLeaseContext]
-        if (lease != null && lease.downloader === downloader) return runExtraction(block)
-        val priority = currentCoroutineContext()[ExtractorPriorityContext]?.priority
-            ?: ExtractorWorkPriority.FOREGROUND
-        return withExclusiveDownloader(downloader, priority) { runExtraction(block) }
-    }
+    internal val queuedCount: Int
+        get() = synchronized(monitor) { waiters.size }
 
-    /** Holds the exclusive NewPipe lease across a complete diagnostic operation. */
-    suspend fun <T> withExclusiveDownloader(
-        downloader: Downloader,
+    suspend fun <T> withLease(
         priority: ExtractorWorkPriority,
+        ownerJob: Job? = currentCoroutineContext()[Job],
         block: suspend () -> T
     ): T {
-        val inherited = currentCoroutineContext()[ExtractorLeaseContext]
-        check(inherited == null) { "A NewPipe exclusive lease is already active in this coroutine." }
-        acquire(priority)
+        acquire(priority, ownerJob)
         try {
-            initializeDownloader(downloader)
-            return withContext(ExtractorLeaseContext(downloader)) { block() }
+            currentCoroutineContext().ensureActive()
+            return block()
         } finally {
             release()
         }
     }
 
-    private suspend fun acquire(priority: ExtractorWorkPriority) {
+    private suspend fun acquire(priority: ExtractorWorkPriority, ownerJob: Job?) {
         val waiter = synchronized(monitor) {
             if (!occupied && waiters.isEmpty()) {
                 occupied = true
+                activePriority = priority
+                activeJob = ownerJob
                 return
             }
-            Waiter(priority).also { candidate ->
+            Waiter(priority, ownerJob).also { candidate ->
                 val insertion = waiters.indexOfFirst {
                     it.priority.ordinal > candidate.priority.ordinal
                 }
@@ -90,15 +76,19 @@ internal object ExtractorRuntime {
             }
         }
 
+        // Cancellation handlers can release the lease, so never cancel while holding the monitor.
+        val preemptedJob = synchronized(monitor) {
+            activeJob.takeIf { priority.ordinal < activePriority.ordinal }
+        }
+        preemptedJob?.cancel(
+            CancellationException("NewPipe work preempted by ${priority.name.lowercase()} request")
+        )
+
         try {
             waiter.signal.await()
         } catch (cancelled: CancellationException) {
             synchronized(monitor) {
-                if (waiter.granted) {
-                    grantNextLocked()
-                } else {
-                    waiters.remove(waiter)
-                }
+                if (waiter.granted) grantNextLocked() else waiters.remove(waiter)
             }
             throw cancelled
         }
@@ -111,31 +101,65 @@ internal object ExtractorRuntime {
         }
     }
 
-    /** Called with monitor held; transfers ownership before waking the next waiter. */
+    /** Called with monitor held; ownership transfers before the next waiter is resumed. */
     private fun grantNextLocked() {
         val next = waiters.firstOrNull()
         if (next == null) {
             occupied = false
+            activeJob = null
+            activePriority = ExtractorWorkPriority.BACKGROUND
             return
         }
         waiters.removeAt(0)
         next.granted = true
+        activePriority = next.priority
+        activeJob = next.ownerJob
         occupied = true
         next.signal.complete(Unit)
+    }
+}
+
+internal object ExtractorRuntime {
+    private val admission = PriorityAdmissionQueue()
+    private var activeDownloader: Downloader? = null
+
+    suspend fun <T> withDownloader(downloader: Downloader, block: () -> T): T {
+        val lease = currentCoroutineContext()[ExtractorLeaseContext]
+        if (lease != null) {
+            check(lease.downloader === downloader) {
+                "A NewPipe downloader cannot be switched inside an active exclusive lease."
+            }
+            return runExtraction(block)
+        }
+
+        val priorityContext = currentCoroutineContext()[ExtractorPriorityContext]
+        val priority = priorityContext?.priority ?: ExtractorWorkPriority.FOREGROUND
+        val ownerJob = priorityContext?.ownerJob ?: currentCoroutineContext()[Job]
+        return withExclusiveDownloader(downloader, priority, ownerJob) {
+            runExtraction(block)
+        }
+    }
+
+    /** Holds the exclusive lease across a complete Provider Lab search-and-resolve operation. */
+    suspend fun <T> withExclusiveDownloader(
+        downloader: Downloader,
+        priority: ExtractorWorkPriority,
+        ownerJob: Job? = currentCoroutineContext()[Job],
+        block: suspend () -> T
+    ): T = admission.withLease(priority, ownerJob) {
+        initializeDownloader(downloader)
+        withContext(ExtractorLeaseContext(downloader)) { block() }
     }
 
     private suspend fun initializeDownloader(downloader: Downloader) {
         runInterruptible(Dispatchers.IO) {
-            synchronized(monitor) {
-                if (activeDownloader !== downloader) {
-                    NewPipe.init(downloader)
-                    activeDownloader = downloader
-                }
+            if (activeDownloader !== downloader) {
+                NewPipe.init(downloader)
+                activeDownloader = downloader
             }
         }
     }
 
-    /** Runs a synchronous extractor call on IO and interrupts it when its coroutine is cancelled. */
-    suspend fun <T> runExtraction(block: () -> T): T =
+    private suspend fun <T> runExtraction(block: () -> T): T =
         runInterruptible(Dispatchers.IO) { block() }
 }
