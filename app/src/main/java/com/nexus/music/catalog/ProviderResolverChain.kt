@@ -7,6 +7,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
@@ -86,8 +87,18 @@ class ProviderResolverChain(
         val ordered = configured.sortedBy { (provider, _) ->
             if (healthStore.get(provider).cooldownUntilEpochMs > now) 1 else 0
         }.take(maxAttempts)
-        val trace = NexusPerformance.begin(operationName, foreground = NexusPerformance.isForeground(),
+        val inheritedTrace = if (NexusPerformance.isEnabled()) {
+            currentCoroutineContext()[NexusPerformance.TraceContext]?.trace
+        } else null
+        val ownsTrace = inheritedTrace == null
+        val trace = inheritedTrace ?: NexusPerformance.begin(
+            operationName,
+            foreground = NexusPerformance.isForeground(),
             detail = "attempts=" + ordered.size + " providers=" +
+                ordered.joinToString(",") { it.first.key }
+        )
+        NexusPerformance.event(trace, "provider_chain_begin",
+            "attempts=" + ordered.size + " providers=" +
                 ordered.joinToString(",") { it.first.key })
         val firstNonEmptySearchObserved = AtomicBoolean(false)
 
@@ -152,24 +163,34 @@ class ProviderResolverChain(
                             sawEmptyResult = true
                             return@repeat
                         }
-                        NexusPerformance.finish(trace, "result=success")
+                        if (ownsTrace) NexusPerformance.finish(trace, "result=success")
+                        else NexusPerformance.event(trace, "provider_chain_complete", "result=success")
                         jobs.forEach { it.cancel() }
                         return@coroutineScope result
                     }
 
                     val error = outcome.exceptionOrNull() as Exception
                     if (StreamErrorClassifier.classify(error) == StreamErrorClass.INVALID_SOURCE) {
+                        if (ownsTrace) NexusPerformance.finish(trace, "invalid_source")
+                        else NexusPerformance.event(trace, "provider_chain_complete", "result=invalid_source")
                         jobs.forEach { it.cancel() }
                         throw error
                     }
                     lastError = error
                 }
                 if (sawEmptyResult) {
+                    if (ownsTrace) NexusPerformance.finish(trace, "result=empty")
+                    else NexusPerformance.event(trace, "provider_chain_complete", "result=empty")
                     @Suppress("UNCHECKED_CAST")
                     return@coroutineScope emptyResult as T
                 }
-                NexusPerformance.finish(trace, "result=failed")
+                if (ownsTrace) NexusPerformance.finish(trace, "result=failed")
+                else NexusPerformance.event(trace, "provider_chain_complete", "result=failed")
                 throw lastError ?: IOException("No configured stream provider could be attempted.")
+            } catch (cancelled: CancellationException) {
+                if (ownsTrace) NexusPerformance.finish(trace, "cancelled")
+                else NexusPerformance.event(trace, "provider_chain_cancelled")
+                throw cancelled
             } finally {
                 outcomes.close()
             }
