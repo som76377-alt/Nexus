@@ -176,14 +176,15 @@ class ProviderLabActivity : Activity() {
                     ?: throw IllegalStateException("Search did not return the fixed sample ID")
                 return sourceUrl to resolver.resolveAudio(sourceUrl)
             }
-            val audio = if (newPipeDownloader != null) {
+            val resolution = if (newPipeDownloader != null) {
                 ExtractorRuntime.withExclusiveDownloader(
                     newPipeDownloader,
                     ExtractorWorkPriority.DIAGNOSTIC
                 ) { resolveSample() }
             } else {
                 resolveSample()
-            }.second
+            }
+            val audio = resolution.second
 
             httpCode = withContext(Dispatchers.IO) {
                 client.newCall(
