@@ -341,9 +341,10 @@ abstract class JsonApiStreamProviderAdapter(
 
         internal fun defaultApiClient(): OkHttpClient =
             OkHttpClient.Builder()
-                .eventListenerFactory {
-                    if (NexusPerformance.isEnabled()) NexusOkHttpEventListener() else EventListener.NONE
-                }
+                .eventListenerFactory(object : EventListener.Factory {
+                    override fun create(call: okhttp3.Call): EventListener =
+                        if (NexusPerformance.isEnabled()) NexusOkHttpEventListener() else EventListener.NONE
+                })
                 .connectTimeout(10, TimeUnit.SECONDS)
                 .readTimeout(20, TimeUnit.SECONDS)
                 .callTimeout(30, TimeUnit.SECONDS)
