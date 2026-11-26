@@ -14,6 +14,22 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class PriorityAdmissionQueueTest {
     @Test
+    fun downloaderIsInitializedOncePerIdentityAndSwitchesOnlyWhenRequired() {
+        val initialized = mutableListOf<Any>()
+        val state = DownloaderInitializationState<Any> { initialized += it }
+        val normal = Any()
+        val diagnostic = Any()
+
+        state.ensureInitialized(normal)
+        state.ensureInitialized(normal)
+        state.ensureInitialized(diagnostic)
+        state.ensureInitialized(diagnostic)
+        state.ensureInitialized(normal)
+
+        assertEquals(listOf(normal, diagnostic, normal), initialized)
+    }
+
+    @Test
     fun foregroundPreemptsActiveBackgroundAndRunsBeforeQueuedBackground() = runBlocking {
         val queue = PriorityAdmissionQueue()
         val backgroundStarted = CompletableDeferred<Unit>()
