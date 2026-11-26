@@ -48,6 +48,38 @@ class PriorityAdmissionQueueTest {
     }
 
     @Test
+    fun foregroundJumpsAheadOfQueuedDiagnosticWork() = runBlocking {
+        val queue = PriorityAdmissionQueue()
+        val activeStarted = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val order = Collections.synchronizedList(mutableListOf<String>())
+
+        val activeBackground = launch {
+            queue.withLease(ExtractorWorkPriority.BACKGROUND) {
+                activeStarted.complete(Unit)
+                release.await()
+            }
+        }
+        activeStarted.await()
+
+        val diagnostic = launch {
+            queue.withLease(ExtractorWorkPriority.DIAGNOSTIC) { order += "diagnostic" }
+        }
+        awaitQueued(queue, 1)
+
+        val foreground = launch {
+            queue.withLease(ExtractorWorkPriority.FOREGROUND) { order += "foreground" }
+        }
+        withTimeout(2_000) {
+            foreground.join()
+            diagnostic.join()
+        }
+        assertTrue(activeBackground.isCancelled)
+        assertEquals(listOf("foreground", "diagnostic"), order)
+        release.complete(Unit)
+    }
+
+    @Test
     fun cancellingQueuedWaiterDoesNotConsumeTheNextLease() = runBlocking {
         val queue = PriorityAdmissionQueue()
         val entered = CompletableDeferred<Unit>()
