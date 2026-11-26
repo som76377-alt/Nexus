@@ -87,35 +87,41 @@ internal class PriorityAdmissionQueue {
         try {
             waiter.signal.await()
         } catch (cancelled: CancellationException) {
-            synchronized(monitor) {
-                if (waiter.granted) grantNextLocked() else waiters.remove(waiter)
+            val next = synchronized(monitor) {
+                if (waiter.granted) grantNextLocked() else {
+                    waiters.remove(waiter)
+                    null
+                }
             }
+            next?.signal?.complete(Unit)
             throw cancelled
         }
     }
 
     private fun release() {
-        synchronized(monitor) {
+        val next = synchronized(monitor) {
             check(occupied) { "NewPipe coordinator lease released without ownership." }
             grantNextLocked()
         }
+        // Resume outside the monitor so an Unconfined continuation cannot run user work under it.
+        next?.signal?.complete(Unit)
     }
 
     /** Called with monitor held; ownership transfers before the next waiter is resumed. */
-    private fun grantNextLocked() {
+    private fun grantNextLocked(): Waiter? {
         val next = waiters.firstOrNull()
         if (next == null) {
             occupied = false
             activeJob = null
             activePriority = ExtractorWorkPriority.BACKGROUND
-            return
+            return null
         }
         waiters.removeAt(0)
         next.granted = true
         activePriority = next.priority
         activeJob = next.ownerJob
         occupied = true
-        next.signal.complete(Unit)
+        return next
     }
 }
 
