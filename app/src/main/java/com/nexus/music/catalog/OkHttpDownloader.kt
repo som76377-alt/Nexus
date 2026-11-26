@@ -108,9 +108,10 @@ class OkHttpDownloader(
 
         private fun defaultClient(): OkHttpClient =
             OkHttpClient.Builder()
-                .eventListenerFactory {
-                    if (NexusPerformance.isEnabled()) NexusOkHttpEventListener() else EventListener.NONE
-                }
+                .eventListenerFactory(object : EventListener.Factory {
+                    override fun create(call: okhttp3.Call): EventListener =
+                        if (NexusPerformance.isEnabled()) NexusOkHttpEventListener() else EventListener.NONE
+                })
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(30, TimeUnit.SECONDS)
                 .writeTimeout(30, TimeUnit.SECONDS)
