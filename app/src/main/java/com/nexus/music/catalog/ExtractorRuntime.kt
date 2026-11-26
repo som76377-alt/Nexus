@@ -159,7 +159,7 @@ internal object ExtractorRuntime {
         }
     }
 
-    /** Holds the exclusive lease across a complete Provider Lab search-and-resolve operation. */
+    /** Holds the exclusive lease across the complete Provider Lab diagnostic run. */
     suspend fun <T> withExclusiveDownloader(
         downloader: Downloader,
         priority: ExtractorWorkPriority,
