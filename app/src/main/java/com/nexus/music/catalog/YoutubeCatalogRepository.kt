@@ -6,7 +6,7 @@ import kotlinx.coroutines.withContext
 
 /** Search and stream-resolution facade shared by the app and playback service. */
 class YoutubeCatalogRepository(
-    downloader: OkHttpDownloader = OkHttpDownloader(),
+    downloader: OkHttpDownloader = ExtractorRuntime.normalDownloader,
     private val adapter: StreamProviderAdapter = NewPipeStreamProviderAdapter(downloader)
 ) {
     suspend fun search(
