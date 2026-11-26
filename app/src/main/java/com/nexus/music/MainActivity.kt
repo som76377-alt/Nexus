@@ -779,7 +779,11 @@ class MainActivity : Activity() {
         activityScope.launch {
             shelves.forEach { (title, query) ->
                 try {
-                    val tracks = repository.search(query, YoutubeSearchScope.MUSIC_SONGS)
+                    val tracks = repository.searchWithPriority(
+                        query,
+                        YoutubeSearchScope.MUSIC_SONGS,
+                        ExtractorWorkPriority.BACKGROUND
+                    )
                         .distinctBy { it.url }
                         .sortedByDescending { it.viewCount ?: -1L }
                         .take(8)
