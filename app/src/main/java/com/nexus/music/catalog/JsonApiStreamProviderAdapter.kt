@@ -274,7 +274,7 @@ abstract class JsonApiStreamProviderAdapter(
     }
 
     private suspend fun <T> executeAcrossInstances(block: suspend (HttpUrl) -> T): T {
-        val parentTrace = currentCoroutineContext()[NexusPerformance.TraceContext]?.trace
+        val parentTrace = if (NexusPerformance.isEnabled()) currentCoroutineContext()[NexusPerformance.TraceContext]?.trace else null
         var lastError: IOException? = null
         val configuredEndpoints = endpoints
         if (configuredEndpoints.isEmpty()) {
