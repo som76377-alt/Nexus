@@ -53,10 +53,10 @@ internal object ExtractorRuntime {
         block: () -> T
     ): T {
         val lease = currentCoroutineContext()[ExtractorLeaseContext]
-        if (lease != null && lease.downloader === downloader) return block()
+        if (lease != null && lease.downloader === downloader) return runExtraction(block)
         val priority = currentCoroutineContext()[ExtractorPriorityContext]?.priority
             ?: ExtractorWorkPriority.FOREGROUND
-        return withExclusiveDownloader(downloader, priority) { block() }
+        return withExclusiveDownloader(downloader, priority) { runExtraction(block) }
     }
 
     /** Holds the exclusive NewPipe lease across a complete diagnostic operation. */
