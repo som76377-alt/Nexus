@@ -4,6 +4,7 @@ import android.os.SystemClock
 import android.util.Log
 import com.nexus.music.BuildConfig
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
@@ -29,7 +30,8 @@ object NexusPerformance {
 
     private data class PlaybackTrace(
         val trace: Trace,
-        val recordedEvents: MutableSet<String> = ConcurrentHashMap.newKeySet<String>()
+        val recordedEvents: MutableSet<String> = ConcurrentHashMap.newKeySet<String>(),
+        val completionRecorded: AtomicBoolean = AtomicBoolean(false)
     )
 
     fun setForeground(foreground: Boolean) { appForeground = foreground }
@@ -74,9 +76,15 @@ object NexusPerformance {
         if (!record.recordedEvents.add(event)) return false
         log(record.trace, event, detail)
         if (record.recordedEvents.contains("player_ready") &&
-            record.recordedEvents.contains("first_position_advance")
+            record.recordedEvents.contains("first_position_advance") &&
+            record.completionRecorded.compareAndSet(false, true)
         ) {
             finish(record.trace, "playback_started")
+        }
+        // Keep the mapping briefly so the later UI polling milestone can join the same trace.
+        if (record.completionRecorded.get() &&
+            record.recordedEvents.contains("ui_position_advance_observed")
+        ) {
             playbackTraces.remove(sourceId, record)
         }
         return true
