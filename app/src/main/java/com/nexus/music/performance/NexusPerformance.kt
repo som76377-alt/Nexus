@@ -34,11 +34,13 @@ object NexusPerformance {
 
     fun setForeground(foreground: Boolean) { appForeground = foreground }
     fun isForeground(): Boolean = appForeground
+    fun isEnabled(): Boolean = enabled
 
     /** Android elapsed-realtime clock, including time spent asleep. */
     fun nowMs(): Long = SystemClock.elapsedRealtime()
 
     fun begin(operation: String, foreground: Boolean, detail: String = ""): Trace {
+        if (!enabled) return Trace("", operation, 0L, foreground)
         val trace = Trace("np-" + sequence.incrementAndGet(), operation, nowMs(), foreground)
         log(trace, "begin", detail)
         return trace
