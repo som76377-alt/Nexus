@@ -189,6 +189,24 @@ class AudioPrefetchCoordinatorTest {
     }
 
     @Test
+    fun usingCompletedPrefetchKeepsItInTheLruCache() = runBlocking {
+        val coordinator = AudioPrefetchCoordinator(
+            scope = this,
+            resolveInBackground = { audio(it) },
+            promoteInFlight = {}
+        )
+        coordinator.enqueue("track-a")
+        coordinator.awaitIdle()
+
+        val result = coordinator.resolveForPlayback("track-a") {
+            error("Completed prefetch should be reused")
+        }
+
+        assertEquals("track-a", result.sourceUrl)
+        assertTrue(coordinator.containsCached("track-a"))
+    }
+
+    @Test
     fun onlyOneSpeculativeResolutionRunsAtATime() = runBlocking {
         val active = AtomicInteger()
         val maximum = AtomicInteger()
