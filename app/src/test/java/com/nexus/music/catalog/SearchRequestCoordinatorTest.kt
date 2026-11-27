@@ -280,3 +280,27 @@ class SearchRequestCoordinatorTest {
         foreground.join()
         assertTrue(background.isCancelled)
     }
+
+    @Test
+    fun emptySearchResultsAreNotCachedAndCanBeRetried() = runBlocking {
+        val coordinator = SearchRequestCoordinator<String>(
+            CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        )
+        var calls = 0
+
+        assertEquals(emptyList<String>(), coordinator.search(
+            "no matches",
+            YoutubeSearchScope.EVERYTHING
+        ) {
+            calls++
+            emptyList()
+        })
+        assertEquals(listOf("recovered"), coordinator.search(
+            "no matches",
+            YoutubeSearchScope.EVERYTHING
+        ) {
+            calls++
+            listOf("recovered")
+        })
+        assertEquals(2, calls)
+    }
