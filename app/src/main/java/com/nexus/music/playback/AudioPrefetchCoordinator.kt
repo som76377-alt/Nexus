@@ -47,6 +47,7 @@ internal class AudioPrefetchCoordinator(
     val cachedEntryCount: Int get() = synchronized(lock) { completed.size }
     val queuedCount: Int get() = synchronized(lock) { pending.size }
     val activeSourceUrl: String? get() = synchronized(lock) { active?.sourceUrl }
+    internal fun containsCached(sourceUrl: String): Boolean = synchronized(lock) { pruneExpiredLocked(); completed.containsKey(sourceUrl) }
 
     /** Adds one speculative candidate. Duplicate URLs are coalesced; overflow drops oldest queued work. */
     fun enqueue(sourceUrl: String) {
