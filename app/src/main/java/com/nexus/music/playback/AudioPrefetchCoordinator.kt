@@ -96,6 +96,9 @@ internal class AudioPrefetchCoordinator(
             } catch (cancelled: CancellationException) {
                 if (!currentCoroutineContext().isActive) throw cancelled
                 resolveForeground(sourceUrl)
+            } catch (_: Exception) {
+                // A speculative failure must not turn an explicit Play tap into a failure.
+                resolveForeground(sourceUrl)
             }
         }
 
