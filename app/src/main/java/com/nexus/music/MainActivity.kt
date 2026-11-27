@@ -96,7 +96,7 @@ class MainActivity : Activity() {
                     }
                 ).resolve(sourceUrl)
             },
-            promoteInFlight = repository::promoteAudioResolution
+            promoteInFlight = { job -> repository.promoteAudioResolution(job); Unit }
         )
     }
     private var lastResolvedSourceUrl: String? = null
