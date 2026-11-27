@@ -154,3 +154,13 @@ Consolidated implementation preserves debug-only NexusPerformance traces through
 | Task | Status | Commit | CI | SPEC IDs | Net line delta | Learning |
 |---|---|---|---|---|---:|---|
 | Replace fixed Home shelves with a seeded 60/40 taste/exploration plan, 67 configurable discovery categories, rotating quick picks and five-shelf scroll-loaded pages; reroll replaces the complete plan | IN PROGRESS — exact-head CI pending | `baec897c85e7fbfadedd80a7e0de59c24da73e92` | [Android CI #1086](https://github.com/som76377-alt/Nexus/actions/runs/46001599310) — in progress | S1–S8 unchanged; no SPEC edits | +379 / −49 across five implementation files (work-log update excluded) | Uses only the existing catalogue search interface at BACKGROUND priority; cache-first page rendering and existing per-shelf deadlines remain. Artist affinity is query-based from recent/saved local history, not a claim of collaborative filtering. Device scrolling, recommendation quality and network cost remain UNVERIFIED. |
+
+## Adaptive Home discovery engine (2026-11-27)
+
+- Replaced the fixed category-only Home plan with an adaptive seed-and-expand engine. Initial searches combine recent/saved artist signals with a smaller exploratory category mix.
+- Search results now seed follow-on searches for unfamiliar artists, so Home can discover beyond the bundled genre catalogue and expand the available shelf plan as the listener scrolls.
+- Added local-only recommendation memory: played-artist weights, previously recommended track URLs, and explicit “not for me” track/artist exclusions. Saved tracks continue to provide a positive taste signal through the existing library.
+- Added novelty-first ranking with a modest listening-affinity and popularity signal. Previously recommended tracks are down-ranked; explicitly dismissed tracks and artists are filtered.
+- Added deterministic unit coverage for seed planning, artist expansion, novelty ranking and dismissal filtering.
+- Search is demand-driven while Home is active / being scrolled. No periodic background polling was added, to avoid unexpected mobile-data and battery use.
+- Validation is pending for this commit; no physical-device recommendation-quality or data-usage claim is made.
