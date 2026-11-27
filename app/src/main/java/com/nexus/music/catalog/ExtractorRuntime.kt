@@ -252,7 +252,7 @@ internal object ExtractorRuntime {
             } finally {
                 if (NexusPerformance.isEnabled()) {
                     val detail = "lease_hold_ms=" + (NexusPerformance.nowMs() - acquiredAt) + " priority=" + priority
-                    if (trace != null) NexusPerformance.event(trace, "newpipe_lease_released", detail)
+                    if (activeTrace != null) NexusPerformance.event(activeTrace, "newpipe_lease_released", detail)
                     else NexusPerformance.logEvent("newpipe_lease_released", detail)
                 }
             }
