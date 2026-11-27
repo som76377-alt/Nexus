@@ -166,7 +166,7 @@ class HomeShelfRecoveryTest {
             HomeShelfSpec("a", "A", "query a"),
             HomeShelfSpec("b", "B", "query b")
         )
-        val coordinator = SearchRequestCoordinator<String>(
+        val coordinator = SearchRequestCoordinator<CatalogTrack>(
             requestScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
             promoteRequest = queue::promote
         )
