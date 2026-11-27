@@ -78,3 +78,9 @@
 | Task | Status | Commit | CI run | Learning |
 |---|---|---|---|---|
 | Upload debug APK immediately after assembleDebug; move release-variant compilation, Provider Lab build-type class inspection, and unsigned-release refusal test to a manually dispatched workflow with a 12-minute compile diagnostic limit | IN PROGRESS | pending | pending | The previous required Android CI assembled the debug APK successfully but did not upload it until after a release-only Kotlin compilation. That step remained in progress for over 45 minutes. Debug validation and release guard validation are now separate so a slow release variant cannot block the installable debug artifact. Release checks are preserved in `.github/workflows/release-validation.yml`, but are not claimed as passed by the debug CI. |
+
+
+## Performance repair — Task 5: cache-first Home recovery and local Reroll
+| Task | Status | Branch | CI | SPEC IDs | Learning |
+|---|---|---|---|---|---|
+| Cache-first Home recommendations, independently bounded shelf refresh, and history-aware local-only Reroll | IMPLEMENTED — awaiting exact-head CI | `perf/task5-home-recovery` | Pending | S1, S2 and S8 unchanged; no SPEC edits | Home paints its shell and valid/stale persisted shelves before network refresh. Each existing shelf refreshes independently with a 6-second per-shelf deadline and one bounded background worker. Reroll selects from cached 40-track pools only, prefers unseen tracks, and moves repeats to the newest end of a bounded 120-URL history. The priority-aware NewPipe coordinator prerequisite is included because the selected integration baseline does not yet contain Task 2; foreground work can preempt active background extraction. Device latency and live provider behavior remain UNVERIFIED. |
