@@ -64,7 +64,7 @@ class PriorityAdmissionQueueTest {
     }
 
     @Test
-    fun foregroundJumpsAheadOfQueuedDiagnosticWork() = runBlocking {
+    fun foregroundJumpsAheadOfQueuedDiagnosticWork(): Unit = runBlocking {
         val queue = PriorityAdmissionQueue()
         val activeStarted = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
