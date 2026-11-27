@@ -1,16 +1,16 @@
 package com.nexus.music.catalog
 
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.IOException
 
 /**
  * Bounded, health-aware hedged failover shared by catalogue search and stream resolution.
- * The preferred provider starts immediately; additional providers start at a fixed stagger.
+ * The preferred provider starts immediately; slow requests are hedged at a fixed stagger.
  * The first successful result wins and remaining requests are cancelled.
  */
 class ProviderResolverChain(
