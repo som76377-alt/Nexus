@@ -20,7 +20,8 @@ internal enum class ExtractorWorkPriority { FOREGROUND, DIAGNOSTIC, BACKGROUND }
 
 internal class ExtractorPriorityContext(
     val priority: ExtractorWorkPriority,
-    val ownerJob: Job?
+    val ownerJob: Job?,
+    val operationTimeoutMs: Long? = null
 ) : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<ExtractorPriorityContext>
 }
@@ -197,7 +198,9 @@ internal object ExtractorRuntime {
         val ownerJob = priorityContext?.ownerJob ?: currentCoroutineContext()[Job]
         val trace = currentCoroutineContext()[NexusPerformance.TraceContext]?.trace
         return withExclusiveDownloader(downloader, priority, ownerJob, trace) {
-            runExtraction(block)
+            val timeoutMs = priorityContext?.operationTimeoutMs
+            if (timeoutMs != null) withTimeout(timeoutMs) { runExtraction(block) }
+            else runExtraction(block)
         }
     }
 
