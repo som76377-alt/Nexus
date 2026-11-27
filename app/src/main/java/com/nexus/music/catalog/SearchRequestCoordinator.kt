@@ -39,8 +39,8 @@ internal class SearchRequestCoordinator<T>(
     private class InFlight<T>(
         val result: CompletableDeferred<List<T>>,
         var waiterCount: Int,
-        var priority: ExtractorWorkPriority,
-        var operationTimeoutMs: Long?,
+        @Volatile var priority: ExtractorWorkPriority,
+        @Volatile var operationTimeoutMs: Long?,
         var worker: Job? = null
     )
 
