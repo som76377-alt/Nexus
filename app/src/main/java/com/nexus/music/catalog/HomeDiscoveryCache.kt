@@ -2,8 +2,14 @@ package com.nexus.music.catalog
 
 import android.content.Context
 import android.util.Base64
+import com.nexus.music.catalog.YoutubeSearchScope
 
-internal data class HomeShelfSpec(val id: String, val title: String, val query: String)
+internal data class HomeShelfSpec(
+    val id: String,
+    val title: String,
+    val query: String,
+    val scope: YoutubeSearchScope = YoutubeSearchScope.MUSIC_SONGS
+)
 
 internal data class HomeShelfSnapshot(
     val fetchedAtEpochMs: Long,

@@ -54,6 +54,10 @@ class HomeDiscoveryView(
             typeface = NexusDesignSystem.Type.interfaceText(context)
         }, LayoutParams(-1, -2))
 
+        val featuredCategory = HomeDiscoveryCategoryCatalog.load(context)
+            .flatMap { it.categories }
+            .shuffled()
+            .firstOrNull()
         val feature = LinearLayout(context).apply {
             orientation = VERTICAL
             background = GradientDrawable().apply {
@@ -61,28 +65,28 @@ class HomeDiscoveryView(
                 cornerRadius = dp(4).toFloat()
             }
             setPadding(dp(18), dp(16), dp(18), dp(18))
-            setOnClickListener { onExplore("Indian independent music", YoutubeSearchScope.MUSIC_SONGS) }
+            setOnClickListener { featuredCategory?.let { onExplore(it.query, it.scope) } }
             isClickable = true
             isFocusable = true
             minimumHeight = dp(132)
             contentDescription = "Explore independent Indian music"
         }
         feature.addView(TextView(context).apply {
-            text = "FROM INDIA"
+            text = "EXPLORE A SOUND"
             textSize = 10f
             letterSpacing = 0.12f
             setTextColor(Color.rgb(226, 210, 177))
             typeface = NexusDesignSystem.Type.technical(context)
         })
         feature.addView(TextView(context).apply {
-            text = "Independent voices."
+            text = featuredCategory?.label ?: "Discover something new."
             textSize = 29f
             setTextColor(NexusDesignSystem.Palette.sleeveWhite)
             typeface = NexusDesignSystem.Type.display(context)
             setPadding(0, dp(12), 0, dp(6))
         })
         feature.addView(TextView(context).apply {
-            text = "Explore the Indian independent scene  →"
+            text = featuredCategory?.query ?: "Explore music beyond your usual rotation"
             textSize = 12f
             setTextColor(Color.rgb(236, 222, 197))
             typeface = NexusDesignSystem.Type.interfaceText(context)
