@@ -46,6 +46,8 @@ import com.nexus.music.catalog.RepositorySearchSource
 import com.nexus.music.catalog.YoutubeSearchScope
 import com.nexus.music.catalog.ExtractorWorkPriority
 import com.nexus.music.catalog.HomeDiscoveryCacheStore
+import com.nexus.music.catalog.HomeDiscoveryEngine
+import com.nexus.music.catalog.HomeDiscoveryMemoryStore
 import com.nexus.music.catalog.HomeShelfRefreshRunner
 import com.nexus.music.catalog.HomeShelfSnapshot
 import com.nexus.music.catalog.HomeShelfSpec
@@ -96,6 +98,7 @@ class MainActivity : Activity() {
     private var homeGeneration = 0L
     private var homeRerollButton: Button? = null
     private val homeCache by lazy { HomeDiscoveryCacheStore(this) }
+    private val homeDiscoveryMemory by lazy { HomeDiscoveryMemoryStore(this) }
     private val audioPrefetch by lazy {
         AudioPrefetchCoordinator(
             scope = activityScope,
@@ -922,22 +925,22 @@ class MainActivity : Activity() {
         if (!::homeShelvesContainer.isInitialized || isFinishing || isDestroyed) return
 
         if (forceNewPlan || homeShelfSpecs.isEmpty()) {
-            val tasteArtists = (libraryStore.recentTracks() + libraryStore.savedTracks())
-                .mapNotNull { it.artist?.takeIf(String::isNotBlank) }
-            homeShelfSpecs = HomeDiscoveryPlanner.createPlan(
+            homeShelfSpecs = HomeDiscoveryEngine.createInitialPlan(
                 groups = HomeDiscoveryCategoryCatalog.load(this),
-                recentArtists = tasteArtists,
+                recentTracks = libraryStore.recentTracks(),
+                savedTracks = libraryStore.savedTracks(),
+                memory = homeDiscoveryMemory.snapshot(),
                 seed = System.nanoTime()
             )
         }
-        nextHomeShelfIndex = minOf(HomeDiscoveryPlanner.PAGE_SIZE, homeShelfSpecs.size)
+        nextHomeShelfIndex = minOf(HomeDiscoveryEngine.PAGE_SIZE, homeShelfSpecs.size)
         homePageLoading = false
         audioPrefetch.cancelSpeculation()
         val generation = ++homeGeneration
         homeLoadJob?.cancel()
         homeSnapshots.clear()
         homeShelfViews.clear()
-        val firstPageSpecs = homeShelfSpecs.take(HomeDiscoveryPlanner.PAGE_SIZE)
+        val firstPageSpecs = homeShelfSpecs.take(HomeDiscoveryEngine.PAGE_SIZE)
         homeShelvesContainer.removeAllViews()
 
         val actions = LinearLayout(this).apply {
@@ -1022,9 +1025,13 @@ class MainActivity : Activity() {
                                     operationTimeoutMs = timeoutMs
                                 )
                             }
-                            val tracks = fetched.distinctBy { it.url }
-                                .sortedByDescending { it.viewCount ?: -1L }
-                                .take(HOME_POOL_LIMIT)
+                            val tracks = HomeDiscoveryEngine.rankTracks(
+                                tracks = fetched,
+                                memory = homeDiscoveryMemory.snapshot(),
+                                recentTracks = libraryStore.recentTracks(),
+                                savedTracks = libraryStore.savedTracks(),
+                                seed = System.nanoTime()
+                            ).take(HOME_POOL_LIMIT)
                             NexusPerformance.event(shelfTrace, "shelf_results_received", "count=" + tracks.size)
                             NexusPerformance.finish(shelfTrace)
                             tracks
@@ -1047,6 +1054,7 @@ class MainActivity : Activity() {
                                 historyLimit = HOME_HISTORY_LIMIT
                             )
                             homeSnapshots[spec.id] = snapshot
+                            homeDiscoveryMemory.recordRecommended(snapshot.displayedTracks)
                             homeCache.write(spec.id, snapshot)
                             if (snapshot.displayedTracks.isNotEmpty()) {
                                 renderHomeShelf(spec, snapshot)
@@ -1062,6 +1070,7 @@ class MainActivity : Activity() {
                         if (generation == homeGeneration) updateHomeLoadingState(loading = true)
                     }
                 )
+                appendDynamicArtistShelves(firstPageSpecs)
             } finally {
                 if (generation == homeGeneration && !isDestroyed) {
                     updateHomeLoadingState(loading = false)
@@ -1088,7 +1097,7 @@ class MainActivity : Activity() {
         ) return
         if (nextHomeShelfIndex >= homeShelfSpecs.size) return
 
-        val page = homeShelfSpecs.drop(nextHomeShelfIndex).take(HomeDiscoveryPlanner.PAGE_SIZE)
+        val page = homeShelfSpecs.drop(nextHomeShelfIndex).take(HomeDiscoveryEngine.PAGE_SIZE)
         if (page.isEmpty()) return
         nextHomeShelfIndex += page.size
         homePageLoading = true
@@ -1125,9 +1134,15 @@ class MainActivity : Activity() {
                             spec.scope,
                             ExtractorWorkPriority.BACKGROUND,
                             operationTimeoutMs = timeoutMs
-                        ).distinctBy { it.url }
-                            .sortedByDescending { it.viewCount ?: -1L }
-                            .take(HOME_POOL_LIMIT)
+                        ).let { fetched ->
+                            HomeDiscoveryEngine.rankTracks(
+                                tracks = fetched,
+                                memory = homeDiscoveryMemory.snapshot(),
+                                recentTracks = libraryStore.recentTracks(),
+                                savedTracks = libraryStore.savedTracks(),
+                                seed = System.nanoTime()
+                            ).take(HOME_POOL_LIMIT)
+                        }
                     },
                     onResult = { spec, tracks ->
                         if (generation == homeGeneration && !isFinishing && !isDestroyed) {
@@ -1140,12 +1155,14 @@ class MainActivity : Activity() {
                                 historyLimit = HOME_HISTORY_LIMIT
                             )
                             homeSnapshots[spec.id] = snapshot
+                            homeDiscoveryMemory.recordRecommended(snapshot.displayedTracks)
                             withContext(Dispatchers.IO) { homeCache.write(spec.id, snapshot) }
                             if (snapshot.displayedTracks.isNotEmpty()) renderHomeShelf(spec, snapshot)
                         }
                     },
                     onFailure = { _, _ -> Unit }
                 )
+                appendDynamicArtistShelves(page)
             } finally {
                 if (generation == homeGeneration && !isDestroyed) {
                     homePageLoading = false
@@ -1159,6 +1176,27 @@ class MainActivity : Activity() {
                 }
             }
         }
+    }
+
+    /**
+     * Uses artists returned by the just-loaded page as new search seeds. Previously known
+     * artists are excluded, so each scroll can extend the discovery graph instead of replaying
+     * the bundled category catalogue.
+     */
+    private fun appendDynamicArtistShelves(sourcePage: List<HomeShelfSpec>) {
+        val sourceIds = sourcePage.mapTo(hashSetOf()) { it.id }
+        val sourceTracks = sourcePage.flatMap { homeSnapshots[it.id]?.pool.orEmpty() }
+        val knownTracks = libraryStore.recentTracks() + libraryStore.savedTracks() +
+            homeSnapshots.filterKeys { it !in sourceIds }.values.flatMap { it.pool }
+        val added = HomeDiscoveryEngine.expandFromResults(
+            results = sourceTracks,
+            knownArtists = knownTracks.mapNotNull { it.artist }.toSet(),
+            existingShelfIds = homeShelfSpecs.mapTo(hashSetOf()) { it.id },
+            memory = homeDiscoveryMemory.snapshot(),
+            currentShelfCount = homeShelfSpecs.size,
+            seed = System.nanoTime()
+        )
+        if (added.isNotEmpty()) homeShelfSpecs = homeShelfSpecs + added
     }
 
     private fun renderHomeShelf(spec: HomeShelfSpec, snapshot: HomeShelfSnapshot) {
@@ -1210,7 +1248,13 @@ class MainActivity : Activity() {
                 isClickable = true
                 isFocusable = true
                 setOnClickListener { startResolvingTrack(track) }
-                contentDescription = "Play ${track.title}"
+                setOnLongClickListener {
+                    homeDiscoveryMemory.recordNotInterested(track)
+                    Toast.makeText(this@MainActivity, "We'll show you less like this.", Toast.LENGTH_SHORT).show()
+                    rerollHomeShelves()
+                    true
+                }
+                contentDescription = "Play ${track.title}. Long-press to hide this recommendation."
             }
             val art = ImageView(this).apply {
                 scaleType = ImageView.ScaleType.CENTER_CROP
@@ -1411,16 +1455,16 @@ class MainActivity : Activity() {
         }
         NexusPerformance.event(trace, "player_command_sent", "provider=" + audio.provider)
         playerSubtitle.text = "Starting playback…"
-        libraryStore.recordPlayed(
-            CatalogTrack(
-                url = audio.sourceUrl,
-                title = audio.title,
-                artist = audio.artist,
-                thumbnailUrl = audio.thumbnailUrl,
-                durationSeconds = audio.durationSeconds,
-                viewCount = null
-            )
+        val playedTrack = CatalogTrack(
+            url = audio.sourceUrl,
+            title = audio.title,
+            artist = audio.artist,
+            thumbnailUrl = audio.thumbnailUrl,
+            durationSeconds = audio.durationSeconds,
+            viewCount = null
         )
+        libraryStore.recordPlayed(playedTrack)
+        homeDiscoveryMemory.recordPlayed(playedTrack)
         Toast.makeText(this, "Starting playback", Toast.LENGTH_SHORT).show()
     }
 
