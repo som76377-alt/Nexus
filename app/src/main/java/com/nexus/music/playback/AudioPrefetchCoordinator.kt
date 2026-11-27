@@ -84,7 +84,7 @@ internal class AudioPrefetchCoordinator(
             matching?.promoted = true
             unrelated = active?.takeIf { it.sourceUrl != sourceUrl }?.deferred
             generation++
-            pending.forEach(scheduledUrls::remove)
+            pending.forEach { scheduledUrls.remove(it) }
             pending.clear()
         }
 
