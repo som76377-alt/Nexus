@@ -188,8 +188,8 @@ class PriorityAdmissionQueueTest {
         val releaseActive = CompletableDeferred<Unit>()
         val order = Collections.synchronizedList(mutableListOf<String>())
 
-        val activeBackground = launch {
-            queue.withLease(ExtractorWorkPriority.BACKGROUND) {
+        val activeForeground = launch {
+            queue.withLease(ExtractorWorkPriority.FOREGROUND) {
                 activeStarted.complete(Unit)
                 releaseActive.await()
             }
@@ -213,7 +213,7 @@ class PriorityAdmissionQueueTest {
         releaseActive.complete(Unit)
 
         withTimeout(2_000) {
-            activeBackground.join()
+            activeForeground.join()
             urgentForeground.join()
             matchingPrefetch.join()
         }
