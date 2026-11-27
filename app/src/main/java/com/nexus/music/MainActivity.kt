@@ -806,6 +806,7 @@ class MainActivity : Activity() {
         val rerollButton = Button(this).apply {
             text = "Reroll"
             isAllCaps = false
+            isEnabled = false
             setOnClickListener { rerollHomeShelves() }
         }
         homeRerollButton = rerollButton
@@ -815,28 +816,30 @@ class MainActivity : Activity() {
         homeLoadingText = text("Recommendations are loading…", 12f, secondaryText)
         homeShelvesContainer.addView(homeLoadingText, verticalParams(8))
 
-        // Render persisted content first. Stale content remains visible if refresh fails or times out.
-        homeShelfSpecs.forEach { spec ->
-            homeCache.read(spec.id)?.let { snapshot ->
-                homeSnapshots[spec.id] = snapshot
-                if (snapshot.displayedTracks.isNotEmpty()) renderHomeShelf(spec, snapshot)
-            }
-        }
-        updateHomeLoadingState(loading = true)
-
-        val now = System.currentTimeMillis()
-        val staleShelves = homeShelfSpecs.filter { spec ->
-            val cached = homeSnapshots[spec.id]
-            cached == null || now - cached.fetchedAtEpochMs >= HOME_CACHE_FRESH_MS
-        }
-        if (staleShelves.isEmpty()) {
-            updateHomeLoadingState(loading = false)
-            homeLoadJob = null
-            return
-        }
-
+        // The shell is attached before disk reads. Cache decoding and every network request stay off
+        // the main thread; cached shelves are rendered before any refresh begins.
         homeLoadJob = activityScope.launch {
             try {
+                val cachedEntries = withContext(Dispatchers.IO) {
+                    homeShelfSpecs.mapNotNull { spec ->
+                        runCatching { homeCache.read(spec.id) }
+                            .getOrNull()
+                            ?.let { spec to it }
+                    }
+                }
+                if (generation != homeGeneration || isFinishing || isDestroyed) return@launch
+
+                cachedEntries.forEach { (spec, snapshot) ->
+                    homeSnapshots[spec.id] = snapshot
+                    if (snapshot.displayedTracks.isNotEmpty()) renderHomeShelf(spec, snapshot)
+                }
+                updateHomeLoadingState(loading = true)
+
+                val now = System.currentTimeMillis()
+                val staleShelves = homeShelfSpecs.filter { spec ->
+                    val cached = homeSnapshots[spec.id]
+                    cached == null || now - cached.fetchedAtEpochMs >= HOME_CACHE_FRESH_MS
+                }
                 HomeShelfRefreshRunner(HOME_SHELF_TIMEOUT_MS).run(
                     shelves = staleShelves,
                     fetch = { spec ->
@@ -851,9 +854,8 @@ class MainActivity : Activity() {
                     },
                     onResult = { spec, tracks ->
                         if (generation == homeGeneration && !isFinishing && !isDestroyed) {
-                            val old = homeSnapshots[spec.id]
                             val snapshot = refreshedHomeShelfSnapshot(
-                                previous = old,
+                                previous = homeSnapshots[spec.id],
                                 fetchedAtEpochMs = System.currentTimeMillis(),
                                 tracks = tracks,
                                 poolLimit = HOME_POOL_LIMIT,
@@ -862,7 +864,7 @@ class MainActivity : Activity() {
                             )
                             homeSnapshots[spec.id] = snapshot
                             homeCache.write(spec.id, snapshot)
-                            if (selected.isNotEmpty()) renderHomeShelf(spec, snapshot)
+                            if (snapshot.displayedTracks.isNotEmpty()) renderHomeShelf(spec, snapshot)
                         }
                     },
                     onFailure = { _, _ ->
