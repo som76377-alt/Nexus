@@ -83,9 +83,14 @@ class ProviderResolverChain(
 
         return coroutineScope {
             val outcomes = Channel<Result<T>>(capacity = ordered.size)
-            val jobs = ordered.mapIndexed { index, (provider, adapter) ->
-                async {
-                    if (index > 0) delay(hedgeDelayMs * index)
+            val jobs = mutableListOf<kotlinx.coroutines.Job>()
+            var nextIndex = 0
+            var activeCount = 0
+
+            fun launchNextProvider() {
+                val (provider, adapter) = ordered[nextIndex++]
+                activeCount++
+                jobs += launch {
                     try {
                         val result = mapResult(provider, validateResult(operation(adapter)))
                         healthStore.recordSuccess(provider, nowEpochMs())
@@ -112,14 +117,34 @@ class ProviderResolverChain(
             var emptyResult: T? = null
             var sawEmptyResult = false
             try {
-                repeat(ordered.size) {
-                    val outcome = outcomes.receive()
+                launchNextProvider()
+                while (activeCount > 0 || nextIndex < ordered.size) {
+                    if (activeCount == 0) {
+                        launchNextProvider()
+                        continue
+                    }
+
+                    val outcome = if (nextIndex < ordered.size) {
+                        withTimeoutOrNull(hedgeDelayMs) { outcomes.receive() }
+                    } else {
+                        outcomes.receive()
+                    }
+
+                    if (outcome == null) {
+                        // A request is still running; only now is the next hedge due.
+                        launchNextProvider()
+                        continue
+                    }
+
+                    activeCount--
                     if (outcome.isSuccess) {
                         val result = outcome.getOrThrow()
                         if (isEmptySearchResult(result)) {
                             emptyResult = result
                             sawEmptyResult = true
-                            return@repeat
+                            // An empty catalogue page is a completed miss, not a slow request.
+                            if (nextIndex < ordered.size) launchNextProvider()
+                            continue
                         }
                         jobs.forEach { it.cancel() }
                         return@coroutineScope result
@@ -131,7 +156,10 @@ class ProviderResolverChain(
                         throw error
                     }
                     lastError = error
+                    // Do not spend the hedge delay after a provider has already failed.
+                    if (nextIndex < ordered.size) launchNextProvider()
                 }
+
                 if (sawEmptyResult) {
                     @Suppress("UNCHECKED_CAST")
                     return@coroutineScope emptyResult as T
