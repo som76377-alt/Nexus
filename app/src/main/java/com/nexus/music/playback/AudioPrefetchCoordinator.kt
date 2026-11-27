@@ -3,6 +3,7 @@ package com.nexus.music.playback
 import com.nexus.music.catalog.ResolvedAudio
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
@@ -153,8 +154,9 @@ internal class AudioPrefetchCoordinator(
                 }
 
                 coroutineScope {
-                    val task = async { resolveInBackground(sourceUrl) }
+                    val task = async(start = CoroutineStart.LAZY) { resolveInBackground(sourceUrl) }
                     synchronized(lock) { active = Active(sourceUrl, task) }
+                    task.start()
                     try {
                         val audio = task.await()
                         synchronized(lock) {
