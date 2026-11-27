@@ -164,3 +164,5 @@ Consolidated implementation preserves debug-only NexusPerformance traces through
 - Added deterministic unit coverage for seed planning, artist expansion, novelty ranking and dismissal filtering.
 - Search is demand-driven while Home is active / being scrolled. No periodic background polling was added, to avoid unexpected mobile-data and battery use.
 - Validation is pending for this commit; no physical-device recommendation-quality or data-usage claim is made.
+
+- Final code review found the existing shelf selector shuffled candidates after engine ranking, which diluted the new relevance score. Updated it to preserve ranked order while still exhausting unseen tracks before history repeats; added a regression test. Home's shelf subtitle now reflects the actual discovery ranking.
