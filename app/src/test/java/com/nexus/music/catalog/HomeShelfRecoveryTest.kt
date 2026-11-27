@@ -1,6 +1,10 @@
 package com.nexus.music.catalog
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -10,6 +14,7 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.random.Random
@@ -148,6 +153,70 @@ class HomeShelfRecoveryTest {
             onResult = { shelf, _ -> rendered += shelf.id }
         )
         assertEquals(listOf("b", "a"), rendered)
+    }
+
+    @Test
+    fun tapWhileHomeLoadsCancelsOnlyExtractionChildThenAllShelvesRecover() = runBlocking {
+        val queue = PriorityAdmissionQueue()
+        val extractionStarted = CompletableDeferred<Unit>()
+        val secondShelfStarted = CompletableDeferred<Unit>()
+        var firstAttempt = true
+        val rendered = mutableListOf<String>()
+        val shelves = listOf(
+            HomeShelfSpec("a", "A", "query a"),
+            HomeShelfSpec("b", "B", "query b")
+        )
+        val coordinator = SearchRequestCoordinator<String>(
+            requestScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            promoteRequest = queue::promote
+        )
+        val fetch: suspend (HomeShelfSpec, Long) -> List<CatalogTrack> = { shelf, timeoutMs ->
+            coordinator.search(
+                shelf.query,
+                YoutubeSearchScope.MUSIC_SONGS,
+                ExtractorWorkPriority.BACKGROUND,
+                timeoutMs
+            ) {
+                val context = currentCoroutineContext()[ExtractorPriorityContext]!!
+                queue.withLease(context.priority, context.ownerJob) {
+                    if (shelf.id == "a" && firstAttempt) {
+                        firstAttempt = false
+                        extractionStarted.complete(Unit)
+                        awaitCancellation()
+                    }
+                    if (shelf.id == "b") secondShelfStarted.complete(Unit)
+                    listOf(track(if (shelf.id == "a") 1 else 2))
+                }
+            }
+        }
+
+        val home = launch {
+            HomeShelfRefreshRunner(6_000L).run(
+                shelves = shelves,
+                fetch = fetch,
+                onResult = { shelf, _ -> rendered += shelf.id }
+            )
+        }
+        extractionStarted.await()
+
+        val tap = launch {
+            queue.withLease(ExtractorWorkPriority.FOREGROUND) { }
+        }
+        withTimeout(2_000L) {
+            tap.join()
+            secondShelfStarted.await()
+        }
+        assertFalse(home.isCancelled)
+        home.join()
+        assertEquals(listOf("b"), rendered)
+
+        // MainActivity restarts stale shelves after the tap finishes; both shelves must recover.
+        HomeShelfRefreshRunner(6_000L).run(
+            shelves = shelves,
+            fetch = fetch,
+            onResult = { shelf, _ -> rendered += shelf.id }
+        )
+        assertEquals(listOf("b", "a", "b"), rendered)
     }
 
     private fun track(id: Int) = CatalogTrack(
