@@ -4,6 +4,9 @@ import android.os.Build
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import androidx.media3.common.AudioAttributes
+import androidx.media3.exoplayer.analytics.AnalyticsListener
+import com.nexus.music.performance.NexusPerformance
+import com.nexus.music.performance.NexusOkHttpEventListener
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -39,6 +42,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.EventListener
 import okhttp3.OkHttpClient
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -99,6 +103,10 @@ class PlaybackService : MediaSessionService() {
 
         val playbackHttpClient = OkHttpClient.Builder()
             .dns(StreamAddressFamily.dns)
+            .eventListenerFactory(object : EventListener.Factory {
+                override fun create(call: okhttp3.Call): EventListener =
+                    if (NexusPerformance.isEnabled()) NexusOkHttpEventListener() else EventListener.NONE
+            })
             .addInterceptor { chain ->
                 chain.proceed(
                     chain.request().newBuilder().header("User-Agent", USER_AGENT).build()
@@ -226,6 +234,19 @@ class PlaybackService : MediaSessionService() {
                 }
             }
         }
+        exoPlayer.addAnalyticsListener(object : AnalyticsListener {
+            override fun onAudioPositionAdvancing(
+                eventTime: AnalyticsListener.EventTime,
+                playoutStartSystemTimeMs: Long
+            ) {
+                exoPlayer.currentMediaItem?.mediaId?.let { sourceId ->
+                    NexusPerformance.playbackEvent(
+                        sourceId, "first_position_advance",
+                        "playout_start_system_time_ms=" + playoutStartSystemTimeMs
+                    )
+                }
+            }
+        })
         exoPlayer.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 val currentSource = mediaItem?.mediaId.orEmpty()

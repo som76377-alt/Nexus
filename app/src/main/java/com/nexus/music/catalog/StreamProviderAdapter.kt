@@ -28,7 +28,7 @@ interface StreamProviderAdapter {
  * is process-wide; this preserves the current working path while other adapters are added.
  */
 class NewPipeStreamProviderAdapter(
-    private val downloader: OkHttpDownloader = OkHttpDownloader()
+    private val downloader: OkHttpDownloader = ExtractorRuntime.normalDownloader
 ) : StreamProviderAdapter {
     override val provider: StreamProvider = StreamProvider.NEWPIPE
 

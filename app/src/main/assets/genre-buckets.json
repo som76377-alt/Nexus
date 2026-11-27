@@ -1,0 +1,256 @@
+{
+  "shelves": [
+    {
+      "id": "quick-picks",
+      "title": "Quick picks",
+      "buckets": [
+        [
+          "ghazal",
+          "Ghazal",
+          "ghazal classics",
+          "MUSIC_SONGS"
+        ],
+        [
+          "indian-indie",
+          "Indian indie",
+          "Indian independent music",
+          "MUSIC_SONGS"
+        ],
+        [
+          "indian-classical",
+          "Classical",
+          "Indian classical music",
+          "MUSIC_SONGS"
+        ],
+        [
+          "instrumental",
+          "Instrumental",
+          "instrumental music",
+          "MUSIC_SONGS"
+        ],
+        [
+          "new-voices",
+          "New voices",
+          "new Indian music",
+          "MUSIC_SONGS"
+        ],
+        [
+          "evergreen",
+          "Evergreen",
+          "evergreen Hindi songs",
+          "MUSIC_SONGS"
+        ]
+      ]
+    },
+    {
+      "id": "genres",
+      "title": "Genres",
+      "buckets": [
+        [
+          "classical",
+          "Classical",
+          "classical official audio song",
+          "MUSIC_SONGS"
+        ],
+        [
+          "jazz",
+          "Jazz",
+          "jazz official audio song",
+          "MUSIC_SONGS"
+        ],
+        [
+          "blues",
+          "Blues",
+          "blues official audio song",
+          "MUSIC_SONGS"
+        ],
+        [
+          "rock",
+          "Rock",
+          "rock official audio song",
+          "MUSIC_SONGS"
+        ],
+        [
+          "pop",
+          "Pop",
+          "pop official audio song",
+          "MUSIC_SONGS"
+        ],
+        [
+          "hiphop",
+          "Hip-hop",
+          "hip hop official audio song",
+          "MUSIC_SONGS"
+        ],
+        [
+          "rnb",
+          "R&B and soul",
+          "R&B soul official audio song",
+          "MUSIC_SONGS"
+        ],
+        [
+          "country",
+          "Country",
+          "country official audio song",
+          "MUSIC_SONGS"
+        ],
+        [
+          "electronic",
+          "Electronic",
+          "electronic music official audio song",
+          "MUSIC_SONGS"
+        ],
+        [
+          "folk",
+          "Folk",
+          "folk music official audio song",
+          "MUSIC_SONGS"
+        ],
+        [
+          "reggae",
+          "Reggae",
+          "reggae official audio song",
+          "MUSIC_SONGS"
+        ],
+        [
+          "latin",
+          "Latin",
+          "Latin music official audio song",
+          "MUSIC_SONGS"
+        ]
+      ]
+    },
+    {
+      "id": "languages",
+      "title": "Languages",
+      "buckets": [
+        [
+          "english",
+          "English-language",
+          "English song official audio",
+          "MUSIC_SONGS"
+        ],
+        [
+          "hindi",
+          "Hindi film songs",
+          "Hindi movie song official audio",
+          "MUSIC_SONGS"
+        ],
+        [
+          "punjabi",
+          "Punjabi",
+          "Punjabi song official audio",
+          "MUSIC_SONGS"
+        ],
+        [
+          "tamil",
+          "Tamil",
+          "Tamil song official audio",
+          "MUSIC_SONGS"
+        ],
+        [
+          "telugu",
+          "Telugu",
+          "Telugu song official audio",
+          "MUSIC_SONGS"
+        ],
+        [
+          "bengali",
+          "Bengali",
+          "Bengali song official audio",
+          "MUSIC_SONGS"
+        ],
+        [
+          "russian",
+          "Russian-language",
+          "Russian song official audio",
+          "MUSIC_SONGS"
+        ],
+        [
+          "spanish",
+          "Spanish-language",
+          "Spanish song official audio",
+          "MUSIC_SONGS"
+        ],
+        [
+          "korean",
+          "Korean-language",
+          "Korean song official audio",
+          "MUSIC_SONGS"
+        ],
+        [
+          "japanese",
+          "Japanese-language",
+          "Japanese song official audio",
+          "MUSIC_SONGS"
+        ],
+        [
+          "urdu",
+          "Urdu",
+          "Urdu song official audio",
+          "MUSIC_SONGS"
+        ],
+        [
+          "marathi",
+          "Marathi",
+          "Marathi song official audio",
+          "MUSIC_SONGS"
+        ]
+      ]
+    },
+    {
+      "id": "film",
+      "title": "Film music",
+      "buckets": [
+        [
+          "hindi-film",
+          "Hindi movie soundtracks",
+          "Hindi film soundtrack single song official audio",
+          "MUSIC_SONGS"
+        ],
+        [
+          "english-film",
+          "English film soundtracks",
+          "English movie soundtrack song official audio",
+          "MUSIC_SONGS"
+        ],
+        [
+          "anime",
+          "Anime soundtracks",
+          "anime soundtrack song official audio",
+          "MUSIC_SONGS"
+        ],
+        [
+          "video-game",
+          "Video game soundtracks",
+          "video game soundtrack song official audio",
+          "MUSIC_SONGS"
+        ]
+      ]
+    },
+    {
+      "id": "longform",
+      "title": "Long-form listening",
+      "buckets": [
+        [
+          "study",
+          "Study music",
+          "instrumental study music long mix",
+          "EVERYTHING"
+        ],
+        [
+          "ambient",
+          "Ambient soundscapes",
+          "ambient soundscape long duration",
+          "EVERYTHING"
+        ],
+        [
+          "nature",
+          "Nature ambience",
+          "nature sounds ambience long duration",
+          "EVERYTHING"
+        ]
+      ]
+    }
+  ]
+}

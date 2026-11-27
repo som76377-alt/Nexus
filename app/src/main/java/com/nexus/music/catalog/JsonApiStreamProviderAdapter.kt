@@ -1,5 +1,8 @@
 package com.nexus.music.catalog
 
+import com.nexus.music.performance.NexusPerformance
+import com.nexus.music.performance.NexusOkHttpEventListener
+
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
@@ -9,6 +12,7 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.Call
+import okhttp3.EventListener
 import okhttp3.Callback
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -306,78 +310,73 @@ abstract class JsonApiStreamProviderAdapter(
         })
     }
 
-    private suspend fun <T> executeAcrossInstances(
-        operation: Operation,
-        block: suspend (HttpUrl) -> T
-    ): T {
+    private suspend fun <T> executeAcrossInstances(operation: Operation, block: suspend (HttpUrl) -> T): T {
+        val parentTrace = if (NexusPerformance.isEnabled()) currentCoroutineContext()[NexusPerformance.TraceContext]?.trace else null
         var lastError: IOException? = null
         val configuredEndpoints = endpoints
-        if (configuredEndpoints.isEmpty()) {
-            throw IOException("No ${provider.key} instance is configured.")
-        }
-
+        if (configuredEndpoints.isEmpty()) throw IOException("No ${provider.key} instance is configured.")
         val startCounter = nextStartIndexByOperation.computeIfAbsent(operation) { AtomicInteger(0) }
-        val startIndex = startCounter.getAndUpdate { current -> (current + 1) % configuredEndpoints.size }
-            .mod(configuredEndpoints.size)
+        val startIndex = startCounter.getAndUpdate { current -> (current + 1) % configuredEndpoints.size }.mod(configuredEndpoints.size)
         val rotatedEndpoints = configuredEndpoints.drop(startIndex) + configuredEndpoints.take(startIndex)
         val now = nowEpochMs()
         val healthyCandidates = rotatedEndpoints.filter { endpoint ->
             (cooldownUntilByOperationAndEndpoint[operation to endpoint.toString()] ?: 0L) <= now
         }
-        // Prefer instances not cooling down. If every instance is cooling, they remain eligible
-        // for bounded half-open probes; round-robin start order prevents starving later endpoints.
         val candidates = healthyCandidates.ifEmpty { rotatedEndpoints }
         val deadlineAt = monotonicNowMs() + callDeadlineMs
         var attempted = 0
-
         for (endpoint in candidates) {
             if (attempted >= maxInstanceAttempts) break
             val remainingMs = deadlineAt - monotonicNowMs()
             if (remainingMs <= 0L) {
-                lastError = SocketTimeoutException(
-                    "${provider.key} provider call exceeded its ${callDeadlineMs}ms deadline."
-                )
+                lastError = SocketTimeoutException("${provider.key} provider call exceeded its ${callDeadlineMs}ms deadline.")
                 break
             }
             attempted += 1
-
+            val detail = "provider=" + provider.key + " operation=" + operation.name.lowercase() + " host=" + endpoint.host + " attempt=" + attempted
+            val endpointTrace = NexusPerformance.begin("provider_endpoint", foreground = NexusPerformance.isForeground(), detail = detail)
+            parentTrace?.let { NexusPerformance.event(it, "provider_endpoint_start", detail) }
             try {
                 val result = withTimeout(remainingMs) { block(endpoint) }
                 cooldownUntilByOperationAndEndpoint.remove(operation to endpoint.toString())
+                NexusPerformance.finish(endpointTrace, "success")
+                parentTrace?.let { NexusPerformance.event(it, "provider_endpoint_success", detail) }
                 return result
             } catch (error: CancellationException) {
-                if (error !is TimeoutCancellationException) throw error
-                // Do not swallow cancellation from the caller or an enclosing timeout.
+                if (error !is TimeoutCancellationException) {
+                    NexusPerformance.finish(endpointTrace, "cancelled")
+                    parentTrace?.let { NexusPerformance.event(it, "provider_endpoint_cancelled", detail) }
+                    throw error
+                }
                 currentCoroutineContext().ensureActive()
-                lastError = SocketTimeoutException(
-                    "${provider.key} provider call exceeded its ${callDeadlineMs}ms deadline."
-                )
+                lastError = SocketTimeoutException("${provider.key} provider call exceeded its ${callDeadlineMs}ms deadline.")
+                NexusPerformance.finish(endpointTrace, "timeout")
+                parentTrace?.let { NexusPerformance.event(it, "provider_endpoint_timeout", detail) }
                 break
             } catch (error: ProviderCapabilityException) {
+                NexusPerformance.finish(endpointTrace, "unsupported")
+                parentTrace?.let { NexusPerformance.event(it, "provider_endpoint_unsupported", detail) }
                 throw error
             } catch (error: ProviderHttpException) {
                 lastError = error
+                NexusPerformance.finish(endpointTrace, "http_" + error.statusCode)
+                parentTrace?.let { NexusPerformance.event(it, "provider_endpoint_http_error", detail + " status=" + error.statusCode) }
                 if (operation == Operation.SEARCH && shouldCooldownSearchInstance(error.statusCode)) {
-                    val duration = if (error.statusCode == 429) {
-                        error.retryAfterMs ?: DEFAULT_SEARCH_INSTANCE_COOLDOWN_MS
-                    } else {
-                        DEFAULT_SEARCH_INSTANCE_COOLDOWN_MS
-                    }
-                    cooldownUntilByOperationAndEndpoint[operation to endpoint.toString()] =
-                        nowEpochMs() + duration
+                    val duration = if (error.statusCode == 429) error.retryAfterMs ?: DEFAULT_SEARCH_INSTANCE_COOLDOWN_MS else DEFAULT_SEARCH_INSTANCE_COOLDOWN_MS
+                    cooldownUntilByOperationAndEndpoint[operation to endpoint.toString()] = nowEpochMs() + duration
                 }
             } catch (error: IOException) {
                 lastError = error
+                NexusPerformance.finish(endpointTrace, "error=" + error.javaClass.simpleName)
+                parentTrace?.let { NexusPerformance.event(it, "provider_endpoint_error", detail + " error=" + error.javaClass.simpleName) }
             } catch (error: org.json.JSONException) {
                 lastError = ProviderResponseException("${provider.key} API returned an invalid response.", error)
+                NexusPerformance.finish(endpointTrace, "invalid_json")
+                parentTrace?.let { NexusPerformance.event(it, "provider_endpoint_invalid_json", detail) }
             }
         }
-
-        throw lastError ?: SocketTimeoutException(
-            "${provider.key} provider call exceeded its ${callDeadlineMs}ms deadline or attempt limit."
-        )
+        throw lastError ?: SocketTimeoutException("${provider.key} provider call exceeded its ${callDeadlineMs}ms deadline or attempt limit.")
     }
-
     private fun shouldCooldownSearchInstance(statusCode: Int): Boolean =
         statusCode in SEARCH_INSTANCE_COOLDOWN_STATUSES || statusCode == 429
 
@@ -414,6 +413,9 @@ abstract class JsonApiStreamProviderAdapter(
 
         internal fun defaultApiClient(): OkHttpClient =
             OkHttpClient.Builder()
+                .eventListenerFactory(object : EventListener.Factory {
+                    override fun create(call: Call): EventListener = if (NexusPerformance.isEnabled()) NexusOkHttpEventListener() else EventListener.NONE
+                })
                 .connectTimeout(10, TimeUnit.SECONDS)
                 .readTimeout(20, TimeUnit.SECONDS)
                 .callTimeout(30, TimeUnit.SECONDS)

@@ -44,7 +44,15 @@ import com.nexus.music.catalog.NexusCatalog
 import com.nexus.music.catalog.SearchSessionManager
 import com.nexus.music.catalog.RepositorySearchSource
 import com.nexus.music.catalog.YoutubeSearchScope
+import com.nexus.music.catalog.ExtractorWorkPriority
+import com.nexus.music.catalog.HomeDiscoveryCacheStore
+import com.nexus.music.catalog.HomeRerollSelector
+import com.nexus.music.catalog.HomeShelfRefreshRunner
+import com.nexus.music.catalog.HomeShelfSnapshot
+import com.nexus.music.catalog.HomeShelfSpec
+import com.nexus.music.catalog.refreshedHomeShelfSnapshot
 import com.nexus.music.playback.PlaybackConnection
+import com.nexus.music.playback.AudioPrefetchCoordinator
 import com.nexus.music.playback.PlaybackSnapshot
 import com.nexus.music.playback.AudioCacheStore
 import com.nexus.music.playback.CachedAudioResolver
@@ -55,6 +63,7 @@ import com.nexus.music.update.NexusUpdate
 import com.nexus.music.update.NexusUpdateInstaller
 import com.nexus.music.update.NexusUpdateScheduler
 import com.nexus.music.update.UpdateCheckResult
+import com.nexus.music.performance.NexusPerformance
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -81,6 +90,34 @@ class MainActivity : Activity() {
 
     private lateinit var searchPanel: SearchPanel
     private lateinit var homeShelvesContainer: LinearLayout
+    private lateinit var homeLoadingText: TextView
+    private var homeLoadJob: Job? = null
+    private var homeGeneration = 0L
+    private var homeRerollButton: Button? = null
+    private val homeCache by lazy { HomeDiscoveryCacheStore(this) }
+    private val audioPrefetch by lazy {
+        AudioPrefetchCoordinator(
+            scope = activityScope,
+            resolveInBackground = { sourceUrl ->
+                CachedAudioResolver(
+                    PersistentAudioCacheLookup(this),
+                    { url ->
+                        repository.resolveAudioWithPriority(url, ExtractorWorkPriority.BACKGROUND)
+                    }
+                ).resolve(sourceUrl)
+            },
+            promoteInFlight = { job -> repository.promoteAudioResolution(job); Unit }
+        )
+    }
+    private var lastResolvedSourceUrl: String? = null
+    private val homeSnapshots = mutableMapOf<String, HomeShelfSnapshot>()
+    private val homeShelfViews = mutableMapOf<String, View>()
+    private val homeShelfSpecs = listOf(
+        HomeShelfSpec("popular-indian", "Popular Indian music", "popular Indian songs"),
+        HomeShelfSpec("independent-voices", "Independent voices", "Indian independent music"),
+        HomeShelfSpec("ghazal-archive", "Ghazal archive", "ghazal classics"),
+        HomeShelfSpec("instrumental-focus", "Instrumental focus", "Indian instrumental music")
+    )
     private lateinit var updateButton: Button
     private lateinit var updateStatusText: TextView
     private lateinit var updatePanel: LinearLayout
@@ -114,6 +151,10 @@ class MainActivity : Activity() {
     private var lastSearchResults: List<CatalogTrack> = emptyList()
     private var currentSort = SearchSort.RELEVANCE
     private var backInvokedCallback: android.window.OnBackInvokedCallback? = null
+    private var lastPlaybackSourceId: String = ""
+    private var lastPlaybackPositionMs: Long = 0L
+    private var lastPlaybackState: Int = Player.STATE_IDLE
+    private var lastPlaybackIsPlaying = false
 
     private val screenBackground = NexusDesignSystem.Palette.archiveIvory
     private val surface = NexusDesignSystem.Palette.sleeveWhite
@@ -139,12 +180,24 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        NexusPerformance.setForeground(true)
         window.statusBarColor = screenBackground
         window.navigationBarColor = screenBackground
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
         window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
+        val startupTrace = NexusPerformance.begin("app_startup", foreground = true)
         val root = FrameLayout(this).apply { setBackgroundColor(screenBackground) }
+        if (NexusPerformance.isEnabled()) {
+            root.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+                override fun onPreDraw(): Boolean {
+                    if (root.viewTreeObserver.isAlive) root.viewTreeObserver.removeOnPreDrawListener(this)
+                    NexusPerformance.event(startupTrace, "first_ui_draw")
+                    NexusPerformance.finish(startupTrace)
+                    return true
+                }
+            })
+        }
         val base = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(screenBackground)
@@ -162,9 +215,9 @@ class MainActivity : Activity() {
 
         content.addView(com.nexus.music.ui.HomeDiscoveryView(
             context = this,
-            onExplore = { query ->
+            onExplore = { query, scope ->
                 searchPanel.queryInput.setText(query)
-                selectedScope = YoutubeSearchScope.MUSIC_SONGS
+                selectedScope = scope
                 searchPanel.setSelectedScope(selectedScope)
                 performSearch()
             },
@@ -266,7 +319,11 @@ class MainActivity : Activity() {
         }
         root.addView(nowPlayingView, FrameLayout.LayoutParams(-1, -1))
         setContentView(root)
-        if (intent.getBooleanExtra(EXTRA_OPEN_YOU, false)) showYou() else if (intent.getBooleanExtra(EXTRA_OPEN_LIBRARY, false)) showLibrary()
+        when {
+            intent.getBooleanExtra(EXTRA_OPEN_YOU, false) -> showYou()
+            intent.getBooleanExtra(EXTRA_OPEN_LIBRARY, false) -> showLibrary()
+            else -> traceHomeInteractive()
+        }
         loadHomeShelves()
         registerBackNavigation()
         applySystemBarInsets(base)
@@ -310,9 +367,26 @@ class MainActivity : Activity() {
         mainScroll.addView(homeContent)
         bottomNavigationHost.removeAllViews()
         bottomNavigationHost.addView(buildBottomNavigation(NexusUi.NavigationTab.HOME), LinearLayout.LayoutParams(-1, dp(62)))
+        traceHomeInteractive()
+        loadHomeShelves()
+    }
+
+    private fun traceHomeInteractive() {
+        if (!NexusPerformance.isEnabled() || !::mainScroll.isInitialized || isFinishing || isDestroyed) return
+        val trace = NexusPerformance.begin("home_interactive", foreground = NexusPerformance.isForeground())
+        val observer = mainScroll.viewTreeObserver
+        observer.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                if (observer.isAlive) observer.removeOnPreDrawListener(this)
+                NexusPerformance.event(trace, "home_ready_for_input")
+                NexusPerformance.finish(trace)
+                return true
+            }
+        })
     }
 
     private fun showLibrary() {
+        audioPrefetch.cancelSpeculation()
         youRenderGeneration++
         if (!::mainScroll.isInitialized) return
         mainScroll.removeAllViews()
@@ -332,6 +406,7 @@ class MainActivity : Activity() {
 
     private fun showYou() {
         if (!::mainScroll.isInitialized) return
+        audioPrefetch.cancelSpeculation()
         val generation = ++youRenderGeneration
         activityScope.launch {
             val usedBytes = withContext(Dispatchers.IO) {
@@ -389,6 +464,7 @@ class MainActivity : Activity() {
     }
 
     private fun openRoomPage() {
+        audioPrefetch.cancelSpeculation()
         youRenderGeneration++
         startActivity(
             Intent(this, com.nexus.music.rooms.ListeningRoomActivity::class.java)
@@ -677,6 +753,29 @@ class MainActivity : Activity() {
 
     private fun updatePlaybackUi(snapshot: PlaybackSnapshot) {
         lastPlaybackSnapshot = snapshot
+        if (snapshot.sourceId != lastPlaybackSourceId) {
+            lastPlaybackSourceId = snapshot.sourceId
+            lastPlaybackPositionMs = 0L
+            lastPlaybackState = Player.STATE_IDLE
+            lastPlaybackIsPlaying = false
+        }
+        if (snapshot.sourceId.isNotBlank()) {
+            if (snapshot.playbackState == Player.STATE_READY && lastPlaybackState != Player.STATE_READY) {
+                NexusPerformance.playbackEvent(snapshot.sourceId, "player_ready")
+            }
+            if (snapshot.positionMs > 0L && lastPlaybackPositionMs <= 0L) {
+                NexusPerformance.playbackEvent(
+                    snapshot.sourceId, "ui_position_advance_observed",
+                    "position_ms=" + snapshot.positionMs
+                )
+            }
+            if (snapshot.isPlaying && !lastPlaybackIsPlaying) {
+                NexusPerformance.playbackEvent(snapshot.sourceId, "is_playing")
+            }
+        }
+        lastPlaybackPositionMs = snapshot.positionMs
+        lastPlaybackState = snapshot.playbackState
+        lastPlaybackIsPlaying = snapshot.isPlaying
         if (::miniPlayerContainer.isInitialized) {
             miniPlayerContainer.visibility = if (shouldShowMiniPlayer(snapshot)) View.VISIBLE else View.GONE
         }
@@ -729,6 +828,7 @@ class MainActivity : Activity() {
     private fun performSearch() {
         val query = searchPanel.queryInput.text.toString().trim()
         if (query.isEmpty()) {
+            audioPrefetch.cancelSpeculation()
             searchGeneration++
             searchJob?.cancel()
             searchJob = null
@@ -738,26 +838,34 @@ class MainActivity : Activity() {
             searchPanel.statusText.visibility = View.GONE
             searchPanel.statusText.setOnClickListener(null)
             searchPanel.resultsContainer.removeAllViews()
+            lastSearchResults = emptyList()
             return
         }
-
-        // A newer query or scope always supersedes the previous request.
+        audioPrefetch.cancelSpeculation()
         searchJob?.cancel()
+        searchSessionManager?.cancelActive()
+        lastSearchResults = emptyList()
         searchPanel.queryInput.error = null
         val requestGeneration = ++searchGeneration
         val requestScope = selectedScope
+        val trace = NexusPerformance.begin(
+            "catalog_search", foreground = isActivityStarted,
+            detail = "generation=" + requestGeneration + " scope=" + requestScope + " query_length=" + query.length
+        )
         searchPanel.statusText.text = "Searching…"
         searchPanel.statusText.visibility = View.VISIBLE
         searchPanel.statusText.setOnClickListener(null)
         searchPanel.resultsContainer.removeAllViews()
-
         val session = searchSessions().start(query, requestScope)
         searchJob = activityScope.launch {
+            var traceFinished = false
             try {
                 session.state.collect { snapshot ->
                     if (requestGeneration != searchGeneration) return@collect
                     lastSearchResults = snapshot.items
-                    renderSearchResults()
+                    NexusPerformance.event(trace, "search_snapshot",
+                        "count=" + snapshot.items.size + " failed_sources=" + snapshot.failedSources.size)
+                    renderSearchResults(trace)
                     when {
                         snapshot.isLoadingFirstPage -> {
                             searchPanel.statusText.text = "Searching…"
@@ -780,43 +888,239 @@ class MainActivity : Activity() {
                             searchPanel.statusText.setOnClickListener(null)
                         }
                     }
+                    if (!snapshot.isLoadingFirstPage && !traceFinished) {
+                        NexusPerformance.finish(trace, "result_count=" + snapshot.items.size)
+                        traceFinished = true
+                    }
                 }
             } catch (error: CancellationException) {
+                if (!traceFinished) NexusPerformance.finish(trace, "cancelled")
                 throw error
+            } catch (error: Exception) {
+                if (!traceFinished) NexusPerformance.finish(trace, "error=" + error.javaClass.simpleName)
+                if (requestGeneration == searchGeneration) {
+                    searchPanel.statusText.text = "Search unavailable · Retry"
+                    searchPanel.statusText.visibility = View.VISIBLE
+                    searchPanel.statusText.setOnClickListener { performSearch() }
+                }
             } finally {
                 if (requestGeneration == searchGeneration && !isDestroyed) {
+                    if (!traceFinished) NexusPerformance.finish(trace, "ended")
                     searchJob = null
+                    if (isHomeVisible()) loadHomeShelves()
+                }
+            }
+        }
+    }
+    private fun loadHomeShelves() {
+        if (!::homeShelvesContainer.isInitialized || isFinishing || isDestroyed) return
+
+        audioPrefetch.cancelSpeculation()
+        val generation = ++homeGeneration
+        homeLoadJob?.cancel()
+        homeSnapshots.clear()
+        homeShelfViews.clear()
+        homeShelvesContainer.removeAllViews()
+
+        val actions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        actions.addView(text("DISCOVER", 10f, secondaryText, bold = true), LinearLayout.LayoutParams(0, -2, 1f))
+        val rerollButton = Button(this).apply {
+            text = "Reroll"
+            isAllCaps = false
+            isEnabled = false
+            setOnClickListener { rerollHomeShelves() }
+        }
+        homeRerollButton = rerollButton
+        actions.addView(rerollButton, LinearLayout.LayoutParams(-2, dp(44)))
+        homeShelvesContainer.addView(actions, verticalParams(8))
+
+        homeLoadingText = text("Recommendations are loading…", 12f, secondaryText)
+        homeShelvesContainer.addView(homeLoadingText, verticalParams(8))
+
+        // The shell is attached before disk reads. Cache decoding and every network request stay off
+        // the main thread; cached shelves are rendered before any refresh begins.
+        val homeTrace = NexusPerformance.begin(
+            "home_shelves", foreground = NexusPerformance.isForeground(),
+            detail = "shelf_count=" + homeShelfSpecs.size
+        )
+        homeLoadJob = activityScope.launch {
+            try {
+                val cacheStartedAt = if (NexusPerformance.isEnabled()) NexusPerformance.nowMs() else 0L
+                val cachedEntries = withContext(Dispatchers.IO) {
+                    homeShelfSpecs.mapNotNull { spec ->
+                        runCatching { homeCache.read(spec.id) }
+                            .getOrNull()
+                            ?.let { spec to it }
+                    }
+                }
+                if (NexusPerformance.isEnabled()) NexusPerformance.event(
+                    homeTrace, "home_cache_loaded",
+                    "duration_ms=" + (NexusPerformance.nowMs() - cacheStartedAt) + " shelves=" + cachedEntries.size
+                )
+                if (generation != homeGeneration || isFinishing || isDestroyed) return@launch
+
+                var firstUsableHomeRecorded = false
+                cachedEntries.forEach { (spec, snapshot) ->
+                    homeSnapshots[spec.id] = snapshot
+                    if (snapshot.displayedTracks.isNotEmpty()) {
+                        renderHomeShelf(spec, snapshot)
+                        if (!firstUsableHomeRecorded) {
+                            firstUsableHomeRecorded = true
+                            NexusPerformance.event(homeTrace, "first_usable_home", "source=cache shelf=" + spec.id)
+                        }
+                    }
+                }
+                updateHomeLoadingState(loading = true)
+
+                val now = System.currentTimeMillis()
+                val staleShelves = homeShelfSpecs.filter { spec ->
+                    val cached = homeSnapshots[spec.id]
+                    cached == null || now - cached.fetchedAtEpochMs >= HOME_CACHE_FRESH_MS
+                }
+                HomeShelfRefreshRunner(HOME_SHELF_TIMEOUT_MS).run(
+                    shelves = staleShelves,
+                    fetch = { spec, timeoutMs ->
+                        val shelfTrace = NexusPerformance.begin(
+                            "home_shelf", foreground = false, detail = "shelf=" + spec.id
+                        )
+                        try {
+                            val fetched = if (NexusPerformance.isEnabled()) {
+                                withContext(NexusPerformance.TraceContext(shelfTrace)) {
+                                    repository.searchWithPriority(
+                                        spec.query,
+                                        YoutubeSearchScope.MUSIC_SONGS,
+                                        ExtractorWorkPriority.BACKGROUND,
+                                        operationTimeoutMs = timeoutMs
+                                    )
+                                }
+                            } else {
+                                repository.searchWithPriority(
+                                    spec.query,
+                                    YoutubeSearchScope.MUSIC_SONGS,
+                                    ExtractorWorkPriority.BACKGROUND,
+                                    operationTimeoutMs = timeoutMs
+                                )
+                            }
+                            val tracks = fetched.distinctBy { it.url }
+                                .sortedByDescending { it.viewCount ?: -1L }
+                                .take(HOME_POOL_LIMIT)
+                            NexusPerformance.event(shelfTrace, "shelf_results_received", "count=" + tracks.size)
+                            NexusPerformance.finish(shelfTrace)
+                            tracks
+                        } catch (error: CancellationException) {
+                            NexusPerformance.finish(shelfTrace, "cancelled")
+                            throw error
+                        } catch (error: Exception) {
+                            NexusPerformance.finish(shelfTrace, "error=" + error.javaClass.simpleName)
+                            throw error
+                        }
+                    },
+                    onResult = { spec, tracks ->
+                        if (generation == homeGeneration && !isFinishing && !isDestroyed) {
+                            val snapshot = refreshedHomeShelfSnapshot(
+                                previous = homeSnapshots[spec.id],
+                                fetchedAtEpochMs = System.currentTimeMillis(),
+                                tracks = tracks,
+                                poolLimit = HOME_POOL_LIMIT,
+                                visibleLimit = HOME_SHELF_VISIBLE_LIMIT,
+                                historyLimit = HOME_HISTORY_LIMIT
+                            )
+                            homeSnapshots[spec.id] = snapshot
+                            homeCache.write(spec.id, snapshot)
+                            if (snapshot.displayedTracks.isNotEmpty()) {
+                                renderHomeShelf(spec, snapshot)
+                                if (!firstUsableHomeRecorded) {
+                                    firstUsableHomeRecorded = true
+                                    NexusPerformance.event(homeTrace, "first_usable_home", "source=network shelf=" + spec.id)
+                                }
+                            }
+                            updateHomeLoadingState(loading = true)
+                        }
+                    },
+                    onFailure = { _, _ ->
+                        if (generation == homeGeneration) updateHomeLoadingState(loading = true)
+                    }
+                )
+            } finally {
+                if (generation == homeGeneration && !isDestroyed) {
+                    updateHomeLoadingState(loading = false)
+                    NexusPerformance.finish(homeTrace)
+                    homeLoadJob = null
+                    if (isHomeVisible() && searchJob?.isActive != true && !isResolving) {
+                        scheduleAudioPrefetch()
+                    }
                 }
             }
         }
     }
 
-    private fun loadHomeShelves() {
-        val shelves = listOf(
-            "Popular Indian music" to "popular Indian songs",
-            "Independent voices" to "Indian independent music",
-            "Ghazal archive" to "ghazal classics",
-            "Instrumental focus" to "Indian instrumental music"
-        )
-        homeShelvesContainer.removeAllViews()
-        activityScope.launch {
-            shelves.forEach { (title, query) ->
-                try {
-                    val tracks = repository.search(query, YoutubeSearchScope.MUSIC_SONGS)
-                        .distinctBy { it.url }
-                        .sortedByDescending { it.viewCount ?: -1L }
-                        .take(8)
-                    if (tracks.isNotEmpty() && !isFinishing && !isDestroyed) {
-                        homeShelvesContainer.addView(buildHomeShelf(title, tracks), verticalParams(20))
-                    }
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (_: Exception) {
-                    // A single unavailable discovery query must not hide other Home content.
-                }
-            }
+    /** Reroll reads local pools and updates local history; it never calls the catalogue. */
+    private fun rerollHomeShelves() {
+        var rerolled = 0
+        homeShelfSpecs.forEach { spec ->
+            val current = homeSnapshots[spec.id] ?: return@forEach
+            if (current.pool.isEmpty()) return@forEach
+            val selected = HomeRerollSelector.select(
+                pool = current.pool,
+                history = current.history,
+                count = HOME_SHELF_VISIBLE_LIMIT
+            )
+            if (selected.isEmpty()) return@forEach
+            val selectedUrls = selected.map { it.url }
+            val next = current.copy(
+                displayedTracks = selected,
+                history = (current.history.filterNot { it in selectedUrls } + selectedUrls)
+                    .takeLast(HOME_HISTORY_LIMIT)
+            )
+            homeSnapshots[spec.id] = next
+            homeCache.write(spec.id, next)
+            renderHomeShelf(spec, next)
+            rerolled++
         }
+        if (rerolled == 0) {
+            Toast.makeText(this, "Recommendations are still loading", Toast.LENGTH_SHORT).show()
+        }
+        updateHomeLoadingState(loading = homeLoadJob?.isActive == true)
     }
+
+    private fun renderHomeShelf(spec: HomeShelfSpec, snapshot: HomeShelfSnapshot) {
+        if (snapshot.displayedTracks.isEmpty()) return
+        val view = buildHomeShelf(spec.title, snapshot.displayedTracks)
+        val existing = homeShelfViews[spec.id]
+        if (existing != null) {
+            val index = homeShelvesContainer.indexOfChild(existing)
+            if (index >= 0) {
+                homeShelvesContainer.removeViewAt(index)
+                homeShelvesContainer.addView(view, index, verticalParams(20))
+            }
+        } else {
+            val specIndex = homeShelfSpecs.indexOfFirst { it.id == spec.id }
+            val precedingRendered = homeShelfSpecs.take(specIndex)
+                .count { homeShelfViews.containsKey(it.id) }
+            val childIndex = (2 + precedingRendered).coerceAtMost(homeShelvesContainer.childCount)
+            homeShelvesContainer.addView(view, childIndex, verticalParams(20))
+        }
+        homeShelfViews[spec.id] = view
+    }
+
+    private fun updateHomeLoadingState(loading: Boolean) {
+        if (!::homeLoadingText.isInitialized) return
+        val hasRecommendations = homeSnapshots.values.any { it.displayedTracks.isNotEmpty() }
+        homeLoadingText.text = if (loading) {
+            if (hasRecommendations) "Updating recommendations…" else "Recommendations are loading…"
+        } else {
+            "Recommendations unavailable"
+        }
+        homeLoadingText.visibility = if (loading || !hasRecommendations) View.VISIBLE else View.GONE
+        homeRerollButton?.isEnabled = homeSnapshots.values.any { it.pool.isNotEmpty() }
+    }
+
+    private fun isHomeVisible(): Boolean =
+        ::mainScroll.isInitialized && mainScroll.childCount > 0 &&
+            mainScroll.getChildAt(0) === homeContent
 
     private fun buildHomeShelf(title: String, tracks: List<CatalogTrack>): LinearLayout {
         val section = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -872,7 +1176,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun renderSearchResults() {
+    private fun renderSearchResults(trace: NexusPerformance.Trace? = null) {
         searchPanel.resultsContainer.removeAllViews()
         val sorted = when (currentSort) {
             SearchSort.RELEVANCE -> lastSearchResults
@@ -882,6 +1186,25 @@ class MainActivity : Activity() {
         }
         sorted.forEachIndexed { index, track ->
             searchPanel.resultsContainer.addView(resultCard(track), verticalParams(if (index == 0) 0 else 10))
+            if (index == 0 && trace != null && NexusPerformance.isEnabled()) {
+                NexusPerformance.event(trace, "first_result_view_created")
+            }
+        }
+        if (trace != null && NexusPerformance.isEnabled()) {
+            val activeTrace = trace
+            NexusPerformance.event(activeTrace, "all_result_views_created", "count=" + sorted.size)
+            if (sorted.isNotEmpty()) {
+                val observer = searchPanel.resultsContainer.viewTreeObserver
+                observer.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+                    override fun onPreDraw(): Boolean {
+                        if (observer.isAlive) observer.removeOnPreDrawListener(this)
+                        NexusPerformance.event(activeTrace, "first_results_displayed")
+                        NexusPerformance.event(activeTrace, "search_results_first_draw")
+                        NexusPerformance.finish(activeTrace)
+                        return true
+                    }
+                })
+            }
         }
     }
 
@@ -943,40 +1266,79 @@ class MainActivity : Activity() {
         return card
     }
 
+    private fun scheduleAudioPrefetch() {
+        if (isResolving || searchJob?.isActive == true || homeLoadJob?.isActive == true ||
+            !isHomeVisible() || !isActivityStarted || isFinishing || isDestroyed
+        ) return
+
+        val candidate = lastSearchResults.firstOrNull { it.url != lastResolvedSourceUrl }
+            ?: homeShelfSpecs.asSequence()
+                .flatMap { spec -> homeSnapshots[spec.id]?.displayedTracks.orEmpty().asSequence() }
+                .firstOrNull { it.url != lastResolvedSourceUrl }
+        candidate?.let { audioPrefetch.enqueue(it.url) }
+    }
+
     private fun startResolvingTrack(track: CatalogTrack) {
         if (isResolving) return
         isResolving = true
+        val trace = NexusPerformance.begin(
+            "track_resolve", foreground = isActivityStarted,
+            detail = "source_id_hash=" + track.url.hashCode().toUInt().toString(16)
+        )
         playerSubtitle.text = "Preparing audio…"
         activityScope.launch {
             try {
-                val audio = CachedAudioResolver(
+                val foregroundResolver = CachedAudioResolver(
                     PersistentAudioCacheLookup(this@MainActivity),
                     repository::resolveAudio
-                ).resolve(track.url)
-                showResolved(audio)
+                )
+                val resolve = suspend {
+                    audioPrefetch.resolveForPlayback(track.url) { sourceUrl ->
+                        foregroundResolver.resolve(sourceUrl, trace)
+                    }
+                }
+                val audio = if (NexusPerformance.isEnabled()) {
+                    withContext(NexusPerformance.TraceContext(trace)) { resolve() }
+                } else {
+                    resolve()
+                }
+                NexusPerformance.event(trace, "audio_resolved", "provider=" + audio.provider)
+                showResolved(audio, trace)
             } catch (error: CancellationException) {
+                NexusPerformance.finish(trace, "cancelled")
                 throw error
             } catch (error: Exception) {
+                NexusPerformance.finish(trace, "error=" + error.javaClass.simpleName)
                 val message = "Could not prepare audio. Try another result or retry."
                 playerSubtitle.text = "Couldn't prepare audio"
                 Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
             } finally {
                 isResolving = false
+                if (isHomeVisible()) loadHomeShelves()
             }
         }
     }
 
-    private fun showResolved(audio: ResolvedAudio) {
+    private fun showResolved(audio: ResolvedAudio, trace: NexusPerformance.Trace) {
+        lastResolvedSourceUrl = audio.sourceUrl
         playerTitle.text = audio.title
         playerSubtitle.text = "Sending audio to player…"
         playerArtwork.load(audio.thumbnailUrl?.takeIf(String::isNotBlank))
         if (::nowPlayingView.isInitialized) nowPlayingView.setArtwork(audio.thumbnailUrl)
         playPauseButton.isEnabled = true
+        lastPlaybackSourceId = audio.sourceUrl
+        lastPlaybackPositionMs = 0L
+        lastPlaybackState = Player.STATE_IDLE
+        lastPlaybackIsPlaying = false
+        NexusPerformance.registerPlayback(audio.sourceUrl, trace)
         if (playbackConnection?.play(audio) != true) {
+            NexusPerformance.finish(trace, "player_rejected")
+            NexusPerformance.forgetPlayback(audio.sourceUrl)
             playerSubtitle.text = "Player unavailable"
             Toast.makeText(this, "The player could not accept this track. Try selecting it again.", Toast.LENGTH_LONG).show()
             return
         }
+        NexusPerformance.event(trace, "player_command_sent", "provider=" + audio.provider)
         playerSubtitle.text = "Starting playback…"
         libraryStore.recordPlayed(
             CatalogTrack(
@@ -1049,13 +1411,19 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         isActivityStarted = true
+        NexusPerformance.setForeground(true)
+        NexusPerformance.logEvent("app_foreground")
         if (::updateStatusText.isInitialized) checkForUpdates()
         updatePlaybackUi(playbackConnection?.snapshot() ?: lastPlaybackSnapshot)
+        if (homeLoadJob?.isActive != true && isHomeVisible()) scheduleAudioPrefetch()
     }
 
     override fun onStop() {
         isActivityStarted = false
+        NexusPerformance.setForeground(false)
+        NexusPerformance.logEvent("app_background")
         progressHandler.removeCallbacks(progressTicker)
+        if (::homeShelvesContainer.isInitialized) audioPrefetch.cancelSpeculation()
         super.onStop()
     }
 
@@ -1068,6 +1436,9 @@ class MainActivity : Activity() {
         searchJob?.cancel()
         searchJob = null
         searchSessionManager?.cancelActive()
+        homeGeneration++
+        homeLoadJob?.cancel()
+        homeLoadJob = null
         progressHandler.removeCallbacks(progressTicker)
         playbackConnection?.close()
         playbackConnection = null
@@ -1080,6 +1451,12 @@ class MainActivity : Activity() {
     }
 
     companion object {
+        private const val HOME_CACHE_FRESH_MS = 30 * 60 * 1000L
+        private const val HOME_SHELF_TIMEOUT_MS = 6_000L
+        private const val HOME_POOL_LIMIT = 40
+        private const val HOME_SHELF_VISIBLE_LIMIT = 8
+        private const val HOME_HISTORY_LIMIT = 120
+
         const val EXTRA_OPEN_LIBRARY = "com.nexus.music.extra.OPEN_LIBRARY"
         const val EXTRA_OPEN_YOU = "com.nexus.music.extra.OPEN_YOU"
     }

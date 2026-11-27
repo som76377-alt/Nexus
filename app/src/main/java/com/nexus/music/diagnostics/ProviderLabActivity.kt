@@ -35,17 +35,19 @@ import com.nexus.music.catalog.StreamProviderAdapter
 import com.nexus.music.catalog.ProviderInstanceDiscovery
 import com.nexus.music.catalog.ProviderHttpException as CatalogProviderHttpException
 import com.nexus.music.catalog.ExtractorRuntime
+import com.nexus.music.catalog.ExtractorWorkPriority
 import com.nexus.music.catalog.NewPipeStreamProviderAdapter
 import com.nexus.music.catalog.YoutubeSearchScope
 import com.nexus.music.playback.AudioCacheStore
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import okhttp3.Dns
 import okhttp3.OkHttpClient
@@ -144,13 +146,33 @@ class ProviderLabActivity : Activity() {
                 stream403Seconds.text.toString().toIntOrNull()?.coerceIn(0, 300) ?: 0
             } else 0
             status.text = "Running 15 checks · ${provider.key} · failure=${failure.name} · stream403=${forced403Seconds}s"
-            try {
+            suspend fun executeCells() {
                 for (sample in SAMPLES) {
                     for (family in FamilyMode.entries) {
                         status.text = "${provider.key} · ${sample.label} · ${family.label}"
                         rows += runCell(sample, family, provider, failure, forced403Seconds)
                         report.text = formatReport(network, rows)
                     }
+                }
+            }
+            try {
+                if (provider == StreamProvider.NEWPIPE) {
+                    // The diagnostic owns NewPipe exclusively for all 15 cells. A foreground
+                    // request can preempt this cancellable job; restore the app downloader first.
+                    ExtractorRuntime.withExclusiveDownloader(
+                        ExtractorRuntime.normalDownloader,
+                        ExtractorWorkPriority.DIAGNOSTIC
+                    ) {
+                        try {
+                            executeCells()
+                        } finally {
+                            withContext(NonCancellable) {
+                                ExtractorRuntime.withDownloader(ExtractorRuntime.normalDownloader) { Unit }
+                            }
+                        }
+                    }
+                } else {
+                    executeCells()
                 }
             } finally {
                 report.text = formatReport(network, rows)
@@ -166,7 +188,8 @@ class ProviderLabActivity : Activity() {
         var httpCode: Int? = null
         return try {
             val client = clientFor(family)
-            val baseAdapter = adapterFor(provider, client)
+            val newPipeDownloader = if (provider == StreamProvider.NEWPIPE) OkHttpDownloader(client) else null
+            val baseAdapter = adapterFor(provider, client, newPipeDownloader)
             val testAdapter = chaos?.wrap(baseAdapter, provider, failure) ?: baseAdapter
             val resolver = ProviderResolverChain(
                 adapters = listOf(testAdapter),
@@ -174,12 +197,15 @@ class ProviderLabActivity : Activity() {
                 providerOrder = listOf(provider),
                 hedgeDelayMs = 0L
             )
-            val found = resolver.search(sample.id, YoutubeSearchScope.EVERYTHING)
-                .firstOrNull { videoId(it.url) == sample.id }
-                ?: throw IllegalStateException("Search did not return the fixed sample ID")
-            val audio = resolver.resolveAudio(found.url)
+            suspend fun resolveSample(): com.nexus.music.catalog.ResolvedAudio {
+                val sourceUrl = resolver.search(sample.id, YoutubeSearchScope.EVERYTHING)
+                    .firstOrNull { videoId(it.url) == sample.id }?.url
+                    ?: throw IllegalStateException("Search did not return the fixed sample ID")
+                return resolver.resolveAudio(sourceUrl)
+            }
+            val audio = resolveSample()
 
-            httpCode = withContext(Dispatchers.IO) {
+            httpCode = runInterruptible(Dispatchers.IO) {
                 client.newCall(
                     Request.Builder().url(audio.audioUrl).header("Range", "bytes=0-1023").build()
                 ).execute().use { response ->
@@ -212,11 +238,6 @@ class ProviderLabActivity : Activity() {
                 error::class.java.simpleName + error.message?.let { ": ${it.take(90)}" }.orEmpty(),
                 httpCode, elapsedMs(started)
             )
-        } finally {
-            // Restore the ordinary downloader after the diagnostic route override.
-            withContext(NonCancellable + Dispatchers.IO) {
-                ExtractorRuntime.withDownloader(OkHttpDownloader()) { Unit }
-            }
         }
     }
 
@@ -250,10 +271,14 @@ class ProviderLabActivity : Activity() {
         }
     }
 
-    private fun adapterFor(provider: StreamProvider, client: OkHttpClient): StreamProviderAdapter {
+    private fun adapterFor(
+        provider: StreamProvider,
+        client: OkHttpClient,
+        newPipeDownloader: OkHttpDownloader?
+    ): StreamProviderAdapter {
         val discovery = ProviderInstanceDiscovery(this)
         return when (provider) {
-            StreamProvider.NEWPIPE -> NewPipeStreamProviderAdapter(OkHttpDownloader(client))
+            StreamProvider.NEWPIPE -> NewPipeStreamProviderAdapter(newPipeDownloader ?: OkHttpDownloader(client))
             StreamProvider.PIPED -> PipedStreamProviderAdapter(
                 (BuildConfig.PIPED_API_ENDPOINTS.split(',').filter(String::isNotBlank) +
                     discovery.cachedEndpoints(StreamProvider.PIPED)).distinct(),
