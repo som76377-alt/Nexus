@@ -62,12 +62,24 @@ internal class SearchRequestCoordinator<T>(
         require(ttlMs > 0L) { "Search cache TTL must be positive." }
     }
 
+    /** Compatibility overload for ordinary foreground searches. */
     suspend fun search(
         query: String,
         scope: YoutubeSearchScope,
-        loader: suspend (String) -> List<T>,
-        priority: ExtractorWorkPriority = ExtractorWorkPriority.FOREGROUND,
-        operationTimeoutMs: Long? = null
+        loader: suspend (String) -> List<T>
+    ): List<T> = search(
+        query = query,
+        scope = scope,
+        priority = ExtractorWorkPriority.FOREGROUND,
+        loader = loader
+    )
+
+    suspend fun search(
+        query: String,
+        scope: YoutubeSearchScope,
+        priority: ExtractorWorkPriority,
+        operationTimeoutMs: Long? = null,
+        loader: suspend (String) -> List<T>
     ): List<T> {
         val requestQuery = query.trim().replace(WHITESPACE, " ")
         require(requestQuery.isNotEmpty()) { "Search query must not be blank." }
