@@ -206,9 +206,9 @@ class MainActivity : Activity() {
 
         content.addView(com.nexus.music.ui.HomeDiscoveryView(
             context = this,
-            onExplore = { query ->
+            onExplore = { query, scope ->
                 searchPanel.queryInput.setText(query)
-                selectedScope = YoutubeSearchScope.MUSIC_SONGS
+                selectedScope = scope
                 searchPanel.setSelectedScope(selectedScope)
                 performSearch()
             },
@@ -358,7 +358,22 @@ class MainActivity : Activity() {
         mainScroll.addView(homeContent)
         bottomNavigationHost.removeAllViews()
         bottomNavigationHost.addView(buildBottomNavigation(NexusUi.NavigationTab.HOME), LinearLayout.LayoutParams(-1, dp(62)))
+        traceHomeInteractive()
         loadHomeShelves()
+    }
+
+    private fun traceHomeInteractive() {
+        if (!NexusPerformance.isEnabled() || !::mainScroll.isInitialized || isFinishing || isDestroyed) return
+        val trace = NexusPerformance.begin("home_interactive", foreground = NexusPerformance.isForeground())
+        val observer = mainScroll.viewTreeObserver
+        observer.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                if (observer.isAlive) observer.removeOnPreDrawListener(this)
+                NexusPerformance.event(trace, "home_ready_for_input")
+                NexusPerformance.finish(trace)
+                return true
+            }
+        })
     }
 
     private fun showLibrary() {
@@ -905,8 +920,13 @@ class MainActivity : Activity() {
 
         // The shell is attached before disk reads. Cache decoding and every network request stay off
         // the main thread; cached shelves are rendered before any refresh begins.
+        val homeTrace = NexusPerformance.begin(
+            "home_shelves", foreground = NexusPerformance.isForeground(),
+            detail = "shelf_count=" + homeShelfSpecs.size
+        )
         homeLoadJob = activityScope.launch {
             try {
+                val cacheStartedAt = if (NexusPerformance.isEnabled()) NexusPerformance.nowMs() else 0L
                 val cachedEntries = withContext(Dispatchers.IO) {
                     homeShelfSpecs.mapNotNull { spec ->
                         runCatching { homeCache.read(spec.id) }
@@ -914,11 +934,22 @@ class MainActivity : Activity() {
                             ?.let { spec to it }
                     }
                 }
+                if (NexusPerformance.isEnabled()) NexusPerformance.event(
+                    homeTrace, "home_cache_loaded",
+                    "duration_ms=" + (NexusPerformance.nowMs() - cacheStartedAt) + " shelves=" + cachedEntries.size
+                )
                 if (generation != homeGeneration || isFinishing || isDestroyed) return@launch
 
+                var firstUsableHomeRecorded = false
                 cachedEntries.forEach { (spec, snapshot) ->
                     homeSnapshots[spec.id] = snapshot
-                    if (snapshot.displayedTracks.isNotEmpty()) renderHomeShelf(spec, snapshot)
+                    if (snapshot.displayedTracks.isNotEmpty()) {
+                        renderHomeShelf(spec, snapshot)
+                        if (!firstUsableHomeRecorded) {
+                            firstUsableHomeRecorded = true
+                            NexusPerformance.event(homeTrace, "first_usable_home", "source=cache shelf=" + spec.id)
+                        }
+                    }
                 }
                 updateHomeLoadingState(loading = true)
 
@@ -930,15 +961,30 @@ class MainActivity : Activity() {
                 HomeShelfRefreshRunner(HOME_SHELF_TIMEOUT_MS).run(
                     shelves = staleShelves,
                     fetch = { spec, timeoutMs ->
-                        repository.searchWithPriority(
-                            spec.query,
-                            YoutubeSearchScope.MUSIC_SONGS,
-                            ExtractorWorkPriority.BACKGROUND,
-                            operationTimeoutMs = timeoutMs
+                        val shelfTrace = NexusPerformance.begin(
+                            "home_shelf", foreground = false, detail = "shelf=" + spec.id
                         )
-                            .distinctBy { it.url }
-                            .sortedByDescending { it.viewCount ?: -1L }
-                            .take(HOME_POOL_LIMIT)
+                        try {
+                            val tracks = withContext(NexusPerformance.TraceContext(shelfTrace)) {
+                                repository.searchWithPriority(
+                                    spec.query,
+                                    YoutubeSearchScope.MUSIC_SONGS,
+                                    ExtractorWorkPriority.BACKGROUND,
+                                    operationTimeoutMs = timeoutMs
+                                )
+                            }.distinctBy { it.url }
+                                .sortedByDescending { it.viewCount ?: -1L }
+                                .take(HOME_POOL_LIMIT)
+                            NexusPerformance.event(shelfTrace, "shelf_results_received", "count=" + tracks.size)
+                            NexusPerformance.finish(shelfTrace)
+                            tracks
+                        } catch (error: CancellationException) {
+                            NexusPerformance.finish(shelfTrace, "cancelled")
+                            throw error
+                        } catch (error: Exception) {
+                            NexusPerformance.finish(shelfTrace, "error=" + error.javaClass.simpleName)
+                            throw error
+                        }
                     },
                     onResult = { spec, tracks ->
                         if (generation == homeGeneration && !isFinishing && !isDestroyed) {
@@ -952,7 +998,13 @@ class MainActivity : Activity() {
                             )
                             homeSnapshots[spec.id] = snapshot
                             homeCache.write(spec.id, snapshot)
-                            if (snapshot.displayedTracks.isNotEmpty()) renderHomeShelf(spec, snapshot)
+                            if (snapshot.displayedTracks.isNotEmpty()) {
+                                renderHomeShelf(spec, snapshot)
+                                if (!firstUsableHomeRecorded) {
+                                    firstUsableHomeRecorded = true
+                                    NexusPerformance.event(homeTrace, "first_usable_home", "source=network shelf=" + spec.id)
+                                }
+                            }
                             updateHomeLoadingState(loading = true)
                         }
                     },
@@ -963,6 +1015,7 @@ class MainActivity : Activity() {
             } finally {
                 if (generation == homeGeneration && !isDestroyed) {
                     updateHomeLoadingState(loading = false)
+                    NexusPerformance.finish(homeTrace)
                     homeLoadJob = null
                     if (isHomeVisible() && searchJob?.isActive != true && !isResolving) {
                         scheduleAudioPrefetch()
@@ -1196,6 +1249,10 @@ class MainActivity : Activity() {
     private fun startResolvingTrack(track: CatalogTrack) {
         if (isResolving) return
         isResolving = true
+        val trace = NexusPerformance.begin(
+            "track_resolve", foreground = isActivityStarted,
+            detail = "source_id_hash=" + track.url.hashCode().toUInt().toString(16)
+        )
         playerSubtitle.text = "Preparing audio…"
         activityScope.launch {
             try {
@@ -1203,13 +1260,18 @@ class MainActivity : Activity() {
                     PersistentAudioCacheLookup(this@MainActivity),
                     repository::resolveAudio
                 )
-                val audio = audioPrefetch.resolveForPlayback(track.url) { sourceUrl ->
-                    foregroundResolver.resolve(sourceUrl)
+                val audio = withContext(NexusPerformance.TraceContext(trace)) {
+                    audioPrefetch.resolveForPlayback(track.url) { sourceUrl ->
+                        foregroundResolver.resolve(sourceUrl, trace)
+                    }
                 }
-                showResolved(audio)
+                NexusPerformance.event(trace, "audio_resolved", "provider=" + audio.provider)
+                showResolved(audio, trace)
             } catch (error: CancellationException) {
+                NexusPerformance.finish(trace, "cancelled")
                 throw error
             } catch (error: Exception) {
+                NexusPerformance.finish(trace, "error=" + error.javaClass.simpleName)
                 val message = "Could not prepare audio. Try another result or retry."
                 playerSubtitle.text = "Couldn't prepare audio"
                 Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
@@ -1220,18 +1282,26 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun showResolved(audio: ResolvedAudio) {
+    private fun showResolved(audio: ResolvedAudio, trace: NexusPerformance.Trace) {
         lastResolvedSourceUrl = audio.sourceUrl
         playerTitle.text = audio.title
         playerSubtitle.text = "Sending audio to player…"
         playerArtwork.load(audio.thumbnailUrl?.takeIf(String::isNotBlank))
         if (::nowPlayingView.isInitialized) nowPlayingView.setArtwork(audio.thumbnailUrl)
         playPauseButton.isEnabled = true
+        lastPlaybackSourceId = audio.sourceUrl
+        lastPlaybackPositionMs = 0L
+        lastPlaybackState = Player.STATE_IDLE
+        lastPlaybackIsPlaying = false
+        NexusPerformance.registerPlayback(audio.sourceUrl, trace)
         if (playbackConnection?.play(audio) != true) {
+            NexusPerformance.finish(trace, "player_rejected")
+            NexusPerformance.forgetPlayback(audio.sourceUrl)
             playerSubtitle.text = "Player unavailable"
             Toast.makeText(this, "The player could not accept this track. Try selecting it again.", Toast.LENGTH_LONG).show()
             return
         }
+        NexusPerformance.event(trace, "player_command_sent", "provider=" + audio.provider)
         playerSubtitle.text = "Starting playback…"
         libraryStore.recordPlayed(
             CatalogTrack(
@@ -1304,6 +1374,8 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         isActivityStarted = true
+        NexusPerformance.setForeground(true)
+        NexusPerformance.logEvent("app_foreground")
         if (::updateStatusText.isInitialized) checkForUpdates()
         updatePlaybackUi(playbackConnection?.snapshot() ?: lastPlaybackSnapshot)
         if (homeLoadJob?.isActive != true && isHomeVisible()) scheduleAudioPrefetch()
@@ -1311,6 +1383,8 @@ class MainActivity : Activity() {
 
     override fun onStop() {
         isActivityStarted = false
+        NexusPerformance.setForeground(false)
+        NexusPerformance.logEvent("app_background")
         progressHandler.removeCallbacks(progressTicker)
         if (::homeShelvesContainer.isInitialized) audioPrefetch.cancelSpeculation()
         super.onStop()
