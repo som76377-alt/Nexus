@@ -85,6 +85,7 @@ internal class SearchRequestCoordinator<T>(
                             decision.deferred.complete(result)
                         } catch (error: Throwable) {
                             decision.deferred.completeExceptionally(error)
+                            if (error is Error) throw error
                         } finally {
                             synchronized(lock) {
                                 if (inFlight[key] === decision.deferred) {
