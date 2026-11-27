@@ -71,6 +71,25 @@ class HomeShelfRecoveryTest {
         assertEquals(1, maximum)
     }
 
+
+    @Test fun emptyRefreshPreservesUsefulStaleRecommendations() {
+        val pool = (1..12).map(::track)
+        val displayed = pool.take(8)
+        val previous = HomeShelfSnapshot(100L, pool, displayed, displayed.map { it.url })
+        val refreshed = refreshedHomeShelfSnapshot(
+            previous = previous,
+            fetchedAtEpochMs = 200L,
+            tracks = emptyList(),
+            poolLimit = 40,
+            visibleLimit = 8,
+            historyLimit = 120
+        )
+        assertEquals(200L, refreshed.fetchedAtEpochMs)
+        assertEquals(pool, refreshed.pool)
+        assertEquals(displayed, refreshed.displayedTracks)
+        assertEquals(previous.history, refreshed.history)
+    }
+
     private fun track(id: Int) = CatalogTrack(
         url = "https://www.youtube.com/watch?v=track$id",
         title = "Track $id",

@@ -852,21 +852,13 @@ class MainActivity : Activity() {
                     onResult = { spec, tracks ->
                         if (generation == homeGeneration && !isFinishing && !isDestroyed) {
                             val old = homeSnapshots[spec.id]
-                            val pool = tracks.distinctBy { it.url }.take(HOME_POOL_LIMIT)
-                            val selected = HomeRerollSelector.select(
-                                pool = pool,
-                                history = old?.history.orEmpty(),
-                                count = HOME_SHELF_VISIBLE_LIMIT
-                            )
-                            val selectedUrls = selected.map { it.url }
-                            val nextHistory = (
-                                old?.history.orEmpty().filterNot { it in selectedUrls } + selectedUrls
-                            ).takeLast(HOME_HISTORY_LIMIT)
-                            val snapshot = HomeShelfSnapshot(
+                            val snapshot = refreshedHomeShelfSnapshot(
+                                previous = old,
                                 fetchedAtEpochMs = System.currentTimeMillis(),
-                                pool = pool,
-                                displayedTracks = selected,
-                                history = nextHistory
+                                tracks = tracks,
+                                poolLimit = HOME_POOL_LIMIT,
+                                visibleLimit = HOME_SHELF_VISIBLE_LIMIT,
+                                historyLimit = HOME_HISTORY_LIMIT
                             )
                             homeSnapshots[spec.id] = snapshot
                             homeCache.write(spec.id, snapshot)

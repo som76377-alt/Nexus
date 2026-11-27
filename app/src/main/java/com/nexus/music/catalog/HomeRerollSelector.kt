@@ -26,3 +26,34 @@ internal object HomeRerollSelector {
         return selected
     }
 }
+
+/** Merge a refresh without letting a transient empty result erase a useful stale shelf. */
+internal fun refreshedHomeShelfSnapshot(
+    previous: HomeShelfSnapshot?,
+    fetchedAtEpochMs: Long,
+    tracks: List<CatalogTrack>,
+    poolLimit: Int,
+    visibleLimit: Int,
+    historyLimit: Int
+): HomeShelfSnapshot {
+    require(poolLimit > 0 && visibleLimit > 0 && historyLimit >= 0)
+    val freshPool = tracks.distinctBy { it.url }.take(poolLimit)
+    if (freshPool.isEmpty() && previous != null) {
+        return previous.copy(fetchedAtEpochMs = fetchedAtEpochMs)
+    }
+    val selected = HomeRerollSelector.select(
+        pool = freshPool,
+        history = previous?.history.orEmpty(),
+        count = visibleLimit
+    )
+    val selectedUrls = selected.map { it.url }
+    val history = (
+        previous?.history.orEmpty().filterNot { it in selectedUrls } + selectedUrls
+    ).takeLast(historyLimit)
+    return HomeShelfSnapshot(
+        fetchedAtEpochMs = fetchedAtEpochMs,
+        pool = freshPool,
+        displayedTracks = selected,
+        history = history
+    )
+}
