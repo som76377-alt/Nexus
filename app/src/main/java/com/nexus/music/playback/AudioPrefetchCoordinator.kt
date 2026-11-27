@@ -38,6 +38,7 @@ internal class AudioPrefetchCoordinator(
     private val pending = ArrayDeque<String>()
     private var worker: Job? = null
     private var active: Active? = null
+    private var generation = 0L
 
     init {
         require(capacity > 0)
@@ -82,6 +83,7 @@ internal class AudioPrefetchCoordinator(
             matching = active?.takeIf { it.sourceUrl == sourceUrl }
             matching?.promoted = true
             unrelated = active?.takeIf { it.sourceUrl != sourceUrl }?.deferred
+            generation++
             pending.clear()
         }
 
@@ -110,6 +112,7 @@ internal class AudioPrefetchCoordinator(
     /** Cancels speculative work when a new urgent user action begins. */
     fun cancelSpeculation() {
         val running = synchronized(lock) {
+            generation++
             pending.clear()
             active?.takeIf { !it.promoted }?.deferred
         }
@@ -128,6 +131,7 @@ internal class AudioPrefetchCoordinator(
 
     fun close() {
         val running = synchronized(lock) {
+            generation++
             pending.clear()
             active?.deferred
         }
@@ -144,17 +148,27 @@ internal class AudioPrefetchCoordinator(
         val thisWorker = currentCoroutineContext()[Job]
         try {
             while (currentCoroutineContext().isActive) {
-                val sourceUrl = synchronized(lock) {
+                val queued = synchronized(lock) {
                     if (pending.isEmpty()) {
                         if (worker === thisWorker) worker = null
                         return
                     }
-                    pending.removeFirst()
+                    pending.removeFirst() to generation
                 }
+                val sourceUrl = queued.first
 
                 coroutineScope {
                     val task = async(start = CoroutineStart.LAZY) { resolveInBackground(sourceUrl) }
-                    synchronized(lock) { active = Active(sourceUrl, task) }
+                    val accepted = synchronized(lock) {
+                        if (queued.second != generation) false else {
+                            active = Active(sourceUrl, task)
+                            true
+                        }
+                    }
+                    if (!accepted) {
+                        task.cancel()
+                        return@coroutineScope
+                    }
                     task.start()
                     try {
                         val audio = task.await()
