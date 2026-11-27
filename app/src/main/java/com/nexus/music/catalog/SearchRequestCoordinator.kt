@@ -98,8 +98,8 @@ internal class SearchRequestCoordinator<T>(
                 } else null
                 Decision.Pending(active, shouldStart = false, workerToPromote = promote)
             } else {
-                val request = InFlight(
-                    result = CompletableDeferred(),
+                val request = InFlight<T>(
+                    result = CompletableDeferred<List<T>>(),
                     waiterCount = 1,
                     priority = priority,
                     operationTimeoutMs = operationTimeoutMs
