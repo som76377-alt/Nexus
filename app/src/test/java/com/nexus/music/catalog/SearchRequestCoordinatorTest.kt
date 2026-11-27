@@ -214,7 +214,6 @@ class SearchRequestCoordinatorTest {
         search()
         assertEquals(2, calls)
     }
-}
 
     @Test
     fun foregroundWaiterPromotesSharedBackgroundSearchToForeground() = runBlocking {
