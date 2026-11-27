@@ -12,7 +12,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.supervisorScope
 import java.util.LinkedHashMap
 
 /**
@@ -161,7 +161,7 @@ internal class AudioPrefetchCoordinator(
                 }
                 val sourceUrl = queued.first
 
-                coroutineScope {
+                supervisorScope {
                     val task = async(start = CoroutineStart.LAZY) { resolveInBackground(sourceUrl) }
                     val accepted = synchronized(lock) {
                         if (queued.second != generation) false else {
