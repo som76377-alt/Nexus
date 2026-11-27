@@ -82,6 +82,6 @@
 
 ## Performance repair — Task 3: provider selection and hedging
 
-| Task | Status | Branch head | CI | Learning |
+| Task | Status | Implementation commit | CI | Learning |
 |---|---|---|---|---|
 | Task 3 — advance fallback immediately after fast provider failures/empty search results; hedge only while a request remains slow | IMPLEMENTED — CI pending | `3d21c33d70caf236c19b3e1e03332d1b2fc2a1a2` | Pending PR checks | The previous fixed stagger delayed fallback even after a provider had already failed or returned no search matches. The resolver now starts the next provider immediately for completed misses/failures, while retaining the stagger for still-running requests. Provider order, health cooldown ranking, attempt cap, error classification, and cancellation of losing requests are preserved. Device/network latency remains UNVERIFIED. |
