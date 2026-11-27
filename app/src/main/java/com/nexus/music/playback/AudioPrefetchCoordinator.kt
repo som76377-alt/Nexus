@@ -30,7 +30,7 @@ internal class AudioPrefetchCoordinator(
     private val freshnessMs: Long = DEFAULT_FRESHNESS_MS,
     private val nowMs: () -> Long = System::currentTimeMillis
 ) {
-    private data class Cached(val audio: ResolvedAudio, val storedAtMs: Long)
+    private data class Cached(val audio: ResolvedAudio, val storedAtMs: Long, val expiryEpochMs: Long)
     private data class Active(val sourceUrl: String, val deferred: Deferred<ResolvedAudio>, var promoted: Boolean = false)
 
     private val lock = Any()
@@ -79,7 +79,8 @@ internal class AudioPrefetchCoordinator(
         val unrelated: Job?
         synchronized(lock) {
             pruneExpiredLocked()
-            cached = completed[sourceUrl]?.audio
+            cached = completed[sourceUrl]?.takeIf { AudioCachePolicy.isUrlFresh(it.expiryEpochMs, nowMs()) }?.audio
+            if (cached == null) completed.remove(sourceUrl)
             matching = active?.takeIf { it.sourceUrl == sourceUrl }
             matching?.promoted = true
             unrelated = active?.takeIf { it.sourceUrl != sourceUrl }?.deferred
@@ -178,7 +179,12 @@ internal class AudioPrefetchCoordinator(
                     try {
                         val audio = task.await()
                         synchronized(lock) {
-                            completed[sourceUrl] = Cached(audio, nowMs())
+                            val storedAtMs = nowMs()
+                            completed[sourceUrl] = Cached(
+                                audio = audio,
+                                storedAtMs = storedAtMs,
+                                expiryEpochMs = AudioCachePolicy.expiryEpochMs(audio.audioUrl, storedAtMs)
+                            )
                             while (completed.size > capacity) {
                                 val eldest = completed.entries.iterator()
                                 if (eldest.hasNext()) {
@@ -215,7 +221,10 @@ internal class AudioPrefetchCoordinator(
         val cutoff = nowMs() - freshnessMs
         val iterator = completed.entries.iterator()
         while (iterator.hasNext()) {
-            if (iterator.next().value.storedAtMs < cutoff) iterator.remove()
+            val cached = iterator.next().value
+            if (cached.storedAtMs < cutoff || !AudioCachePolicy.isUrlFresh(cached.expiryEpochMs, nowMs())) {
+                iterator.remove()
+            }
         }
     }
 
