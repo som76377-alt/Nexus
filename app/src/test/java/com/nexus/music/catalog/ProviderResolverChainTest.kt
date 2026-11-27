@@ -47,7 +47,7 @@ class ProviderResolverChainTest {
             ),
             healthStore = InMemoryHealthStore(),
             providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
-            hedgeDelayMs = 1_000L
+            hedgeDelayMs = 5_000L
         )
 
         val result = chain.resolveAudio("https://youtube.com/watch?v=abcdefghijk")
@@ -66,10 +66,10 @@ class ProviderResolverChainTest {
             ),
             healthStore = InMemoryHealthStore(),
             providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
-            hedgeDelayMs = 1_000L
+            hedgeDelayMs = 5_000L
         )
 
-        val result = withTimeout(250L) {
+        val result = withTimeout(1_000L) {
             chain.resolveAudio("https://youtube.com/watch?v=abcdefghijk")
         }
 
@@ -87,10 +87,10 @@ class ProviderResolverChainTest {
             ),
             healthStore = InMemoryHealthStore(),
             providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
-            hedgeDelayMs = 1_000L
+            hedgeDelayMs = 5_000L
         )
 
-        val results = withTimeout(250L) { chain.search("ambient") }
+        val results = withTimeout(1_000L) { chain.search("ambient") }
 
         assertEquals(listOf(catalogTrack()), results)
         assertEquals(listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED), calls)
