@@ -15,21 +15,12 @@ class YoutubeCatalogRepositoryTest {
         val cached = repository.search("ambient jazz", YoutubeSearchScope.MUSIC_SONGS)
         val differentScope = repository.search("ambient jazz", YoutubeSearchScope.EVERYTHING)
 
-        assertEquals(listOf(track()), first)
+        assertEquals(listOf(sampleTrack()), first)
         assertEquals(first, cached)
-        assertEquals(listOf(track()), differentScope)
+        assertEquals(listOf(sampleTrack()), differentScope)
         assertEquals(2, adapter.searchCalls)
         assertEquals(listOf("ambient jazz", "ambient jazz"), adapter.queries)
     }
-
-    private fun track() = CatalogTrack(
-        url = "https://youtube.com/watch?v=abcdefghijk",
-        title = "Ambient Track",
-        artist = "Artist",
-        thumbnailUrl = null,
-        durationSeconds = 180L,
-        viewCount = 1_000L
-    )
 
     private class CountingAdapter : StreamProviderAdapter {
         override val provider = StreamProvider.NEWPIPE
@@ -42,7 +33,7 @@ class YoutubeCatalogRepositoryTest {
         ): List<CatalogTrack> {
             searchCalls++
             queries += query
-            return listOf(track())
+            return listOf(sampleTrack())
         }
 
         override suspend fun resolveAudio(videoUrl: String): ResolvedAudio {
@@ -50,3 +41,12 @@ class YoutubeCatalogRepositoryTest {
         }
     }
 }
+
+private fun sampleTrack() = CatalogTrack(
+    url = "https://youtube.com/watch?v=abcdefghijk",
+    title = "Ambient Track",
+    artist = "Artist",
+    thumbnailUrl = null,
+    durationSeconds = 180L,
+    viewCount = 1_000L
+)
