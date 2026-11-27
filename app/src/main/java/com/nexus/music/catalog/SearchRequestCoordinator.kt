@@ -122,15 +122,7 @@ internal class SearchRequestCoordinator<T>(
                             val result = withContext(
                                 if (traceContext == null) context else context + traceContext
                             ) { loader(requestQuery) }.toList()
-                            if (result.isNotEmpty()) {
-                                synchronized(lock) {
-                                    cache[key] = CacheEntry(result, nowMs() + ttlMs)
-                                    while (cache.size > maxEntries) {
-                                        val oldestKey = cache.entries.iterator().next().key
-                                        cache.remove(oldestKey)
-                                    }
-                                }
-                            }
+                            cacheSuccessfulNonEmptyResult(key, result)
                             request.result.complete(result)
                         } catch (error: Throwable) {
                             request.result.completeExceptionally(error)
@@ -160,6 +152,19 @@ internal class SearchRequestCoordinator<T>(
                     }
                     workerToCancel?.cancel()
                 }
+            }
+        }
+    }
+
+
+    /** Empty successful searches are misses, not cache entries; failed searches never reach here. */
+    private fun cacheSuccessfulNonEmptyResult(key: SearchKey, result: List<T>) {
+        if (result.isEmpty()) return
+        synchronized(lock) {
+            cache[key] = CacheEntry(result, nowMs() + ttlMs)
+            while (cache.size > maxEntries) {
+                val oldestKey = cache.entries.iterator().next().key
+                cache.remove(oldestKey)
             }
         }
     }
