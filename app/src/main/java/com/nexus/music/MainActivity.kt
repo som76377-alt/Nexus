@@ -757,6 +757,7 @@ class MainActivity : Activity() {
     private fun performSearch() {
         val query = searchPanel.queryInput.text.toString().trim()
         if (query.isEmpty()) {
+            audioPrefetch.cancelSpeculation()
             searchGeneration++
             searchJob?.cancel()
             searchJob = null
@@ -812,6 +813,7 @@ class MainActivity : Activity() {
     private fun loadHomeShelves() {
         if (!::homeShelvesContainer.isInitialized || isFinishing || isDestroyed) return
 
+        audioPrefetch.cancelSpeculation()
         val generation = ++homeGeneration
         homeLoadJob?.cancel()
         homeSnapshots.clear()
