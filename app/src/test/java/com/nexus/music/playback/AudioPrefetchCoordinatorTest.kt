@@ -72,6 +72,30 @@ class AudioPrefetchCoordinatorTest {
     }
 
     @Test
+    fun backgroundingDoesNotCancelAPlayRequestThatPromotedThePrefetch() = runBlocking {
+        val gate = CompletableDeferred<Unit>()
+        val promoted = CompletableDeferred<Unit>()
+        val coordinator = AudioPrefetchCoordinator(
+            scope = this,
+            resolveInBackground = {
+                gate.await()
+                audio(it)
+            },
+            promoteInFlight = { promoted.complete(Unit) }
+        )
+
+        coordinator.enqueue("track-a")
+        awaitCondition { coordinator.activeSourceUrl == "track-a" }
+        val playback = async { coordinator.resolveForPlayback("track-a") { error("must join") } }
+        promoted.await()
+        coordinator.cancelSpeculation()
+        gate.complete(Unit)
+
+        assertEquals("track-a", withTimeout(2_000) { playback.await() }.sourceUrl)
+        coordinator.awaitIdle()
+    }
+
+    @Test
     fun unrelatedTapCancelsSpeculationBeforeForegroundResolution() = runBlocking {
         val cancelled = CompletableDeferred<Unit>()
         val coordinator = AudioPrefetchCoordinator(
