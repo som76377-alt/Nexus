@@ -180,6 +180,46 @@ class PriorityAdmissionQueueTest {
         assertEquals(1, maximumActive.get())
     }
 
+    @Test
+    fun matchingBackgroundOwnerCanBePromotedWithoutCancellation() = runBlocking {
+        val queue = PriorityAdmissionQueue()
+        val activeStarted = CompletableDeferred<Unit>()
+        val releaseActive = CompletableDeferred<Unit>()
+        val order = Collections.synchronizedList(mutableListOf<String>())
+
+        val activeBackground = launch {
+            queue.withLease(ExtractorWorkPriority.BACKGROUND) {
+                activeStarted.complete(Unit)
+                releaseActive.await()
+            }
+        }
+        activeStarted.await()
+
+        val matchingPrefetch = launch {
+            queue.withLease(ExtractorWorkPriority.BACKGROUND) {
+                order += "matching"
+            }
+        }
+        awaitQueued(queue, 1)
+        assertTrue(queue.promote(matchingPrefetch))
+
+        val urgentForeground = launch {
+            queue.withLease(ExtractorWorkPriority.FOREGROUND) {
+                order += "urgent"
+            }
+        }
+        awaitQueued(queue, 2)
+        releaseActive.complete(Unit)
+
+        withTimeout(2_000) {
+            activeBackground.join()
+            urgentForeground.join()
+            matchingPrefetch.join()
+        }
+        assertTrue(matchingPrefetch.isCompleted)
+        assertEquals(listOf("urgent", "matching"), order)
+    }
+
     private suspend fun awaitQueued(queue: PriorityAdmissionQueue, count: Int) {
         withTimeout(2_000) {
             while (queue.queuedCount != count) delay(1)
