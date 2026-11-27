@@ -243,7 +243,6 @@ class AudioPrefetchCoordinatorTest {
             scope = this,
             resolveInBackground = { audio(it) },
             promoteInFlight = {},
-            freshnessMs = 30 * 60_000L,
             nowMs = { now }
         )
 
@@ -299,6 +298,33 @@ class AudioPrefetchCoordinatorTest {
         assertEquals(1, coordinator.cachedEntryCount)
         assertTrue(coordinator.containsCached("good"))
         assertFalse(coordinator.containsCached("bad"))
+    }
+
+    @Test
+    fun completedPrefetchRemainsUsablePastFormerSixtySecondCutoffWhileSignedUrlIsFresh() = runBlocking {
+        var now = 1_700_000_000_000L
+        val foregroundCalls = AtomicInteger()
+        val coordinator = AudioPrefetchCoordinator(
+            scope = this,
+            resolveInBackground = { source ->
+                audio(source, "https://audio.example/$source?expire=${(now / 1_000L) + 3_600L}")
+            },
+            promoteInFlight = {},
+            nowMs = { now }
+        )
+
+        coordinator.enqueue("still-fresh")
+        coordinator.awaitIdle()
+        now += 2 * 60_000L
+
+        val result = coordinator.resolveForPlayback("still-fresh") {
+            foregroundCalls.incrementAndGet()
+            audio(it)
+        }
+
+        assertEquals("still-fresh", result.sourceUrl)
+        assertEquals(0, foregroundCalls.get())
+        assertTrue(coordinator.containsCached("still-fresh"))
     }
 
     private suspend fun awaitCondition(condition: () -> Boolean) {
