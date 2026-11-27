@@ -48,6 +48,7 @@ import com.nexus.music.catalog.HomeRerollSelector
 import com.nexus.music.catalog.HomeShelfRefreshRunner
 import com.nexus.music.catalog.HomeShelfSnapshot
 import com.nexus.music.catalog.HomeShelfSpec
+import com.nexus.music.catalog.refreshedHomeShelfSnapshot
 import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackSnapshot
 import com.nexus.music.playback.AudioCacheStore
