@@ -17,6 +17,7 @@ import org.schabi.newpipe.extractor.downloader.Downloader
 import com.nexus.music.performance.NexusPerformance
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 internal enum class ExtractorWorkPriority { FOREGROUND, DIAGNOSTIC, BACKGROUND }
@@ -39,13 +40,16 @@ private class ExtractorLeaseContext(
 /** Exposes the active blocking OkHttp call so coroutine cancellation closes its socket promptly. */
 internal class ActiveCallCancellation {
     private val cancelActive = AtomicReference<(() -> Unit)?>(null)
+    private val cancelled = AtomicBoolean(false)
 
     fun register(cancel: () -> Unit): AutoCloseable {
         cancelActive.set(cancel)
+        if (cancelled.get()) cancel()
         return AutoCloseable { cancelActive.compareAndSet(cancel, null) }
     }
 
     fun cancel() {
+        cancelled.set(true)
         cancelActive.get()?.invoke()
     }
 }
