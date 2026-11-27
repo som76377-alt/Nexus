@@ -765,12 +765,14 @@ class MainActivity : Activity() {
             searchPanel.statusText.visibility = View.GONE
             searchPanel.statusText.setOnClickListener(null)
             searchPanel.resultsContainer.removeAllViews()
+            lastSearchResults = emptyList()
             return
         }
 
         // A newer query or scope always supersedes the previous request.
         audioPrefetch.cancelSpeculation()
         searchJob?.cancel()
+        lastSearchResults = emptyList()
         searchPanel.queryInput.error = null
         val requestGeneration = ++searchGeneration
         val requestScope = selectedScope
@@ -1222,6 +1224,7 @@ class MainActivity : Activity() {
     override fun onStop() {
         isActivityStarted = false
         progressHandler.removeCallbacks(progressTicker)
+        if (::homeShelvesContainer.isInitialized) audioPrefetch.cancelSpeculation()
         super.onStop()
     }
 
