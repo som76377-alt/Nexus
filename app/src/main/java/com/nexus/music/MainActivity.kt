@@ -61,6 +61,7 @@ import com.nexus.music.update.NexusUpdate
 import com.nexus.music.update.NexusUpdateInstaller
 import com.nexus.music.update.NexusUpdateScheduler
 import com.nexus.music.update.UpdateCheckResult
+import com.nexus.music.performance.NexusPerformance
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -141,6 +142,10 @@ class MainActivity : Activity() {
     private var lastSearchResults: List<CatalogTrack> = emptyList()
     private var currentSort = SearchSort.RELEVANCE
     private var backInvokedCallback: android.window.OnBackInvokedCallback? = null
+    private var lastPlaybackSourceId: String = ""
+    private var lastPlaybackPositionMs: Long = 0L
+    private var lastPlaybackState: Int = Player.STATE_IDLE
+    private var lastPlaybackIsPlaying = false
 
     private val screenBackground = NexusDesignSystem.Palette.archiveIvory
     private val surface = NexusDesignSystem.Palette.sleeveWhite
@@ -166,12 +171,24 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        NexusPerformance.setForeground(true)
         window.statusBarColor = screenBackground
         window.navigationBarColor = screenBackground
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
         window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
+        val startupTrace = NexusPerformance.begin("app_startup", foreground = true)
         val root = FrameLayout(this).apply { setBackgroundColor(screenBackground) }
+        if (NexusPerformance.isEnabled()) {
+            root.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+                override fun onPreDraw(): Boolean {
+                    if (root.viewTreeObserver.isAlive) root.viewTreeObserver.removeOnPreDrawListener(this)
+                    NexusPerformance.event(startupTrace, "first_ui_draw")
+                    NexusPerformance.finish(startupTrace)
+                    return true
+                }
+            })
+        }
         val base = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(screenBackground)
@@ -293,7 +310,11 @@ class MainActivity : Activity() {
         }
         root.addView(nowPlayingView, FrameLayout.LayoutParams(-1, -1))
         setContentView(root)
-        if (intent.getBooleanExtra(EXTRA_OPEN_YOU, false)) showYou() else if (intent.getBooleanExtra(EXTRA_OPEN_LIBRARY, false)) showLibrary()
+        when {
+            intent.getBooleanExtra(EXTRA_OPEN_YOU, false) -> showYou()
+            intent.getBooleanExtra(EXTRA_OPEN_LIBRARY, false) -> showLibrary()
+            else -> traceHomeInteractive()
+        }
         loadHomeShelves()
         registerBackNavigation()
         applySystemBarInsets(base)
@@ -708,6 +729,29 @@ class MainActivity : Activity() {
 
     private fun updatePlaybackUi(snapshot: PlaybackSnapshot) {
         lastPlaybackSnapshot = snapshot
+        if (snapshot.sourceId != lastPlaybackSourceId) {
+            lastPlaybackSourceId = snapshot.sourceId
+            lastPlaybackPositionMs = 0L
+            lastPlaybackState = Player.STATE_IDLE
+            lastPlaybackIsPlaying = false
+        }
+        if (snapshot.sourceId.isNotBlank()) {
+            if (snapshot.playbackState == Player.STATE_READY && lastPlaybackState != Player.STATE_READY) {
+                NexusPerformance.playbackEvent(snapshot.sourceId, "player_ready")
+            }
+            if (snapshot.positionMs > 0L && lastPlaybackPositionMs <= 0L) {
+                NexusPerformance.playbackEvent(
+                    snapshot.sourceId, "ui_position_advance_observed",
+                    "position_ms=" + snapshot.positionMs
+                )
+            }
+            if (snapshot.isPlaying && !lastPlaybackIsPlaying) {
+                NexusPerformance.playbackEvent(snapshot.sourceId, "is_playing")
+            }
+        }
+        lastPlaybackPositionMs = snapshot.positionMs
+        lastPlaybackState = snapshot.playbackState
+        lastPlaybackIsPlaying = snapshot.isPlaying
         if (::miniPlayerContainer.isInitialized) {
             miniPlayerContainer.visibility = if (shouldShowMiniPlayer(snapshot)) View.VISIBLE else View.GONE
         }
@@ -780,6 +824,11 @@ class MainActivity : Activity() {
         searchPanel.queryInput.error = null
         val requestGeneration = ++searchGeneration
         val requestScope = selectedScope
+        val trace = NexusPerformance.begin(
+            "catalog_search", foreground = isActivityStarted,
+            detail = "generation=" + requestGeneration + " scope=" + requestScope +
+                " query_length=" + query.length
+        )
         searchPanel.statusText.text = ""
         searchPanel.statusText.visibility = View.GONE
         searchPanel.statusText.setOnClickListener(null)
@@ -787,18 +836,31 @@ class MainActivity : Activity() {
 
         searchJob = activityScope.launch {
             try {
-                val results = repository.search(query, requestScope)
-                if (requestGeneration != searchGeneration) return@launch
+                val results = if (NexusPerformance.isEnabled()) {
+                    withContext(NexusPerformance.TraceContext(trace)) {
+                        repository.search(query, requestScope)
+                    }
+                } else {
+                    repository.search(query, requestScope)
+                }
+                NexusPerformance.event(trace, "results_received", "count=" + results.size)
+                if (requestGeneration != searchGeneration) {
+                    NexusPerformance.finish(trace, "superseded")
+                    return@launch
+                }
 
                 lastSearchResults = results
-                renderSearchResults()
+                renderSearchResults(trace)
                 if (results.isEmpty()) {
                     searchPanel.statusText.text = "No results"
                     searchPanel.statusText.visibility = View.VISIBLE
+                    NexusPerformance.finish(trace, "empty")
                 }
             } catch (error: CancellationException) {
+                NexusPerformance.finish(trace, "cancelled")
                 throw error
             } catch (error: Exception) {
+                NexusPerformance.finish(trace, "error=" + error.javaClass.simpleName)
                 if (requestGeneration == searchGeneration) {
                     searchPanel.statusText.text = "Search unavailable · Retry"
                     searchPanel.statusText.visibility = View.VISIBLE
@@ -1029,7 +1091,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun renderSearchResults() {
+    private fun renderSearchResults(trace: NexusPerformance.Trace? = null) {
         searchPanel.resultsContainer.removeAllViews()
         val sorted = when (currentSort) {
             SearchSort.RELEVANCE -> lastSearchResults
@@ -1039,6 +1101,25 @@ class MainActivity : Activity() {
         }
         sorted.forEachIndexed { index, track ->
             searchPanel.resultsContainer.addView(resultCard(track), verticalParams(if (index == 0) 0 else 10))
+            if (index == 0 && trace != null && NexusPerformance.isEnabled()) {
+                NexusPerformance.event(trace, "first_result_view_created")
+            }
+        }
+        if (trace != null && NexusPerformance.isEnabled()) {
+            val activeTrace = trace
+            NexusPerformance.event(activeTrace, "all_result_views_created", "count=" + sorted.size)
+            if (sorted.isNotEmpty()) {
+                val observer = searchPanel.resultsContainer.viewTreeObserver
+                observer.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+                    override fun onPreDraw(): Boolean {
+                        if (observer.isAlive) observer.removeOnPreDrawListener(this)
+                        NexusPerformance.event(activeTrace, "first_results_displayed")
+                        NexusPerformance.event(activeTrace, "search_results_first_draw")
+                        NexusPerformance.finish(activeTrace)
+                        return true
+                    }
+                })
+            }
         }
     }
 
