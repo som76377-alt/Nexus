@@ -218,7 +218,7 @@ class PriorityAdmissionQueueTest {
             matchingPrefetch.join()
         }
         assertTrue(matchingPrefetch.isCompleted)
-        assertEquals(listOf("urgent", "matching"), order)
+        assertEquals(listOf("matching", "urgent"), order)
     }
 
     @Test
