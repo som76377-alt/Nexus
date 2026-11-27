@@ -3,6 +3,8 @@ package com.nexus.music.catalog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.DisposableHandle
+import kotlinx.coroutines.InternalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.InternalCoroutinesApi
 import kotlinx.coroutines.withTimeout
@@ -15,6 +17,7 @@ import org.schabi.newpipe.extractor.downloader.Downloader
 import com.nexus.music.performance.NexusPerformance
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
+import java.util.concurrent.atomic.AtomicReference
 
 internal enum class ExtractorWorkPriority { FOREGROUND, DIAGNOSTIC, BACKGROUND }
 
@@ -30,6 +33,21 @@ private class ExtractorLeaseContext(
     var downloader: Downloader
 ) : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<ExtractorLeaseContext>
+}
+
+
+/** Exposes the active blocking OkHttp call so coroutine cancellation closes its socket promptly. */
+internal class ActiveCallCancellation {
+    private val cancelActive = AtomicReference<(() -> Unit)?>(null)
+
+    fun register(cancel: () -> Unit): AutoCloseable {
+        cancelActive.set(cancel)
+        return AutoCloseable { cancelActive.compareAndSet(cancel, null) }
+    }
+
+    fun cancel() {
+        cancelActive.get()?.invoke()
+    }
 }
 
 /** Exclusive, priority-aware admission for NewPipe's process-wide mutable runtime. */
@@ -182,6 +200,10 @@ internal object ExtractorRuntime {
 
     private val admission = PriorityAdmissionQueue()
     private val downloaderState = DownloaderInitializationState<Downloader> { NewPipe.init(it) }
+    private val activeCallSlot = ThreadLocal<ActiveCallCancellation?>()
+
+    internal fun registerActiveCall(cancel: () -> Unit): AutoCloseable? =
+        activeCallSlot.get()?.register(cancel)
 
     suspend fun <T> withDownloader(downloader: Downloader, block: () -> T): T {
         val lease = currentCoroutineContext()[ExtractorLeaseContext]
@@ -240,6 +262,21 @@ internal object ExtractorRuntime {
         runInterruptible(Dispatchers.IO) { downloaderState.ensureInitialized(downloader) }
     }
 
-    private suspend fun <T> runExtraction(block: () -> T): T =
-        runInterruptible(Dispatchers.IO) { block() }
+    @OptIn(InternalCoroutinesApi::class)
+    private suspend fun <T> runExtraction(block: () -> T): T {
+        val activeCall = ActiveCallCancellation()
+        val job = currentCoroutineContext()[Job]
+        val cancellationHandle: DisposableHandle? = job?.invokeOnCompletion(
+            onCancelling = true,
+            invokeImmediately = true
+        ) { cause -> if (cause != null) activeCall.cancel() }
+        return try {
+            runInterruptible(Dispatchers.IO) {
+                activeCallSlot.set(activeCall)
+                try { block() } finally { activeCallSlot.remove() }
+            }
+        } finally {
+            cancellationHandle?.dispose()
+        }
+    }
 }
