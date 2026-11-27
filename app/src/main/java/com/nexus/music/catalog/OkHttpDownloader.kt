@@ -65,8 +65,10 @@ class OkHttpDownloader(
         }
         var responseCode: Int? = null
         var failure: String? = null
+        val call = client.newCall(builder.build())
+        val cancellationRegistration = ExtractorRuntime.registerActiveCall(call::cancel)
         try {
-            client.newCall(builder.build()).execute().use { response ->
+            call.execute().use { response ->
                 responseCode = response.code
                 if (response.code == HTTP_TOO_MANY_REQUESTS) {
                     throw ReCaptchaException(
@@ -87,6 +89,7 @@ class OkHttpDownloader(
             failure = error.javaClass.simpleName
             throw error
         } finally {
+            cancellationRegistration?.close()
             if (tracing) {
                 val detail = "host=" + endpointHost + " method=" + method +
                     " duration_ms=" + (NexusPerformance.nowMs() - requestStartedAt) +
