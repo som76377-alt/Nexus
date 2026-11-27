@@ -8,6 +8,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
@@ -36,6 +37,7 @@ class SearchRequestCoordinatorTest {
                 listOf("unexpected duplicate")
             }
         }
+        yield() // Ensure the second caller has joined the in-flight request before it completes.
 
         release.complete(listOf("Track A", "Track B"))
         assertEquals(listOf("Track A", "Track B"), first.await())
@@ -124,13 +126,12 @@ class SearchRequestCoordinatorTest {
     }
 
     @Test
-    fun cacheExpiresAndEvictsLeastRecentlyUsedEntryAtCapacity() = runBlocking {
-        var now = 0L
+    fun cacheEvictsLeastRecentlyUsedEntryAtCapacity() = runBlocking {
         val coordinator = SearchRequestCoordinator<String>(
             requestScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
             maxEntries = 2,
-            ttlMs = 100L,
-            nowMs = { now }
+            ttlMs = 10_000L,
+            nowMs = { 0L }
         )
         val calls = mutableMapOf<String, Int>()
         suspend fun search(query: String): List<String> = coordinator.search(
@@ -147,9 +148,32 @@ class SearchRequestCoordinatorTest {
         search("three") // Evicts "two".
         search("two")
         assertEquals(2, calls["two"])
+        assertEquals(1, calls["one"])
+    }
 
+    @Test
+    fun cacheExpiresAtTheTtlBoundary() = runBlocking {
+        var now = 0L
+        val coordinator = SearchRequestCoordinator<String>(
+            requestScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            maxEntries = 2,
+            ttlMs = 100L,
+            nowMs = { now }
+        )
+        var calls = 0
+
+        suspend fun search(): List<String> = coordinator.search(
+            "one",
+            YoutubeSearchScope.EVERYTHING
+        ) {
+            calls++
+            listOf("one")
+        }
+
+        search()
+        assertEquals(1, calls)
         now = 100L
-        search("one") // Expired entries are never served.
-        assertEquals(2, calls["one"])
+        search()
+        assertEquals(2, calls)
     }
 }
