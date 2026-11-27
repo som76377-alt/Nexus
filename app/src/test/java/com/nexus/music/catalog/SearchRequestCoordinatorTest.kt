@@ -5,12 +5,16 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -211,3 +215,68 @@ class SearchRequestCoordinatorTest {
         assertEquals(2, calls)
     }
 }
+
+    @Test
+    fun foregroundWaiterPromotesSharedBackgroundSearchToForeground() = runBlocking {
+        val queue = PriorityAdmissionQueue()
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<List<String>>()
+        val promotion = CompletableDeferred<Boolean>()
+        val requestScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val coordinator = SearchRequestCoordinator<String>(
+            requestScope = requestScope,
+            promoteRequest = { job -> promotion.complete(queue.promote(job)); true }
+        )
+        val loader: suspend (String) -> List<String> = {
+            val context = currentCoroutineContext()[ExtractorPriorityContext]!!
+            queue.withLease(context.priority, context.ownerJob) {
+                started.complete(Unit)
+                release.await()
+            }
+        }
+
+        val background = async {
+            coordinator.search("same", YoutubeSearchScope.EVERYTHING, ExtractorWorkPriority.BACKGROUND, loader)
+        }
+        withTimeout(1_000L) { started.await() }
+        val foreground = async {
+            coordinator.search("same", YoutubeSearchScope.EVERYTHING, ExtractorWorkPriority.FOREGROUND, loader)
+        }
+
+        assertTrue(withTimeout(1_000L) { promotion.await() })
+        assertEquals(ExtractorWorkPriority.FOREGROUND, queue.activePriorityForTest)
+        release.complete(listOf("shared result"))
+        assertEquals(listOf("shared result"), background.await())
+        assertEquals(listOf("shared result"), foreground.await())
+    }
+
+    @Test
+    fun loneBackgroundSearchRemainsPreemptable() = runBlocking {
+        val queue = PriorityAdmissionQueue()
+        val started = CompletableDeferred<Unit>()
+        val requestScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val coordinator = SearchRequestCoordinator<String>(
+            requestScope = requestScope,
+            promoteRequest = queue::promote
+        )
+        val background = async {
+            coordinator.search("background", YoutubeSearchScope.EVERYTHING, ExtractorWorkPriority.BACKGROUND) {
+                val context = currentCoroutineContext()[ExtractorPriorityContext]!!
+                queue.withLease(context.priority, context.ownerJob) {
+                    started.complete(Unit)
+                    awaitCancellation()
+                }
+            }
+        }
+        withTimeout(1_000L) { started.await() }
+        val foregroundStarted = CompletableDeferred<Unit>()
+        val foreground = launch {
+            queue.withLease(ExtractorWorkPriority.FOREGROUND) {
+                foregroundStarted.complete(Unit)
+            }
+        }
+
+        withTimeout(1_000L) { foregroundStarted.await() }
+        foreground.join()
+        assertTrue(background.isCancelled)
+    }
