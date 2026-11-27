@@ -31,7 +31,7 @@ private class ExtractorLeaseContext(
 /** Exclusive, priority-aware admission for NewPipe's process-wide mutable runtime. */
 internal class PriorityAdmissionQueue {
     private data class Waiter(
-        val priority: ExtractorWorkPriority,
+        var priority: ExtractorWorkPriority,
         val ownerJob: Job?,
         val signal: CompletableDeferred<Unit> = CompletableDeferred(),
         var granted: Boolean = false
@@ -39,12 +39,36 @@ internal class PriorityAdmissionQueue {
 
     private val monitor = Any()
     private val waiters = mutableListOf<Waiter>()
+    private val promotedJobs = mutableSetOf<Job>()
     private var occupied = false
     private var activePriority = ExtractorWorkPriority.BACKGROUND
     private var activeJob: Job? = null
 
     internal val queuedCount: Int
         get() = synchronized(monitor) { waiters.size }
+
+    /** Promote one matching speculative owner without cancelling or duplicating its extraction. */
+    fun promote(ownerJob: Job): Boolean = synchronized(monitor) {
+        if (activeJob === ownerJob) {
+            activePriority = ExtractorWorkPriority.FOREGROUND
+            return@synchronized true
+        }
+        val waiter = waiters.firstOrNull { it.ownerJob === ownerJob }
+        if (waiter != null) {
+            waiter.priority = ExtractorWorkPriority.FOREGROUND
+            waiters.remove(waiter)
+            val insertion = waiters.indexOfFirst {
+                it.priority.ordinal > ExtractorWorkPriority.FOREGROUND.ordinal
+            }
+            if (insertion < 0) waiters.add(waiter) else waiters.add(insertion, waiter)
+            return@synchronized true
+        }
+        // The user can tap between enqueue and the background coroutine entering this gate.
+        // Remember promotion so its eventual admission is FOREGROUND rather than losing the tap.
+        promotedJobs.add(ownerJob)
+        ownerJob.invokeOnCompletion { synchronized(monitor) { promotedJobs.remove(ownerJob) } }
+        true
+    }
 
     suspend fun <T> withLease(
         priority: ExtractorWorkPriority,
@@ -62,13 +86,18 @@ internal class PriorityAdmissionQueue {
 
     private suspend fun acquire(priority: ExtractorWorkPriority, ownerJob: Job?) {
         val waiter = synchronized(monitor) {
+            val effectivePriority = if (ownerJob != null && promotedJobs.remove(ownerJob)) {
+                ExtractorWorkPriority.FOREGROUND
+            } else {
+                priority
+            }
             if (!occupied && waiters.isEmpty()) {
                 occupied = true
-                activePriority = priority
+                activePriority = effectivePriority
                 activeJob = ownerJob
                 return
             }
-            Waiter(priority, ownerJob).also { candidate ->
+            Waiter(effectivePriority, ownerJob).also { candidate ->
                 val insertion = waiters.indexOfFirst {
                     it.priority.ordinal > candidate.priority.ordinal
                 }
@@ -78,7 +107,7 @@ internal class PriorityAdmissionQueue {
 
         // Cancellation handlers can release the lease, so never cancel while holding the monitor.
         val preemptedJob = synchronized(monitor) {
-            activeJob.takeIf { priority.ordinal < activePriority.ordinal }
+            activeJob.takeIf { waiter.priority.ordinal < activePriority.ordinal }
         }
         preemptedJob?.cancel(
             CancellationException("NewPipe work preempted by ${priority.name.lowercase()} request")
@@ -175,6 +204,9 @@ internal object ExtractorRuntime {
         initializeDownloader(downloader)
         withContext(ExtractorLeaseContext(downloader)) { block() }
     }
+
+    /** Called when the user taps the exact track currently being prefetched. */
+    internal fun promote(ownerJob: Job): Boolean = admission.promote(ownerJob)
 
     private suspend fun initializeDownloader(downloader: Downloader) {
         runInterruptible(Dispatchers.IO) { downloaderState.ensureInitialized(downloader) }

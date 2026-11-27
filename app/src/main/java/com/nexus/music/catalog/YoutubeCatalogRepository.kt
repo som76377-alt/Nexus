@@ -26,6 +26,9 @@ class YoutubeCatalogRepository(
         }
     }
 
+    /** Promote an in-flight BACKGROUND resolution when its exact track is tapped. */
+    internal fun promoteAudioResolution(ownerJob: Job): Boolean = ExtractorRuntime.promote(ownerJob)
+
     suspend fun resolveAudio(videoUrl: String): ResolvedAudio =
         resolveAudioWithPriority(videoUrl, ExtractorWorkPriority.FOREGROUND)
 
