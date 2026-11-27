@@ -1234,7 +1234,7 @@ class MainActivity : Activity() {
     private fun buildHomeShelf(title: String, tracks: List<CatalogTrack>): LinearLayout {
         val section = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         section.addView(text(title, 22f, primaryText, bold = true))
-        section.addView(text("Sorted by available view count", 11f, secondaryText).apply {
+        section.addView(text("Selected for discovery", 11f, secondaryText).apply {
             setPadding(0, dp(3), 0, dp(10))
         })
         val horizontal = android.widget.HorizontalScrollView(this).apply {
