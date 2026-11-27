@@ -10,10 +10,14 @@ class YoutubeCatalogRepository(
     downloader: OkHttpDownloader = OkHttpDownloader(),
     private val adapter: StreamProviderAdapter = NewPipeStreamProviderAdapter(downloader)
 ) {
+    private val searchCoordinator = SearchRequestCoordinator<CatalogTrack>()
+
     suspend fun search(
         query: String,
         scope: YoutubeSearchScope = YoutubeSearchScope.EVERYTHING
-    ): List<CatalogTrack> = adapter.search(query, scope)
+    ): List<CatalogTrack> = searchCoordinator.search(query, scope) { normalizedQuery ->
+        adapter.search(normalizedQuery, scope)
+    }
 
     suspend fun resolveAudio(videoUrl: String): ResolvedAudio = adapter.resolveAudio(videoUrl)
 

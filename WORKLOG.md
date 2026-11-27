@@ -78,3 +78,9 @@
 | Task | Status | Commit | CI run | Learning |
 |---|---|---|---|---|
 | Upload debug APK immediately after assembleDebug; move release-variant compilation, Provider Lab build-type class inspection, and unsigned-release refusal test to a manually dispatched workflow with a 12-minute compile diagnostic limit | IN PROGRESS | pending | pending | The previous required Android CI assembled the debug APK successfully but did not upload it until after a release-only Kotlin compilation. That step remained in progress for over 45 minutes. Debug validation and release guard validation are now separate so a slow release variant cannot block the installable debug artifact. Release checks are preserved in `.github/workflows/release-validation.yml`, but are not claimed as passed by the debug CI. |
+
+
+## Performance roadmap — Task 4: search cache and single-flight
+| Task | Status | Branch | CI | Scope and evidence |
+|---|---|---|---|---|
+| Add bounded process-memory search caching and coalesce identical in-flight searches on the current integration baseline | IMPLEMENTED — exact-head CI triggered by close-out commit | `perf/task4-search-cache` | CI pending on close-out head | Repository-level coordinator caches up to 24 query/scope entries for five minutes and shares identical in-flight requests. Query whitespace/case is normalized for keys; search scope remains part of the key. Shared work runs independently of an individual screen waiter, so cancelling one waiter does not cancel another caller's request. Successful and empty results are cached; failures are not. Tests cover deduplication, waiter cancellation, scope isolation, retry after failure, LRU eviction, TTL expiry and repository integration. Branch diff from `integration/room-v2`: +421 / −1 (net +420). No provider, playback, room, byte-cache, updater, or UI behavior changes. `SPEC.md` unchanged. Device/network latency and cache hit rates remain UNVERIFIED. |
