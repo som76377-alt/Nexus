@@ -867,11 +867,12 @@ class MainActivity : Activity() {
                 }
                 HomeShelfRefreshRunner(HOME_SHELF_TIMEOUT_MS).run(
                     shelves = staleShelves,
-                    fetch = { spec ->
+                    fetch = { spec, timeoutMs ->
                         repository.searchWithPriority(
                             spec.query,
                             YoutubeSearchScope.MUSIC_SONGS,
-                            ExtractorWorkPriority.BACKGROUND
+                            ExtractorWorkPriority.BACKGROUND,
+                            operationTimeoutMs = timeoutMs
                         )
                             .distinctBy { it.url }
                             .sortedByDescending { it.viewCount ?: -1L }
