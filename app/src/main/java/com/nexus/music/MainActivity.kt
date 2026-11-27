@@ -50,6 +50,7 @@ import com.nexus.music.catalog.HomeShelfSnapshot
 import com.nexus.music.catalog.HomeShelfSpec
 import com.nexus.music.catalog.refreshedHomeShelfSnapshot
 import com.nexus.music.playback.PlaybackConnection
+import com.nexus.music.playback.AudioPrefetchCoordinator
 import com.nexus.music.playback.PlaybackSnapshot
 import com.nexus.music.playback.AudioCacheStore
 import com.nexus.music.playback.CachedAudioResolver
@@ -84,6 +85,21 @@ class MainActivity : Activity() {
     private var homeGeneration = 0L
     private var homeRerollButton: Button? = null
     private val homeCache by lazy { HomeDiscoveryCacheStore(this) }
+    private val audioPrefetch by lazy {
+        AudioPrefetchCoordinator(
+            scope = activityScope,
+            resolveInBackground = { sourceUrl ->
+                CachedAudioResolver(
+                    PersistentAudioCacheLookup(this),
+                    { url ->
+                        repository.resolveAudioWithPriority(url, ExtractorWorkPriority.BACKGROUND)
+                    }
+                ).resolve(sourceUrl)
+            },
+            promoteInFlight = repository::promoteAudioResolution
+        )
+    }
+    private var lastResolvedSourceUrl: String? = null
     private val homeSnapshots = mutableMapOf<String, HomeShelfSnapshot>()
     private val homeShelfViews = mutableMapOf<String, View>()
     private val homeShelfSpecs = listOf(
@@ -753,6 +769,7 @@ class MainActivity : Activity() {
         }
 
         // A newer query or scope always supersedes the previous request.
+        audioPrefetch.cancelSpeculation()
         searchJob?.cancel()
         searchPanel.queryInput.error = null
         val requestGeneration = ++searchGeneration
@@ -877,6 +894,9 @@ class MainActivity : Activity() {
                 if (generation == homeGeneration && !isDestroyed) {
                     updateHomeLoadingState(loading = false)
                     homeLoadJob = null
+                    if (isHomeVisible() && searchJob?.isActive != true && !isResolving) {
+                        scheduleAudioPrefetch()
+                    }
                 }
             }
         }
@@ -1072,16 +1092,31 @@ class MainActivity : Activity() {
         return card
     }
 
+    private fun scheduleAudioPrefetch() {
+        if (isResolving || searchJob?.isActive == true || homeLoadJob?.isActive == true ||
+            !isHomeVisible() || isFinishing || isDestroyed
+        ) return
+
+        val candidate = lastSearchResults.firstOrNull { it.url != lastResolvedSourceUrl }
+            ?: homeShelfSpecs.asSequence()
+                .flatMap { spec -> homeSnapshots[spec.id]?.displayedTracks.orEmpty().asSequence() }
+                .firstOrNull { it.url != lastResolvedSourceUrl }
+        candidate?.let { audioPrefetch.enqueue(it.url) }
+    }
+
     private fun startResolvingTrack(track: CatalogTrack) {
         if (isResolving) return
         isResolving = true
         playerSubtitle.text = "Preparing audio…"
         activityScope.launch {
             try {
-                val audio = CachedAudioResolver(
+                val foregroundResolver = CachedAudioResolver(
                     PersistentAudioCacheLookup(this@MainActivity),
                     repository::resolveAudio
-                ).resolve(track.url)
+                )
+                val audio = audioPrefetch.resolveForPlayback(track.url) { sourceUrl ->
+                    foregroundResolver.resolve(sourceUrl)
+                }
                 showResolved(audio)
             } catch (error: CancellationException) {
                 throw error
@@ -1097,6 +1132,7 @@ class MainActivity : Activity() {
     }
 
     private fun showResolved(audio: ResolvedAudio) {
+        lastResolvedSourceUrl = audio.sourceUrl
         playerTitle.text = audio.title
         playerSubtitle.text = "Sending audio to player…"
         playerArtwork.load(audio.thumbnailUrl?.takeIf(String::isNotBlank))
