@@ -207,6 +207,61 @@ class AudioPrefetchCoordinatorTest {
     }
 
     @Test
+    fun completedPrefetchWithExpiredSignedUrlFallsBackToForegroundResolution() = runBlocking {
+        var now = 1_700_000_000_000L
+        val foregroundCalls = AtomicInteger()
+        val coordinator = AudioPrefetchCoordinator(
+            scope = this,
+            resolveInBackground = { source ->
+                audio(
+                    source,
+                    "https://audio.example/$source?expire=${(now / 1_000L) + (AudioCachePolicy.STALE_EARLY_MS / 1_000L)}"
+                )
+            },
+            promoteInFlight = {},
+            nowMs = { now }
+        )
+
+        coordinator.enqueue("expired-track")
+        coordinator.awaitIdle()
+
+        val result = coordinator.resolveForPlayback("expired-track") {
+            foregroundCalls.incrementAndGet()
+            audio(it, "https://audio.example/$it?expire=${(now / 1_000L) + 3_600L}")
+        }
+
+        assertEquals("expired-track", result.sourceUrl)
+        assertEquals(1, foregroundCalls.get())
+        assertFalse(coordinator.containsCached("expired-track"))
+    }
+
+    @Test
+    fun missingExpiryMetadataUsesOriginalResolutionTimeForFallbackTtl() = runBlocking {
+        var now = 1_700_000_000_000L
+        val foregroundCalls = AtomicInteger()
+        val coordinator = AudioPrefetchCoordinator(
+            scope = this,
+            resolveInBackground = { audio(it) },
+            promoteInFlight = {},
+            freshnessMs = 30 * 60_000L,
+            nowMs = { now }
+        )
+
+        coordinator.enqueue("unknown-expiry")
+        coordinator.awaitIdle()
+        now += 20 * 60_000L
+
+        val result = coordinator.resolveForPlayback("unknown-expiry") {
+            foregroundCalls.incrementAndGet()
+            audio(it)
+        }
+
+        assertEquals("unknown-expiry", result.sourceUrl)
+        assertEquals(1, foregroundCalls.get())
+        assertFalse(coordinator.containsCached("unknown-expiry"))
+    }
+
+    @Test
     fun onlyOneSpeculativeResolutionRunsAtATime() = runBlocking {
         val active = AtomicInteger()
         val maximum = AtomicInteger()
@@ -252,13 +307,13 @@ class AudioPrefetchCoordinatorTest {
         }
     }
 
-    private fun audio(url: String) = ResolvedAudio(
+    private fun audio(url: String, audioUrl: String = "https://audio.example/$url") = ResolvedAudio(
         sourceUrl = url,
         title = url,
         artist = null,
         thumbnailUrl = null,
         durationSeconds = null,
-        audioUrl = "https://audio.example/$url",
+        audioUrl = audioUrl,
         averageBitrate = 128_000,
         mimeType = "audio/webm"
     )
