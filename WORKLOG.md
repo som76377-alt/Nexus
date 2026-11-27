@@ -78,3 +78,10 @@
 | Task | Status | Commit | CI run | Learning |
 |---|---|---|---|---|
 | Upload debug APK immediately after assembleDebug; move release-variant compilation, Provider Lab build-type class inspection, and unsigned-release refusal test to a manually dispatched workflow with a 12-minute compile diagnostic limit | IN PROGRESS | pending | pending | The previous required Android CI assembled the debug APK successfully but did not upload it until after a release-only Kotlin compilation. That step remained in progress for over 45 minutes. Debug validation and release guard validation are now separate so a slow release variant cannot block the installable debug artifact. Release checks are preserved in `.github/workflows/release-validation.yml`, but are not claimed as passed by the debug CI. |
+
+
+## Performance repair — Task 3: provider selection and hedging
+
+| Task | Status | Implementation commit | CI | Learning |
+|---|---|---|---|---|
+| Task 3 — advance fallback immediately after fast provider failures/empty search results; hedge only while a request remains slow | IMPLEMENTED — exact-head CI triggered by close-out commit | `3d21c33d70caf236c19b3e1e03332d1b2fc2a1a2` | CI pending on close-out head | The previous fixed stagger delayed fallback after a provider had already failed or returned no search matches. The resolver now advances immediately on completed misses/failures and retains staggered hedging only while a request is still running. Provider order, health cooldown ranking, attempt cap, error classification, and loser cancellation are preserved. Proving tests cover immediate fallback after failure/empty result and avoid unnecessary backup after a fast success, alongside existing slow-hedge/cancellation bounds. Branch diff from `integration/room-v2`: +103 / −9 (net +94). Device/network latency remains UNVERIFIED. |
