@@ -38,6 +38,65 @@ class ProviderResolverChainTest {
     }
 
     @Test
+    fun fastPreferredSuccessDoesNotStartUnneededFallback() = runBlocking {
+        val calls = mutableListOf<StreamProvider>()
+        val chain = ProviderResolverChain(
+            adapters = listOf(
+                FakeAdapter(StreamProvider.NEWPIPE, calls) { resolvedAudio() },
+                FakeAdapter(StreamProvider.PIPED, calls) { resolvedAudio() }
+            ),
+            healthStore = InMemoryHealthStore(),
+            providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
+            hedgeDelayMs = 5_000L
+        )
+
+        val result = chain.resolveAudio("https://youtube.com/watch?v=abcdefghijk")
+
+        assertEquals("https://media.example/audio.m4a", result.audioUrl)
+        assertEquals(listOf(StreamProvider.NEWPIPE), calls)
+    }
+
+    @Test
+    fun resolveStartsFallbackImmediatelyAfterFastProviderFailure() = runBlocking {
+        val calls = mutableListOf<StreamProvider>()
+        val chain = ProviderResolverChain(
+            adapters = listOf(
+                FakeAdapter(StreamProvider.NEWPIPE, calls) { throw IOException("offline") },
+                FakeAdapter(StreamProvider.PIPED, calls) { resolvedAudio() }
+            ),
+            healthStore = InMemoryHealthStore(),
+            providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
+            hedgeDelayMs = 5_000L
+        )
+
+        val result = withTimeout(1_000L) {
+            chain.resolveAudio("https://youtube.com/watch?v=abcdefghijk")
+        }
+
+        assertEquals("https://media.example/audio.m4a", result.audioUrl)
+        assertEquals(listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED), calls)
+    }
+
+    @Test
+    fun searchStartsFallbackImmediatelyAfterEmptyFirstProviderResult() = runBlocking {
+        val calls = mutableListOf<StreamProvider>()
+        val chain = ProviderResolverChain(
+            adapters = listOf(
+                FakeAdapter(StreamProvider.NEWPIPE, calls, search = { emptyList() }) { resolvedAudio() },
+                FakeAdapter(StreamProvider.PIPED, calls, search = { listOf(catalogTrack()) }) { resolvedAudio() }
+            ),
+            healthStore = InMemoryHealthStore(),
+            providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
+            hedgeDelayMs = 5_000L
+        )
+
+        val results = withTimeout(1_000L) { chain.search("ambient") }
+
+        assertEquals(listOf(catalogTrack()), results)
+        assertEquals(listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED), calls)
+    }
+
+    @Test
     fun searchFallsBackWhenFirstProviderReturnsNoResults() = runBlocking {
         val calls = mutableListOf<StreamProvider>()
         val chain = ProviderResolverChain(
