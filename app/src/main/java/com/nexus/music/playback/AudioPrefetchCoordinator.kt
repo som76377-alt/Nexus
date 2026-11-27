@@ -36,6 +36,7 @@ internal class AudioPrefetchCoordinator(
     private val lock = Any()
     private val completed = LinkedHashMap<String, Cached>(capacity, 0.75f, true)
     private val pending = ArrayDeque<String>()
+    private val scheduledUrls = mutableSetOf<String>()
     private var worker: Job? = null
     private var active: Active? = null
     private var generation = 0L
@@ -56,11 +57,10 @@ internal class AudioPrefetchCoordinator(
         if (sourceUrl.isBlank()) return
         synchronized(lock) {
             pruneExpiredLocked()
-            if (completed.containsKey(sourceUrl) ||
-                active?.sourceUrl == sourceUrl ||
-                pending.contains(sourceUrl)
-            ) return
-            while (pending.size >= queueCapacity) pending.removeFirst()
+            if (completed.containsKey(sourceUrl) || !scheduledUrls.add(sourceUrl)) return
+            while (pending.size >= queueCapacity) {
+                scheduledUrls.remove(pending.removeFirst())
+            }
             pending.addLast(sourceUrl)
             startWorkerLocked()
         }
@@ -84,6 +84,7 @@ internal class AudioPrefetchCoordinator(
             matching?.promoted = true
             unrelated = active?.takeIf { it.sourceUrl != sourceUrl }?.deferred
             generation++
+            pending.forEach(scheduledUrls::remove)
             pending.clear()
         }
 
@@ -113,6 +114,7 @@ internal class AudioPrefetchCoordinator(
     fun cancelSpeculation() {
         val running = synchronized(lock) {
             generation++
+            pending.forEach(scheduledUrls::remove)
             pending.clear()
             active?.takeIf { !it.promoted }?.deferred
         }
@@ -132,7 +134,9 @@ internal class AudioPrefetchCoordinator(
     fun close() {
         val running = synchronized(lock) {
             generation++
+            pending.forEach(scheduledUrls::remove)
             pending.clear()
+            scheduledUrls.clear()
             active?.deferred
         }
         running?.cancel()
@@ -166,6 +170,7 @@ internal class AudioPrefetchCoordinator(
                         }
                     }
                     if (!accepted) {
+                        synchronized(lock) { scheduledUrls.remove(sourceUrl) }
                         task.cancel()
                         return@coroutineScope
                     }
@@ -189,6 +194,7 @@ internal class AudioPrefetchCoordinator(
                     } finally {
                         synchronized(lock) {
                             if (active?.deferred === task) active = null
+                            scheduledUrls.remove(sourceUrl)
                         }
                     }
                 }
@@ -196,7 +202,10 @@ internal class AudioPrefetchCoordinator(
         } finally {
             synchronized(lock) {
                 if (worker === thisWorker) worker = null
-                if (active?.deferred?.isCancelled == true) active = null
+                if (active?.deferred?.isCancelled == true) {
+                    active?.sourceUrl?.let(scheduledUrls::remove)
+                    active = null
+                }
                 if (pending.isNotEmpty() && worker == null) startWorkerLocked()
             }
         }
