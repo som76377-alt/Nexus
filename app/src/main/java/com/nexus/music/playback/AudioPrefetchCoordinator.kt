@@ -18,7 +18,7 @@ import java.util.LinkedHashMap
 /**
  * Single-worker speculative audio resolver.
  *
- * Completed streams are process-memory only (12-entry LRU, 60-second freshness window).
+ * Completed streams are process-memory only (12-entry LRU), bounded by signed URL expiry.
  * Canonical source URLs are the identity; short-lived audio URLs are never persisted here.
  */
 internal class AudioPrefetchCoordinator(
@@ -27,10 +27,9 @@ internal class AudioPrefetchCoordinator(
     private val promoteInFlight: (Job) -> Unit,
     private val capacity: Int = DEFAULT_CAPACITY,
     private val queueCapacity: Int = DEFAULT_QUEUE_CAPACITY,
-    private val freshnessMs: Long = DEFAULT_FRESHNESS_MS,
     private val nowMs: () -> Long = System::currentTimeMillis
 ) {
-    private data class Cached(val audio: ResolvedAudio, val storedAtMs: Long, val expiryEpochMs: Long)
+    private data class Cached(val audio: ResolvedAudio, val expiryEpochMs: Long)
     private data class Active(val sourceUrl: String, val deferred: Deferred<ResolvedAudio>, var promoted: Boolean = false)
 
     private val lock = Any()
@@ -44,7 +43,6 @@ internal class AudioPrefetchCoordinator(
     init {
         require(capacity > 0)
         require(queueCapacity > 0)
-        require(freshnessMs > 0L)
     }
 
     val cachedEntryCount: Int get() = synchronized(lock) { pruneExpiredLocked(); completed.size }
@@ -182,7 +180,6 @@ internal class AudioPrefetchCoordinator(
                             val storedAtMs = nowMs()
                             completed[sourceUrl] = Cached(
                                 audio = audio,
-                                storedAtMs = storedAtMs,
                                 expiryEpochMs = AudioCachePolicy.expiryEpochMs(audio.audioUrl, storedAtMs)
                             )
                             while (completed.size > capacity) {
@@ -222,7 +219,7 @@ internal class AudioPrefetchCoordinator(
         val iterator = completed.entries.iterator()
         while (iterator.hasNext()) {
             val cached = iterator.next().value
-            if (cached.storedAtMs < cutoff || !AudioCachePolicy.isUrlFresh(cached.expiryEpochMs, nowMs())) {
+            if (!AudioCachePolicy.isUrlFresh(cached.expiryEpochMs, nowMs())) {
                 iterator.remove()
             }
         }
@@ -231,6 +228,5 @@ internal class AudioPrefetchCoordinator(
     companion object {
         const val DEFAULT_CAPACITY = 12
         const val DEFAULT_QUEUE_CAPACITY = 12
-        const val DEFAULT_FRESHNESS_MS = 60_000L
     }
 }
