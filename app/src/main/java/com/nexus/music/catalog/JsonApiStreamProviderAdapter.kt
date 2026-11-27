@@ -1,12 +1,16 @@
 package com.nexus.music.catalog
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import com.nexus.music.performance.NexusPerformance
+import com.nexus.music.performance.NexusOkHttpEventListener
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.EventListener
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -272,21 +276,39 @@ abstract class JsonApiStreamProviderAdapter(
     }
 
     private suspend fun <T> executeAcrossInstances(block: suspend (HttpUrl) -> T): T {
+        val parentTrace = if (NexusPerformance.isEnabled()) currentCoroutineContext()[NexusPerformance.TraceContext]?.trace else null
         var lastError: IOException? = null
         val configuredEndpoints = endpoints
         if (configuredEndpoints.isEmpty()) {
             throw IOException("No healthy ${provider.key} instance is configured.")
         }
-        configuredEndpoints.forEach { endpoint ->
+        configuredEndpoints.forEachIndexed { index, endpoint ->
+            val endpointDetail = "provider=" + provider.key + " attempt=" + (index + 1) +
+                " host=" + endpoint.host
+            val endpointTrace = NexusPerformance.begin("provider_endpoint",
+                foreground = NexusPerformance.isForeground(), detail = endpointDetail)
+            parentTrace?.let { NexusPerformance.event(it, "provider_endpoint_start", endpointDetail) }
             try {
-                return block(endpoint)
+                val result = block(endpoint)
+                NexusPerformance.finish(endpointTrace, "success")
+                parentTrace?.let { NexusPerformance.event(it, "provider_endpoint_success", endpointDetail) }
+                return result
             } catch (error: kotlinx.coroutines.CancellationException) {
+                NexusPerformance.finish(endpointTrace, "cancelled")
+                parentTrace?.let { NexusPerformance.event(it, "provider_endpoint_cancelled", endpointDetail) }
                 throw error
             } catch (error: ProviderCapabilityException) {
+                NexusPerformance.finish(endpointTrace, "unsupported")
+                parentTrace?.let { NexusPerformance.event(it, "provider_endpoint_unsupported", endpointDetail) }
                 throw error
             } catch (error: IOException) {
+                NexusPerformance.finish(endpointTrace, "error=" + error.javaClass.simpleName)
+                parentTrace?.let { NexusPerformance.event(it, "provider_endpoint_error", endpointDetail +
+                    " error=" + error.javaClass.simpleName) }
                 lastError = error
             } catch (error: org.json.JSONException) {
+                NexusPerformance.finish(endpointTrace, "invalid_json")
+                parentTrace?.let { NexusPerformance.event(it, "provider_endpoint_invalid_json", endpointDetail) }
                 lastError = IOException("${provider.key} API returned an invalid response.", error)
             }
         }
@@ -320,6 +342,10 @@ abstract class JsonApiStreamProviderAdapter(
 
         internal fun defaultApiClient(): OkHttpClient =
             OkHttpClient.Builder()
+                .eventListenerFactory(object : EventListener.Factory {
+                    override fun create(call: okhttp3.Call): EventListener =
+                        if (NexusPerformance.isEnabled()) NexusOkHttpEventListener() else EventListener.NONE
+                })
                 .connectTimeout(10, TimeUnit.SECONDS)
                 .readTimeout(20, TimeUnit.SECONDS)
                 .callTimeout(30, TimeUnit.SECONDS)
