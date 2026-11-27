@@ -83,7 +83,6 @@ internal class AudioPrefetchCoordinator(
             matching?.promoted = true
             unrelated = active?.takeIf { it.sourceUrl != sourceUrl }?.deferred
             pending.clear()
-            if (matching == null) completed.remove(sourceUrl)
         }
 
         if (cached != null) {
