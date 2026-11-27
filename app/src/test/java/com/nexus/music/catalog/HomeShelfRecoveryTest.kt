@@ -1,7 +1,11 @@
 package com.nexus.music.catalog
 
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -88,6 +92,53 @@ class HomeShelfRecoveryTest {
         assertEquals(pool, refreshed.pool)
         assertEquals(displayed, refreshed.displayedTracks)
         assertEquals(previous.history, refreshed.history)
+    }
+
+
+    @Test fun foregroundRequestPreemptsHomeWorkAndARefreshCanRecoverIt() = runBlocking {
+        val queue = PriorityAdmissionQueue()
+        val shelfStarted = CompletableDeferred<Unit>()
+        var firstAttempt = true
+        val rendered = mutableListOf<String>()
+        val shelfA = HomeShelfSpec("a", "A", "query a")
+        val shelfB = HomeShelfSpec("b", "B", "query b")
+
+        val home = launch {
+            HomeShelfRefreshRunner(1_000L).run(
+                shelves = listOf(shelfA, shelfB),
+                fetch = { shelf ->
+                    queue.withLease(ExtractorWorkPriority.BACKGROUND) {
+                        if (shelf.id == "a" && firstAttempt) {
+                            firstAttempt = false
+                            shelfStarted.complete(Unit)
+                            awaitCancellation()
+                        }
+                        listOf(track(if (shelf.id == "a") 1 else 2))
+                    }
+                },
+                onResult = { shelf, _ -> rendered += shelf.id }
+            )
+        }
+        shelfStarted.await()
+
+        val foreground = launch {
+            queue.withLease(ExtractorWorkPriority.FOREGROUND) { }
+        }
+        withTimeout(2_000L) {
+            foreground.join()
+            home.join()
+        }
+        assertEquals(listOf("b"), rendered)
+
+        // MainActivity schedules this refresh after foreground search or playback finishes.
+        HomeShelfRefreshRunner(1_000L).run(
+            shelves = listOf(shelfA),
+            fetch = { shelf ->
+                queue.withLease(ExtractorWorkPriority.BACKGROUND) { listOf(track(3)) }
+            },
+            onResult = { shelf, _ -> rendered += shelf.id }
+        )
+        assertEquals(listOf("b", "a"), rendered)
     }
 
     private fun track(id: Int) = CatalogTrack(
