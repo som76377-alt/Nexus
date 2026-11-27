@@ -24,7 +24,7 @@ internal object HomeDiscoveryEngine {
         val random = Random(seed)
         val artistSeeds = (savedTracks + recentTracks)
             .mapNotNull { track ->
-                track.artist?.trim()?.takeIf { normalizeArtistName(it) !in memory.dislikedArtists }
+                track.artist?.trim()?.takeIf { normalizeArtistName(it)?.let { key -> key !in memory.dislikedArtists } == true }
             }
             .distinctBy { normalizeArtistName(it) }
             .take(4)
