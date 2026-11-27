@@ -31,7 +31,7 @@ private class ExtractorLeaseContext(
 /** Exclusive, priority-aware admission for NewPipe's process-wide mutable runtime. */
 internal class PriorityAdmissionQueue {
     private data class Waiter(
-        val priority: ExtractorWorkPriority,
+        var priority: ExtractorWorkPriority,
         val ownerJob: Job?,
         val signal: CompletableDeferred<Unit> = CompletableDeferred(),
         var granted: Boolean = false
@@ -45,6 +45,22 @@ internal class PriorityAdmissionQueue {
 
     internal val queuedCount: Int
         get() = synchronized(monitor) { waiters.size }
+
+    /** Promote one matching speculative owner without cancelling or duplicating its extraction. */
+    fun promote(ownerJob: Job): Boolean = synchronized(monitor) {
+        if (activeJob === ownerJob) {
+            activePriority = ExtractorWorkPriority.FOREGROUND
+            return@synchronized true
+        }
+        val waiter = waiters.firstOrNull { it.ownerJob === ownerJob } ?: return@synchronized false
+        waiter.priority = ExtractorWorkPriority.FOREGROUND
+        waiters.remove(waiter)
+        val insertion = waiters.indexOfFirst {
+            it.priority.ordinal > ExtractorWorkPriority.FOREGROUND.ordinal
+        }
+        if (insertion < 0) waiters.add(waiter) else waiters.add(insertion, waiter)
+        true
+    }
 
     suspend fun <T> withLease(
         priority: ExtractorWorkPriority,
@@ -175,6 +191,9 @@ internal object ExtractorRuntime {
         initializeDownloader(downloader)
         withContext(ExtractorLeaseContext(downloader)) { block() }
     }
+
+    /** Called when the user taps the exact track currently being prefetched. */
+    internal fun promote(ownerJob: Job): Boolean = admission.promote(ownerJob)
 
     private suspend fun initializeDownloader(downloader: Downloader) {
         runInterruptible(Dispatchers.IO) { downloaderState.ensureInitialized(downloader) }
