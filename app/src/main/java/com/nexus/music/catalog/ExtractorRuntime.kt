@@ -39,6 +39,7 @@ internal class PriorityAdmissionQueue {
 
     private val monitor = Any()
     private val waiters = mutableListOf<Waiter>()
+    private val promotedJobs = mutableSetOf<Job>()
     private var occupied = false
     private var activePriority = ExtractorWorkPriority.BACKGROUND
     private var activeJob: Job? = null
@@ -52,13 +53,20 @@ internal class PriorityAdmissionQueue {
             activePriority = ExtractorWorkPriority.FOREGROUND
             return@synchronized true
         }
-        val waiter = waiters.firstOrNull { it.ownerJob === ownerJob } ?: return@synchronized false
-        waiter.priority = ExtractorWorkPriority.FOREGROUND
-        waiters.remove(waiter)
-        val insertion = waiters.indexOfFirst {
-            it.priority.ordinal > ExtractorWorkPriority.FOREGROUND.ordinal
+        val waiter = waiters.firstOrNull { it.ownerJob === ownerJob }
+        if (waiter != null) {
+            waiter.priority = ExtractorWorkPriority.FOREGROUND
+            waiters.remove(waiter)
+            val insertion = waiters.indexOfFirst {
+                it.priority.ordinal > ExtractorWorkPriority.FOREGROUND.ordinal
+            }
+            if (insertion < 0) waiters.add(waiter) else waiters.add(insertion, waiter)
+            return@synchronized true
         }
-        if (insertion < 0) waiters.add(waiter) else waiters.add(insertion, waiter)
+        // The user can tap between enqueue and the background coroutine entering this gate.
+        // Remember promotion so its eventual admission is FOREGROUND rather than losing the tap.
+        promotedJobs.add(ownerJob)
+        ownerJob.invokeOnCompletion { synchronized(monitor) { promotedJobs.remove(ownerJob) } }
         true
     }
 
@@ -78,13 +86,18 @@ internal class PriorityAdmissionQueue {
 
     private suspend fun acquire(priority: ExtractorWorkPriority, ownerJob: Job?) {
         val waiter = synchronized(monitor) {
+            val effectivePriority = if (ownerJob != null && promotedJobs.remove(ownerJob)) {
+                ExtractorWorkPriority.FOREGROUND
+            } else {
+                priority
+            }
             if (!occupied && waiters.isEmpty()) {
                 occupied = true
-                activePriority = priority
+                activePriority = effectivePriority
                 activeJob = ownerJob
                 return
             }
-            Waiter(priority, ownerJob).also { candidate ->
+            Waiter(effectivePriority, ownerJob).also { candidate ->
                 val insertion = waiters.indexOfFirst {
                     it.priority.ordinal > candidate.priority.ordinal
                 }
@@ -94,7 +107,7 @@ internal class PriorityAdmissionQueue {
 
         // Cancellation handlers can release the lease, so never cancel while holding the monitor.
         val preemptedJob = synchronized(monitor) {
-            activeJob.takeIf { priority.ordinal < activePriority.ordinal }
+            activeJob.takeIf { waiter.priority.ordinal < activePriority.ordinal }
         }
         preemptedJob?.cancel(
             CancellationException("NewPipe work preempted by ${priority.name.lowercase()} request")
