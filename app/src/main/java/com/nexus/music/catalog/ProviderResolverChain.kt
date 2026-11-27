@@ -5,7 +5,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.selects.select
+import kotlinx.coroutines.selects.onTimeout
 import java.io.IOException
 
 /**
@@ -125,7 +126,10 @@ class ProviderResolverChain(
                     }
 
                     val outcome = if (nextIndex < ordered.size) {
-                        withTimeoutOrNull(hedgeDelayMs) { outcomes.receive() }
+                        select<Result<T>?> {
+                            outcomes.onReceive { it }
+                            onTimeout(hedgeDelayMs) { null }
+                        }
                     } else {
                         outcomes.receive()
                     }
