@@ -172,22 +172,23 @@ class HomeShelfRecoveryTest {
         )
         val fetch: suspend (HomeShelfSpec, Long) -> List<CatalogTrack> = { shelf, timeoutMs ->
             coordinator.search(
-                shelf.query,
-                YoutubeSearchScope.MUSIC_SONGS,
-                ExtractorWorkPriority.BACKGROUND,
-                timeoutMs
-            ) {
-                val context = currentCoroutineContext()[ExtractorPriorityContext]!!
-                queue.withLease(context.priority, context.ownerJob) {
-                    if (shelf.id == "a" && firstAttempt) {
-                        firstAttempt = false
-                        extractionStarted.complete(Unit)
-                        awaitCancellation()
+                query = shelf.query,
+                scope = YoutubeSearchScope.MUSIC_SONGS,
+                priority = ExtractorWorkPriority.BACKGROUND,
+                operationTimeoutMs = timeoutMs,
+                loader = {
+                    val context = currentCoroutineContext()[ExtractorPriorityContext]!!
+                    queue.withLease(context.priority, context.ownerJob) {
+                        if (shelf.id == "a" && firstAttempt) {
+                            firstAttempt = false
+                            extractionStarted.complete(Unit)
+                            awaitCancellation()
+                        }
+                        if (shelf.id == "b") secondShelfStarted.complete(Unit)
+                        listOf(track(if (shelf.id == "a") 1 else 2))
                     }
-                    if (shelf.id == "b") secondShelfStarted.complete(Unit)
-                    listOf(track(if (shelf.id == "a") 1 else 2))
                 }
-            }
+            )
         }
 
         val home = launch {
