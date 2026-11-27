@@ -341,6 +341,7 @@ class MainActivity : Activity() {
     }
 
     private fun showLibrary() {
+        audioPrefetch.cancelSpeculation()
         youRenderGeneration++
         if (!::mainScroll.isInitialized) return
         mainScroll.removeAllViews()
@@ -360,6 +361,7 @@ class MainActivity : Activity() {
 
     private fun showYou() {
         if (!::mainScroll.isInitialized) return
+        audioPrefetch.cancelSpeculation()
         val generation = ++youRenderGeneration
         activityScope.launch {
             val usedBytes = withContext(Dispatchers.IO) {
@@ -417,6 +419,7 @@ class MainActivity : Activity() {
     }
 
     private fun openRoomPage() {
+        audioPrefetch.cancelSpeculation()
         youRenderGeneration++
         startActivity(
             Intent(this, com.nexus.music.rooms.ListeningRoomActivity::class.java)
@@ -1098,7 +1101,7 @@ class MainActivity : Activity() {
 
     private fun scheduleAudioPrefetch() {
         if (isResolving || searchJob?.isActive == true || homeLoadJob?.isActive == true ||
-            !isHomeVisible() || isFinishing || isDestroyed
+            !isHomeVisible() || !isActivityStarted || isFinishing || isDestroyed
         ) return
 
         val candidate = lastSearchResults.firstOrNull { it.url != lastResolvedSourceUrl }
@@ -1221,6 +1224,7 @@ class MainActivity : Activity() {
         isActivityStarted = true
         if (::updateStatusText.isInitialized) checkForUpdates()
         updatePlaybackUi(playbackConnection?.snapshot() ?: lastPlaybackSnapshot)
+        if (homeLoadJob?.isActive != true && isHomeVisible()) scheduleAudioPrefetch()
     }
 
     override fun onStop() {
