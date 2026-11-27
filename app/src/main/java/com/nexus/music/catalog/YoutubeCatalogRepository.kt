@@ -23,7 +23,8 @@ class YoutubeCatalogRepository(
     internal suspend fun searchWithPriority(
         query: String,
         scope: YoutubeSearchScope,
-        priority: ExtractorWorkPriority
+        priority: ExtractorWorkPriority,
+        operationTimeoutMs: Long? = null
     ): List<CatalogTrack> {
         val ownerJob: Job? = currentCoroutineContext()[Job]
         val trace = currentCoroutineContext()[NexusPerformance.TraceContext]?.trace
@@ -31,7 +32,7 @@ class YoutubeCatalogRepository(
             NexusPerformance.event(trace, "repository_search_entry", "scope=" + scope)
         }
         return withContext(ExtractorPriorityContext(priority, ownerJob)) {
-            searchCoordinator.search(query, scope, priority) { normalizedQuery ->
+            searchCoordinator.search(query, scope, priority, operationTimeoutMs) { normalizedQuery ->
                 adapter.search(normalizedQuery, scope)
             }
         }
