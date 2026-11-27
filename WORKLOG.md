@@ -78,3 +78,9 @@
 | Task | Status | Commit | CI run | Learning |
 |---|---|---|---|---|
 | Upload debug APK immediately after assembleDebug; move release-variant compilation, Provider Lab build-type class inspection, and unsigned-release refusal test to a manually dispatched workflow with a 12-minute compile diagnostic limit | IN PROGRESS | pending | pending | The previous required Android CI assembled the debug APK successfully but did not upload it until after a release-only Kotlin compilation. That step remained in progress for over 45 minutes. Debug validation and release guard validation are now separate so a slow release variant cannot block the installable debug artifact. Release checks are preserved in `.github/workflows/release-validation.yml`, but are not claimed as passed by the debug CI. |
+
+
+## Performance roadmap — Task 4: search cache and single-flight
+| Task | Status | Branch | CI | Scope and evidence |
+|---|---|---|---|---|
+| Add bounded process-memory search caching and coalesce identical in-flight searches on the current integration baseline | IMPLEMENTED — CI pending | `perf/task4-search-cache` | Pending exact-head Android lint, unit tests and debug APK assembly | Repository-level coordinator caches up to 24 query/scope entries for five minutes and shares identical in-flight requests. Query whitespace/case is normalized for keys; search scope remains part of the key. Shared work runs independently of an individual screen waiter, so cancelling one waiter does not cancel another caller's request. Failures are not cached; empty results are cached briefly under the same TTL. Applies to both MainActivity searches and Home shelves through the existing repository facade. No provider, playback, room, cache-byte, updater, or UI behavior changes. `SPEC.md` unchanged. Device/network latency and cache hit rates remain UNVERIFIED until measured on-device. |
