@@ -116,6 +116,55 @@ class AudioPrefetchCoordinatorTest {
     }
 
     @Test
+    fun pendingQueueNeverExceedsItsTwelveEntryBound() = runBlocking {
+        val gate = CompletableDeferred<Unit>()
+        val coordinator = AudioPrefetchCoordinator(
+            scope = this,
+            resolveInBackground = {
+                gate.await()
+                audio(it)
+            },
+            promoteInFlight = {}
+        )
+
+        coordinator.enqueue("active")
+        awaitCondition { coordinator.activeSourceUrl == "active" }
+        repeat(20) { coordinator.enqueue("queued-$it") }
+
+        assertEquals(AudioPrefetchCoordinator.DEFAULT_QUEUE_CAPACITY, coordinator.queuedCount)
+        gate.complete(Unit)
+        coordinator.awaitIdle()
+    }
+
+    @Test
+    fun failedMatchingPrefetchFallsBackToForegroundResolution() = runBlocking {
+        val gate = CompletableDeferred<Unit>()
+        val foregroundCalls = AtomicInteger()
+        val coordinator = AudioPrefetchCoordinator(
+            scope = this,
+            resolveInBackground = {
+                gate.await()
+                error("speculative extraction failed")
+            },
+            promoteInFlight = {}
+        )
+
+        coordinator.enqueue("track-a")
+        awaitCondition { coordinator.activeSourceUrl == "track-a" }
+        val playback = async {
+            coordinator.resolveForPlayback("track-a") {
+                foregroundCalls.incrementAndGet()
+                audio(it)
+            }
+        }
+        gate.complete(Unit)
+
+        assertEquals("track-a", withTimeout(2_000) { playback.await() }.sourceUrl)
+        coordinator.awaitIdle()
+        assertEquals(1, foregroundCalls.get())
+    }
+
+    @Test
     fun onlyOneSpeculativeResolutionRunsAtATime() = runBlocking {
         val active = AtomicInteger()
         val maximum = AtomicInteger()
