@@ -158,7 +158,6 @@ class HomeShelfRecoveryTest {
         durationSeconds = 180L,
         viewCount = id.toLong()
     )
-}
 
     @Test
     fun queuedShelfGetsItsFullTimeoutAfterEightSecondForegroundLease() = runTest {
@@ -200,3 +199,4 @@ class HomeShelfRecoveryTest {
         assertEquals(listOf("queued"), completed)
         assertTrue(failed.isEmpty())
     }
+}
