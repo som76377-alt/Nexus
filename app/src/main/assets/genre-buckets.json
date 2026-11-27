@@ -251,6 +251,198 @@
           "EVERYTHING"
         ]
       ]
+    },
+    {
+      "id": "moods",
+      "title": "Moods",
+      "buckets": [
+        [
+          "late-night",
+          "Late night",
+          "late night alternative music songs",
+          "MUSIC_SONGS"
+        ],
+        [
+          "dreamy",
+          "Dreamy",
+          "dream pop dreamlike music official audio",
+          "MUSIC_SONGS"
+        ],
+        [
+          "melancholy",
+          "Melancholic",
+          "melancholic indie songs official audio",
+          "MUSIC_SONGS"
+        ],
+        [
+          "uplifting",
+          "Uplifting",
+          "uplifting feel good music official audio",
+          "MUSIC_SONGS"
+        ],
+        [
+          "romantic",
+          "Romantic",
+          "romantic melody songs official audio",
+          "MUSIC_SONGS"
+        ],
+        [
+          "energetic",
+          "High energy",
+          "high energy dance music official audio",
+          "MUSIC_SONGS"
+        ],
+        [
+          "calm",
+          "Calm",
+          "calm peaceful music official audio",
+          "MUSIC_SONGS"
+        ],
+        [
+          "cinematic",
+          "Cinematic",
+          "cinematic instrumental soundtrack",
+          "MUSIC_SONGS"
+        ],
+        [
+          "acoustic",
+          "Acoustic",
+          "acoustic session live music",
+          "MUSIC_SONGS"
+        ],
+        [
+          "focus",
+          "Focus",
+          "deep focus instrumental music",
+          "EVERYTHING"
+        ]
+      ]
+    },
+    {
+      "id": "more-to-discover",
+      "title": "More to discover",
+      "buckets": [
+        [
+          "hidden-gems",
+          "Hidden gems",
+          "underrated hidden gem songs official audio",
+          "MUSIC_SONGS"
+        ],
+        [
+          "emerging-artists",
+          "Emerging artists",
+          "emerging independent music artists official audio",
+          "MUSIC_SONGS"
+        ],
+        [
+          "deep-cuts",
+          "Deep cuts",
+          "album deep cuts underrated tracks",
+          "MUSIC_SONGS"
+        ],
+        [
+          "live-sessions",
+          "Live sessions",
+          "artist live session music performance",
+          "MUSIC_SONGS"
+        ],
+        [
+          "acoustic-versions",
+          "Acoustic versions",
+          "acoustic versions of popular songs",
+          "MUSIC_SONGS"
+        ],
+        [
+          "cover-discovery",
+          "Unexpected covers",
+          "beautiful cover versions music",
+          "MUSIC_SONGS"
+        ],
+        [
+          "soundtrack-discovery",
+          "Soundtrack discoveries",
+          "great film soundtrack songs",
+          "MUSIC_SONGS"
+        ],
+        [
+          "world-music",
+          "Around the world",
+          "world music traditional contemporary fusion",
+          "MUSIC_SONGS"
+        ],
+        [
+          "funk",
+          "Funk",
+          "funk music official audio",
+          "MUSIC_SONGS"
+        ],
+        [
+          "metal",
+          "Metal",
+          "metal music official audio song",
+          "MUSIC_SONGS"
+        ],
+        [
+          "house",
+          "House",
+          "house music official audio",
+          "MUSIC_SONGS"
+        ],
+        [
+          "afrobeat",
+          "Afrobeats",
+          "afrobeats official audio song",
+          "MUSIC_SONGS"
+        ],
+        [
+          "qawwali",
+          "Qawwali",
+          "qawwali music official audio",
+          "MUSIC_SONGS"
+        ],
+        [
+          "sufi",
+          "Sufi",
+          "sufi music official audio",
+          "MUSIC_SONGS"
+        ],
+        [
+          "devotional",
+          "Devotional",
+          "Indian devotional music official audio",
+          "MUSIC_SONGS"
+        ],
+        [
+          "bhangra",
+          "Bhangra",
+          "bhangra music official audio",
+          "MUSIC_SONGS"
+        ],
+        [
+          "arabic",
+          "Arabic",
+          "Arabic music official audio song",
+          "MUSIC_SONGS"
+        ],
+        [
+          "french",
+          "French",
+          "French music official audio song",
+          "MUSIC_SONGS"
+        ],
+        [
+          "k-pop",
+          "K-pop",
+          "K-pop official audio song",
+          "MUSIC_SONGS"
+        ],
+        [
+          "j-pop",
+          "J-pop",
+          "J-pop official audio song",
+          "MUSIC_SONGS"
+        ]
+      ]
     }
   ]
 }

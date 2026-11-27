@@ -220,6 +220,22 @@ class HomeShelfRecoveryTest {
         assertEquals(listOf("b", "a", "b"), rendered)
     }
 
+    @Test
+    fun refreshPreservesTheDiscoveryEnginesRelevanceOrder() {
+        val highestRanked = track(90)
+        val lowerRanked = track(10)
+        val refreshed = refreshedHomeShelfSnapshot(
+            previous = null,
+            fetchedAtEpochMs = 100L,
+            tracks = listOf(highestRanked, lowerRanked),
+            poolLimit = 40,
+            visibleLimit = 1,
+            historyLimit = 120
+        )
+
+        assertEquals(listOf(highestRanked), refreshed.displayedTracks)
+    }
+
     private fun track(id: Int) = CatalogTrack(
         url = "https://www.youtube.com/watch?v=track$id",
         title = "Track $id",

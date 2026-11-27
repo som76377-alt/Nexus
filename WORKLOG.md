@@ -148,3 +148,21 @@ Base: `integration/room-v2` at `ea2c51e5fe5bc995063d752d9bf400ce0442ad3e`. The c
 | F7 — signed URL expiry is the prefetch freshness limit | DONE — Android CI #1078 and Web Room Test #520 passed on consolidated head; owner confirmed all five device checks | `5b73d04d6e4e15e3c988743b3e609a926f911b8d`, `da043a78a169dd957c49da0c76f1b66cb386cda5`, `f54f75f17a581750ee9b42017a2d1fc184ea066a` | `completedPrefetchRemainsUsablePastFormerSixtySecondCutoffWhileSignedUrlIsFresh`; `persistentCacheLookupsCompleteBeforeProviderNetworkResolution`; `fullyCachedPersistentAudioBypassesProviderNetwork` | S1–S8 unchanged | Removed arbitrary 60-second residence cutoff; entries expire only when AudioCachePolicy says the signed URL is no longer fresh. Queue/LRU bounds remain 12. Both speculative and explicit-play fallback use CachedAudioResolver, which checks persistent cache before provider network. |
 
 Consolidated implementation preserves debug-only NexusPerformance traces through the NewPipe coordinator and provider fallback. No Task 1 timing capture exists, so no lower background timeout was guessed. `StreamAddressFamily`, the 250 ms load control, StreamProbe, S1–S8, room/playback ownership, SQL, signing, release publishing and `main` remain unchanged.
+
+
+## Dynamic Home discovery — seeded recommendations and scroll pagination
+| Task | Status | Commit | CI | SPEC IDs | Net line delta | Learning |
+|---|---|---|---|---|---:|---|
+| Replace fixed Home shelves with a seeded 60/40 taste/exploration plan, 67 configurable discovery categories, rotating quick picks and five-shelf scroll-loaded pages; reroll replaces the complete plan | IN PROGRESS — exact-head CI pending | `baec897c85e7fbfadedd80a7e0de59c24da73e92` | [Android CI #1086](https://github.com/som76377-alt/Nexus/actions/runs/46001599310) — in progress | S1–S8 unchanged; no SPEC edits | +379 / −49 across five implementation files (work-log update excluded) | Uses only the existing catalogue search interface at BACKGROUND priority; cache-first page rendering and existing per-shelf deadlines remain. Artist affinity is query-based from recent/saved local history, not a claim of collaborative filtering. Device scrolling, recommendation quality and network cost remain UNVERIFIED. |
+
+## Adaptive Home discovery engine (2026-11-27)
+
+- Replaced the fixed category-only Home plan with an adaptive seed-and-expand engine. Initial searches combine recent/saved artist signals with a smaller exploratory category mix.
+- Search results now seed follow-on searches for unfamiliar artists, so Home can discover beyond the bundled genre catalogue and expand the available shelf plan as the listener scrolls.
+- Added local-only recommendation memory: played-artist weights, previously recommended track URLs, and explicit “not for me” track/artist exclusions. Saved tracks continue to provide a positive taste signal through the existing library.
+- Added novelty-first ranking with a modest listening-affinity and popularity signal. Previously recommended tracks are down-ranked; explicitly dismissed tracks and artists are filtered.
+- Added deterministic unit coverage for seed planning, artist expansion, novelty ranking and dismissal filtering.
+- Search is demand-driven while Home is active / being scrolled. No periodic background polling was added, to avoid unexpected mobile-data and battery use.
+- Validation is pending for this commit; no physical-device recommendation-quality or data-usage claim is made.
+
+- Final code review found the existing shelf selector shuffled candidates after engine ranking, which diluted the new relevance score. Updated it to preserve ranked order while still exhausting unseen tracks before history repeats; added a regression test. Home's shelf subtitle now reflects the actual discovery ranking.
