@@ -215,7 +215,6 @@ internal class AudioPrefetchCoordinator(
     }
 
     private fun pruneExpiredLocked() {
-        val cutoff = nowMs() - freshnessMs
         val iterator = completed.entries.iterator()
         while (iterator.hasNext()) {
             val cached = iterator.next().value
