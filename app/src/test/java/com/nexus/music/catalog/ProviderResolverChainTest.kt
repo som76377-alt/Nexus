@@ -38,6 +38,25 @@ class ProviderResolverChainTest {
     }
 
     @Test
+    fun fastPreferredSuccessDoesNotStartUnneededFallback() = runBlocking {
+        val calls = mutableListOf<StreamProvider>()
+        val chain = ProviderResolverChain(
+            adapters = listOf(
+                FakeAdapter(StreamProvider.NEWPIPE, calls) { resolvedAudio() },
+                FakeAdapter(StreamProvider.PIPED, calls) { resolvedAudio() }
+            ),
+            healthStore = InMemoryHealthStore(),
+            providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
+            hedgeDelayMs = 1_000L
+        )
+
+        val result = chain.resolveAudio("https://youtube.com/watch?v=abcdefghijk")
+
+        assertEquals("https://media.example/audio.m4a", result.audioUrl)
+        assertEquals(listOf(StreamProvider.NEWPIPE), calls)
+    }
+
+    @Test
     fun resolveStartsFallbackImmediatelyAfterFastProviderFailure() = runBlocking {
         val calls = mutableListOf<StreamProvider>()
         val chain = ProviderResolverChain(
