@@ -11,6 +11,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.coroutines.coroutineContext
 
 class PriorityAdmissionQueueTest {
     @Test
@@ -218,6 +219,48 @@ class PriorityAdmissionQueueTest {
         }
         assertTrue(matchingPrefetch.isCompleted)
         assertEquals(listOf("urgent", "matching"), order)
+    }
+
+    @Test
+    fun promotionBeforeAdmissionIsRemembered() = runBlocking {
+        val queue = PriorityAdmissionQueue()
+        val holderEntered = CompletableDeferred<Unit>()
+        val releaseHolder = CompletableDeferred<Unit>()
+        val order = Collections.synchronizedList(mutableListOf<String>())
+
+        val holder = launch {
+            queue.withLease(ExtractorWorkPriority.FOREGROUND) {
+                holderEntered.complete(Unit)
+                releaseHolder.await()
+            }
+        }
+        holderEntered.await()
+
+        val ownerReady = CompletableDeferred<kotlinx.coroutines.Job>()
+        val allowAdmission = CompletableDeferred<Unit>()
+        val matching = launch {
+            ownerReady.complete(coroutineContext[kotlinx.coroutines.Job]!!)
+            allowAdmission.await()
+            queue.withLease(ExtractorWorkPriority.BACKGROUND) { order += "matching" }
+        }
+        val matchingJob = ownerReady.await()
+
+        val olderBackground = launch {
+            queue.withLease(ExtractorWorkPriority.BACKGROUND) { order += "older-background" }
+        }
+        awaitQueued(queue, 1)
+
+        assertTrue(queue.promote(matchingJob))
+        allowAdmission.complete(Unit)
+        awaitQueued(queue, 2)
+        releaseHolder.complete(Unit)
+
+        withTimeout(2_000) {
+            holder.join()
+            matching.join()
+            olderBackground.join()
+        }
+        assertEquals(listOf("matching", "older-background"), order)
     }
 
     private suspend fun awaitQueued(queue: PriorityAdmissionQueue, count: Int) {
