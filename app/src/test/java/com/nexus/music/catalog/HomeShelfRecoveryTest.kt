@@ -6,6 +6,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -43,12 +46,12 @@ class HomeShelfRecoveryTest {
         val failed = mutableListOf<String>()
         HomeShelfRefreshRunner(25L).run(
             shelves,
-            fetch = { shelf ->
-                when (shelf.id) {
+            fetch = { shelf, timeoutMs ->
+                withTimeout(timeoutMs) { when (shelf.id) {
                     "failure" -> error("offline")
                     "timeout" -> { delay(100L); listOf(track(99)) }
                     else -> listOf(track(100))
-                }
+                } }
             },
             onResult = { shelf, _ -> completed += shelf.id },
             onFailure = { shelf, _ -> failed += shelf.id }
@@ -63,12 +66,14 @@ class HomeShelfRecoveryTest {
         val shelves = (1..4).map { HomeShelfSpec("s$it", "Shelf $it", "query $it") }
         HomeShelfRefreshRunner(1_000L).run(
             shelves,
-            fetch = {
+            fetch = { _, timeoutMs ->
+                withTimeout(timeoutMs) {
                 active++
                 maximum = maxOf(maximum, active)
                 delay(5L)
                 active--
                 listOf(track(1))
+                }
             },
             onResult = { _, _ -> }
         )
@@ -106,14 +111,16 @@ class HomeShelfRecoveryTest {
         val home = launch {
             HomeShelfRefreshRunner(1_000L).run(
                 shelves = listOf(shelfA, shelfB),
-                fetch = { shelf ->
+                fetch = { shelf, timeoutMs ->
                     queue.withLease(ExtractorWorkPriority.BACKGROUND) {
+                        withTimeout(timeoutMs) {
                         if (shelf.id == "a" && firstAttempt) {
                             firstAttempt = false
                             shelfStarted.complete(Unit)
                             awaitCancellation()
                         }
                         listOf(track(if (shelf.id == "a") 1 else 2))
+                        }
                     }
                 },
                 onResult = { shelf, _ -> rendered += shelf.id }
@@ -133,8 +140,10 @@ class HomeShelfRecoveryTest {
         // MainActivity schedules this refresh after foreground search or playback finishes.
         HomeShelfRefreshRunner(1_000L).run(
             shelves = listOf(shelfA),
-            fetch = { shelf ->
-                queue.withLease(ExtractorWorkPriority.BACKGROUND) { listOf(track(3)) }
+            fetch = { shelf, timeoutMs ->
+                queue.withLease(ExtractorWorkPriority.BACKGROUND) {
+                    withTimeout(timeoutMs) { listOf(track(3)) }
+                }
             },
             onResult = { shelf, _ -> rendered += shelf.id }
         )
@@ -150,3 +159,44 @@ class HomeShelfRecoveryTest {
         viewCount = id.toLong()
     )
 }
+
+    @Test
+    fun queuedShelfGetsItsFullTimeoutAfterEightSecondForegroundLease() = runTest {
+        val queue = PriorityAdmissionQueue()
+        val foregroundEntered = CompletableDeferred<Unit>()
+        val shelf = HomeShelfSpec("queued", "Queued", "query")
+        val completed = mutableListOf<String>()
+        val failed = mutableListOf<String>()
+
+        val foreground = launch {
+            queue.withLease(ExtractorWorkPriority.FOREGROUND) {
+                foregroundEntered.complete(Unit)
+                delay(8_000L)
+            }
+        }
+        foregroundEntered.await()
+
+        val home = launch {
+            HomeShelfRefreshRunner(6_000L).run(
+                shelves = listOf(shelf),
+                fetch = { _, timeoutMs ->
+                    queue.withLease(ExtractorWorkPriority.BACKGROUND) {
+                        withTimeout(timeoutMs) {
+                            delay(5_000L)
+                            listOf(track(88))
+                        }
+                    }
+                },
+                onResult = { spec, _ -> completed += spec.id },
+                onFailure = { spec, _ -> failed += spec.id }
+            )
+        }
+        runCurrent()
+        advanceTimeBy(8_000L)
+        runCurrent()
+        foreground.join()
+        home.join()
+
+        assertEquals(listOf("queued"), completed)
+        assertTrue(failed.isEmpty())
+    }
