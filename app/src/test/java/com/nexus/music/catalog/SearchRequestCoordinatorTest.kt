@@ -236,11 +236,11 @@ class SearchRequestCoordinatorTest {
         }
 
         val background = async {
-            coordinator.search("same", YoutubeSearchScope.EVERYTHING, ExtractorWorkPriority.BACKGROUND, loader = loader)
+            coordinator.search("same", YoutubeSearchScope.EVERYTHING, loader = loader, priority = ExtractorWorkPriority.BACKGROUND)
         }
         withTimeout(1_000L) { started.await() }
         val foreground = async {
-            coordinator.search("same", YoutubeSearchScope.EVERYTHING, ExtractorWorkPriority.FOREGROUND, loader = loader)
+            coordinator.search("same", YoutubeSearchScope.EVERYTHING, loader = loader, priority = ExtractorWorkPriority.FOREGROUND)
         }
 
         assertTrue(withTimeout(1_000L) { promotion.await() })
@@ -260,7 +260,7 @@ class SearchRequestCoordinatorTest {
             promoteRequest = queue::promote
         )
         val background = async {
-            coordinator.search("background", YoutubeSearchScope.EVERYTHING, ExtractorWorkPriority.BACKGROUND) {
+            coordinator.search("background", YoutubeSearchScope.EVERYTHING, priority = ExtractorWorkPriority.BACKGROUND) {
                 val context = currentCoroutineContext()[ExtractorPriorityContext]!!
                 queue.withLease(context.priority, context.ownerJob) {
                     started.complete(Unit)
