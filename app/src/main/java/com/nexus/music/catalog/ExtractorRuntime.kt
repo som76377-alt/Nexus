@@ -234,15 +234,16 @@ internal object ExtractorRuntime {
         downloader: Downloader,
         priority: ExtractorWorkPriority,
         ownerJob: Job? = null,
-        trace: NexusPerformance.Trace? = currentCoroutineContext()[NexusPerformance.TraceContext]?.trace,
+        trace: NexusPerformance.Trace? = null,
         block: suspend () -> T
     ): T {
+        val activeTrace = trace ?: currentCoroutineContext()[NexusPerformance.TraceContext]?.trace
         val queuedAt = if (NexusPerformance.isEnabled()) NexusPerformance.nowMs() else 0L
         return admission.withLease(priority, ownerJob ?: currentCoroutineContext()[Job]) {
             val acquiredAt = if (NexusPerformance.isEnabled()) NexusPerformance.nowMs() else 0L
             if (NexusPerformance.isEnabled()) {
                 val detail = "queue_wait_ms=" + (acquiredAt - queuedAt) + " priority=" + priority
-                if (trace != null) NexusPerformance.event(trace, "newpipe_lease_acquired", detail)
+                if (activeTrace != null) NexusPerformance.event(activeTrace, "newpipe_lease_acquired", detail)
                 else NexusPerformance.logEvent("newpipe_lease_acquired", detail)
             }
             try {
