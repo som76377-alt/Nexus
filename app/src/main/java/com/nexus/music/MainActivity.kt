@@ -1122,7 +1122,7 @@ class MainActivity : Activity() {
                 if (missingBuckets.isNotEmpty()) {
                     val byId = missingBuckets.associateBy { it.id }
                     HomeShelfRefreshRunner(HOME_SHELF_TIMEOUT_MS).run(
-                        shelves = missingBuckets.map { HomeShelfSpec(it.id, it.label, it.query) },
+                        shelves = missingBuckets.map { HomeShelfSpec(it.id, it.title, it.query) },
                         fetch = { spec, timeoutMs ->
                             val bucket = byId.getValue(spec.id)
                             val fetched = catalog.searchWithPriority(spec.query, bucket.scope,
