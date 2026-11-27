@@ -965,14 +965,24 @@ class MainActivity : Activity() {
                             "home_shelf", foreground = false, detail = "shelf=" + spec.id
                         )
                         try {
-                            val tracks = withContext(NexusPerformance.TraceContext(shelfTrace)) {
+                            val fetched = if (NexusPerformance.isEnabled()) {
+                                withContext(NexusPerformance.TraceContext(shelfTrace)) {
+                                    repository.searchWithPriority(
+                                        spec.query,
+                                        YoutubeSearchScope.MUSIC_SONGS,
+                                        ExtractorWorkPriority.BACKGROUND,
+                                        operationTimeoutMs = timeoutMs
+                                    )
+                                }
+                            } else {
                                 repository.searchWithPriority(
                                     spec.query,
                                     YoutubeSearchScope.MUSIC_SONGS,
                                     ExtractorWorkPriority.BACKGROUND,
                                     operationTimeoutMs = timeoutMs
                                 )
-                            }.distinctBy { it.url }
+                            }
+                            val tracks = fetched.distinctBy { it.url }
                                 .sortedByDescending { it.viewCount ?: -1L }
                                 .take(HOME_POOL_LIMIT)
                             NexusPerformance.event(shelfTrace, "shelf_results_received", "count=" + tracks.size)
@@ -1260,10 +1270,15 @@ class MainActivity : Activity() {
                     PersistentAudioCacheLookup(this@MainActivity),
                     repository::resolveAudio
                 )
-                val audio = withContext(NexusPerformance.TraceContext(trace)) {
+                val resolve = suspend {
                     audioPrefetch.resolveForPlayback(track.url) { sourceUrl ->
                         foregroundResolver.resolve(sourceUrl, trace)
                     }
+                }
+                val audio = if (NexusPerformance.isEnabled()) {
+                    withContext(NexusPerformance.TraceContext(trace)) { resolve() }
+                } else {
+                    resolve()
                 }
                 NexusPerformance.event(trace, "audio_resolved", "provider=" + audio.provider)
                 showResolved(audio, trace)
