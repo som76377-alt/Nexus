@@ -34,7 +34,14 @@ internal object HomeDiscoveryPlanner {
             val artist = if (artists.isNotEmpty() && slotInPage < TASTE_SHELVES_PER_PAGE) {
                 artists[(index / PAGE_SIZE * TASTE_SHELVES_PER_PAGE + slotInPage) % artists.size]
             } else null
-            val query = artist?.let { "$it ${category.query}" } ?: category.query
+            val baseQuery = artist?.let { "$it ${category.query}" } ?: category.query
+            val variants = if (category.scope == com.nexus.music.catalog.YoutubeSearchScope.EVERYTHING) {
+                listOf("extended mix", "long version", "background listening", "full session")
+            } else {
+                listOf("official audio", "full song", "music video", "new tracks", "deep cuts")
+            }
+            val variant = variants[(seed + index * 31L).let { kotlin.math.abs(it % variants.size).toInt() }]
+            val query = "$baseQuery $variant"
             val title = artist?.let { "${category.label} with $it" } ?: category.label
             val queryKey = query.hashCode().toUInt().toString(16)
             HomeShelfSpec(

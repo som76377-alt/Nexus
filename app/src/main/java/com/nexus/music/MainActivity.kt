@@ -928,7 +928,7 @@ class MainActivity : Activity() {
                 seed = System.nanoTime()
             )
         }
-        nextHomeShelfIndex = minOf(HomeDiscoveryPlanner.PAGE_SIZE, firstPageSpecs.size)
+        nextHomeShelfIndex = minOf(HomeDiscoveryPlanner.PAGE_SIZE, homeShelfSpecs.size)
         homePageLoading = false
         audioPrefetch.cancelSpeculation()
         val generation = ++homeGeneration
@@ -1068,6 +1068,7 @@ class MainActivity : Activity() {
                     if (isHomeVisible() && searchJob?.isActive != true && !isResolving) {
                         scheduleAudioPrefetch()
                     }
+                    mainScroll.post { loadMoreHomeShelves() }
                 }
             }
         }

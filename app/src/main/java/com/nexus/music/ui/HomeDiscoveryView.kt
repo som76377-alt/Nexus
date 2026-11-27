@@ -69,7 +69,7 @@ class HomeDiscoveryView(
             isClickable = true
             isFocusable = true
             minimumHeight = dp(132)
-            contentDescription = "Explore independent Indian music"
+            contentDescription = "Explore ${featuredCategory?.label ?: "new music"}"
         }
         feature.addView(TextView(context).apply {
             text = "EXPLORE A SOUND"
