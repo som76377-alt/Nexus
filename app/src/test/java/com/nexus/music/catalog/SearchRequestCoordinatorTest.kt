@@ -80,6 +80,40 @@ class SearchRequestCoordinatorTest {
     }
 
     @Test
+    fun cancellingFinalWaiterCancelsProviderWorkAndAllowsRetry() = runBlocking {
+        val requestScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val coordinator = SearchRequestCoordinator<String>(requestScope)
+        val started = CompletableDeferred<Unit>()
+        val cancelled = CompletableDeferred<Unit>()
+        val neverCompletes = CompletableDeferred<List<String>>()
+        val calls = AtomicInteger()
+
+        val waiter = async {
+            coordinator.search("cancel me", YoutubeSearchScope.EVERYTHING) {
+                calls.incrementAndGet()
+                started.complete(Unit)
+                try {
+                    neverCompletes.await()
+                } finally {
+                    cancelled.complete(Unit)
+                }
+            }
+        }
+        withTimeout(1_000L) { started.await() }
+        waiter.cancelAndJoin()
+        withTimeout(1_000L) { cancelled.await() }
+
+        assertEquals(listOf("Retry succeeded"), coordinator.search(
+            "cancel me",
+            YoutubeSearchScope.EVERYTHING
+        ) {
+            calls.incrementAndGet()
+            listOf("Retry succeeded")
+        })
+        assertEquals(2, calls.get())
+    }
+
+    @Test
     fun searchScopeIsPartOfTheCacheKey() = runBlocking {
         val coordinator = SearchRequestCoordinator<String>(
             CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
