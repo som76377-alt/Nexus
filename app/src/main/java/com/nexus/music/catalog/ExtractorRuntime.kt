@@ -201,6 +201,9 @@ internal object ExtractorRuntime {
     private val admission = PriorityAdmissionQueue()
     private val downloaderState = DownloaderInitializationState<Downloader> { NewPipe.init(it) }
     private val activeCallSlot = ThreadLocal<ActiveCallCancellation?>()
+    private val activeTrace = ThreadLocal<NexusPerformance.Trace?>()
+
+    fun currentTrace(): NexusPerformance.Trace? = activeTrace.get()
 
     internal fun registerActiveCall(cancel: () -> Unit): AutoCloseable? =
         activeCallSlot.get()?.register(cancel)
@@ -264,6 +267,7 @@ internal object ExtractorRuntime {
 
     @OptIn(InternalCoroutinesApi::class)
     private suspend fun <T> runExtraction(block: () -> T): T {
+        val trace = currentCoroutineContext()[NexusPerformance.TraceContext]?.trace
         val activeCall = ActiveCallCancellation()
         val job = currentCoroutineContext()[Job]
         val cancellationHandle: DisposableHandle? = job?.invokeOnCompletion(
@@ -273,7 +277,11 @@ internal object ExtractorRuntime {
         return try {
             runInterruptible(Dispatchers.IO) {
                 activeCallSlot.set(activeCall)
-                try { block() } finally { activeCallSlot.remove() }
+                if (trace != null) activeTrace.set(trace) else activeTrace.remove()
+                try { block() } finally {
+                    activeCallSlot.remove()
+                    activeTrace.remove()
+                }
             }
         } finally {
             cancellationHandle?.dispose()
