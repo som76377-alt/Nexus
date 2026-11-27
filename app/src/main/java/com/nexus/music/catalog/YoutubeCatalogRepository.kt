@@ -32,9 +32,13 @@ class YoutubeCatalogRepository(
             NexusPerformance.event(trace, "repository_search_entry", "scope=" + scope)
         }
         return withContext(ExtractorPriorityContext(priority, ownerJob)) {
-            searchCoordinator.search(query, scope, priority, operationTimeoutMs) { normalizedQuery ->
-                adapter.search(normalizedQuery, scope)
-            }
+            searchCoordinator.search(
+                query = query,
+                scope = scope,
+                priority = priority,
+                operationTimeoutMs = operationTimeoutMs,
+                loader = { normalizedQuery -> adapter.search(normalizedQuery, scope) }
+            )
         }
     }
 
