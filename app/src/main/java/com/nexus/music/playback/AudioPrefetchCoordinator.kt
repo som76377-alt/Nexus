@@ -3,10 +3,10 @@ package com.nexus.music.playback
 import com.nexus.music.catalog.ResolvedAudio
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -44,7 +44,7 @@ internal class AudioPrefetchCoordinator(
         require(freshnessMs > 0L)
     }
 
-    val cachedEntryCount: Int get() = synchronized(lock) { completed.size }
+    val cachedEntryCount: Int get() = synchronized(lock) { pruneExpiredLocked(); completed.size }
     val queuedCount: Int get() = synchronized(lock) { pending.size }
     val activeSourceUrl: String? get() = synchronized(lock) { active?.sourceUrl }
     internal fun containsCached(sourceUrl: String): Boolean = synchronized(lock) { pruneExpiredLocked(); completed.containsKey(sourceUrl) }
@@ -136,7 +136,7 @@ internal class AudioPrefetchCoordinator(
 
     private fun startWorkerLocked() {
         if (worker?.isActive == true) return
-        worker = scope.launch { drainQueue() }
+        worker = scope.launch(Dispatchers.IO) { drainQueue() }
     }
 
     private suspend fun drainQueue() {
