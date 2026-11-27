@@ -30,7 +30,7 @@ internal class AudioPrefetchCoordinator(
     private val nowMs: () -> Long = System::currentTimeMillis
 ) {
     private data class Cached(val audio: ResolvedAudio, val storedAtMs: Long)
-    private data class Active(val sourceUrl: String, val deferred: Deferred<ResolvedAudio>)
+    private data class Active(val sourceUrl: String, val deferred: Deferred<ResolvedAudio>, var promoted: Boolean = false)
 
     private val lock = Any()
     private val completed = LinkedHashMap<String, Cached>(capacity, 0.75f, true)
@@ -79,6 +79,7 @@ internal class AudioPrefetchCoordinator(
             pruneExpiredLocked()
             cached = completed[sourceUrl]?.audio
             matching = active?.takeIf { it.sourceUrl == sourceUrl }
+            matching?.promoted = true
             unrelated = active?.takeIf { it.sourceUrl != sourceUrl }?.deferred
             pending.clear()
             if (matching == null) completed.remove(sourceUrl)
@@ -110,7 +111,7 @@ internal class AudioPrefetchCoordinator(
     fun cancelSpeculation() {
         val running = synchronized(lock) {
             pending.clear()
-            active?.deferred
+            active?.takeIf { !it.promoted }?.deferred
         }
         running?.cancel(CancellationException("Speculative audio work superseded"))
     }
