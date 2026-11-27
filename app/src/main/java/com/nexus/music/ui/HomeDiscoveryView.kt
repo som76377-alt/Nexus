@@ -114,6 +114,8 @@ class HomeDiscoveryView(
         }
         HomeDiscoveryCategoryCatalog.load(context)
             .flatMap { it.categories }
+            .shuffled()
+            .take(8)
             .forEach { category ->
                 val categoryView = TextView(context).apply {
                     text = category.label

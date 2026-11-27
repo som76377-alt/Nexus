@@ -2,7 +2,6 @@ package com.nexus.music.catalog
 
 import android.content.Context
 import android.util.Base64
-import com.nexus.music.catalog.YoutubeSearchScope
 
 internal data class HomeShelfSpec(
     val id: String,

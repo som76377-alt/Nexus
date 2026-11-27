@@ -207,7 +207,9 @@ class MainActivity : Activity() {
         mainScroll = scroll
         scroll.setOnScrollChangeListener { _, _, scrollY, _, _ ->
             val contentView = scroll.getChildAt(0)
-            if (contentView != null && scrollY + scroll.height >= contentView.height - dp(900)) {
+            if (contentView != null && contentView.height > scroll.height &&
+                scrollY + scroll.height >= contentView.height - dp(900)
+            ) {
                 loadMoreHomeShelves()
             }
         }
@@ -1068,7 +1070,7 @@ class MainActivity : Activity() {
                     if (isHomeVisible() && searchJob?.isActive != true && !isResolving) {
                         scheduleAudioPrefetch()
                     }
-                    mainScroll.post { loadMoreHomeShelves() }
+                    if (homeShelfViews.isNotEmpty()) mainScroll.post { loadMoreHomeShelves() }
                 }
             }
         }
