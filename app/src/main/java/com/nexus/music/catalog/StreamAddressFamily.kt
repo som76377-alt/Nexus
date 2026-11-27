@@ -1,6 +1,7 @@
 package com.nexus.music.catalog
 
 import okhttp3.Dns
+import com.nexus.music.performance.NexusPerformance
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
@@ -40,6 +41,9 @@ internal object StreamAddressFamily {
             pinnedFamilies.putIfAbsent(key, it)
         } ?: return addresses
         val matching = addresses.filter(selectedFamily::accepts)
+        NexusPerformance.logEvent("dns_family_selected",
+            "host=" + key + " family=" + selectedFamily +
+                " addresses=" + matching.size + " total=" + addresses.size)
         if (matching.isEmpty()) {
             throw UnknownHostException(
                 "Host $hostname has no $selectedFamily address; refusing to switch address family."

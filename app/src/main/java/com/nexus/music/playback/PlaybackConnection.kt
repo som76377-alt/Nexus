@@ -17,6 +17,7 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.nexus.music.BuildConfig
 import com.nexus.music.catalog.ResolvedAudio
+import com.nexus.music.performance.NexusPerformance
 import java.util.concurrent.Executor
 
 data class PlaybackSnapshot(
@@ -146,8 +147,16 @@ class PlaybackConnection(
                 .build()
 
             activeController.setMediaItem(item)
+            NexusPerformance.playbackEvent(audio.sourceUrl, "media3_set_media_item")
             activeController.prepare()
-            if (shouldPlay) activeController.play() else activeController.pause()
+            NexusPerformance.playbackEvent(audio.sourceUrl, "media3_prepare_called")
+            if (shouldPlay) {
+                activeController.play()
+                NexusPerformance.playbackEvent(audio.sourceUrl, "media3_play_called")
+            } else {
+                activeController.pause()
+                NexusPerformance.playbackEvent(audio.sourceUrl, "media3_pause_called")
+            }
             publishState()
             true
         } catch (error: Exception) {

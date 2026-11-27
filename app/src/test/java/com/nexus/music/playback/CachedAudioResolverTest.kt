@@ -85,4 +85,21 @@ class CachedAudioResolverTest {
         assertTrue(cache.remembered == null)
         assertEquals(listOf("full", "fresh"), cache.calls)
     }
+
+    @Test
+    fun persistentCacheLookupsCompleteBeforeProviderNetworkResolution() = runBlocking {
+        val cache = FakeCache()
+        val resolved = audio("https://resolved.example/audio")
+        val resolver = CachedAudioResolver(
+            cache,
+            {
+                assertEquals(listOf("full", "fresh"), cache.calls)
+                resolved
+            },
+            nowEpochMs = { 1_000L }
+        )
+
+        assertSame(resolved, resolver.resolve(source))
+        assertEquals(listOf("full", "fresh", "remember"), cache.calls)
+    }
 }

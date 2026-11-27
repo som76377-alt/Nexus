@@ -5,6 +5,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -389,5 +390,32 @@ class ProviderResolverChainTest {
         override fun clear(provider: StreamProvider) {
             values.remove(provider)
         }
+    }
+
+    @Test
+    fun outcomeAtExactHedgeBoundaryIsConsumedWithoutHanging() = runTest {
+        val calls = mutableListOf<StreamProvider>()
+        val chain = ProviderResolverChain(
+            adapters = listOf(
+                FakeAdapter(
+                    StreamProvider.NEWPIPE,
+                    calls,
+                    search = { delay(1_000L); emptyList() }
+                ) { resolvedAudio() },
+                FakeAdapter(
+                    StreamProvider.PIPED,
+                    calls,
+                    search = { emptyList() }
+                ) { resolvedAudio() }
+            ),
+            healthStore = InMemoryHealthStore(),
+            providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
+            hedgeDelayMs = 1_000L
+        )
+
+        val result = withTimeout(5_000L) { chain.search("boundary") }
+
+        assertEquals(emptyList<CatalogTrack>(), result)
+        assertEquals(listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED), calls)
     }
 }
