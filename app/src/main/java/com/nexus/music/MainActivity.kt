@@ -865,6 +865,7 @@ class MainActivity : Activity() {
                             homeSnapshots[spec.id] = snapshot
                             homeCache.write(spec.id, snapshot)
                             if (snapshot.displayedTracks.isNotEmpty()) renderHomeShelf(spec, snapshot)
+                            updateHomeLoadingState(loading = true)
                         }
                     },
                     onFailure = { _, _ ->
