@@ -65,9 +65,9 @@ internal class SearchRequestCoordinator<T>(
     suspend fun search(
         query: String,
         scope: YoutubeSearchScope,
+        loader: suspend (String) -> List<T>,
         priority: ExtractorWorkPriority = ExtractorWorkPriority.FOREGROUND,
-        operationTimeoutMs: Long? = null,
-        loader: suspend (String) -> List<T>
+        operationTimeoutMs: Long? = null
     ): List<T> {
         val requestQuery = query.trim().replace(WHITESPACE, " ")
         require(requestQuery.isNotEmpty()) { "Search query must not be blank." }
