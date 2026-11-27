@@ -303,3 +303,4 @@ class SearchRequestCoordinatorTest {
         })
         assertEquals(2, calls)
     }
+}
