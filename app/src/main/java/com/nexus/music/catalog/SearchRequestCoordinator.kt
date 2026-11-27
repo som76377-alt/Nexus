@@ -3,6 +3,7 @@ package com.nexus.music.catalog
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.util.LinkedHashMap
@@ -11,8 +12,8 @@ import java.util.Locale
 /**
  * Shares identical in-flight catalogue searches and keeps a small process-memory result cache.
  *
- * The work runs in an application-owned scope rather than the first caller's scope: cancelling
- * one screen/request therefore cannot cancel a search still awaited by another caller.
+ * Shared work is independent of any single caller. It is cancelled when the final waiter leaves,
+ * preserving normal search supersession without allowing one screen to cancel another's request.
  */
 internal class SearchRequestCoordinator<T>(
     private val requestScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
@@ -30,17 +31,23 @@ internal class SearchRequestCoordinator<T>(
         val expiresAtMs: Long
     )
 
+    private class InFlight<T>(
+        val result: CompletableDeferred<List<T>>,
+        var waiterCount: Int,
+        var worker: Job? = null
+    )
+
     private sealed interface Decision<out T> {
         data class Cached<T>(val items: List<T>) : Decision<T>
         data class Pending<T>(
-            val deferred: CompletableDeferred<List<T>>,
+            val request: InFlight<T>,
             val shouldStart: Boolean
         ) : Decision<T>
     }
 
     private val lock = Any()
     private val cache = LinkedHashMap<SearchKey, CacheEntry<T>>(16, 0.75f, true)
-    private val inFlight = mutableMapOf<SearchKey, CompletableDeferred<List<T>>>()
+    private val inFlight = mutableMapOf<SearchKey, InFlight<T>>()
 
     init {
         require(maxEntries > 0) { "Search cache capacity must be positive." }
@@ -60,19 +67,21 @@ internal class SearchRequestCoordinator<T>(
             cachedValueLocked(key)?.let { return@synchronized Decision.Cached(it) }
             val active = inFlight[key]
             if (active != null) {
+                active.waiterCount++
                 Decision.Pending(active, shouldStart = false)
             } else {
-                val deferred = CompletableDeferred<List<T>>()
-                inFlight[key] = deferred
-                Decision.Pending(deferred, shouldStart = true)
+                val request = InFlight(CompletableDeferred<List<T>>(), waiterCount = 1)
+                inFlight[key] = request
+                Decision.Pending(request, shouldStart = true)
             }
         }
 
         when (decision) {
             is Decision.Cached -> return decision.items.toList()
             is Decision.Pending -> {
+                val request = decision.request
                 if (decision.shouldStart) {
-                    requestScope.launch {
+                    val worker = requestScope.launch {
                         try {
                             val result = loader(requestQuery).toList()
                             synchronized(lock) {
@@ -82,20 +91,38 @@ internal class SearchRequestCoordinator<T>(
                                     cache.remove(oldestKey)
                                 }
                             }
-                            decision.deferred.complete(result)
+                            request.result.complete(result)
                         } catch (error: Throwable) {
-                            decision.deferred.completeExceptionally(error)
+                            request.result.completeExceptionally(error)
                             if (error is Error) throw error
                         } finally {
                             synchronized(lock) {
-                                if (inFlight[key] === decision.deferred) {
+                                if (inFlight[key] === request) {
                                     inFlight.remove(key)
                                 }
                             }
                         }
                     }
+                    synchronized(lock) {
+                        request.worker = worker
+                        if (request.waiterCount == 0) worker.cancel()
+                    }
                 }
-                return decision.deferred.await().toList()
+
+                try {
+                    return request.result.await().toList()
+                } finally {
+                    val workerToCancel = synchronized(lock) {
+                        request.waiterCount--
+                        if (request.waiterCount == 0 && inFlight[key] === request) {
+                            inFlight.remove(key)
+                            request.worker
+                        } else {
+                            null
+                        }
+                    }
+                    workerToCancel?.cancel()
+                }
             }
         }
     }
