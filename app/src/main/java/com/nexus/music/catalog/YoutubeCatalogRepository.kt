@@ -1,28 +1,63 @@
 package com.nexus.music.catalog
 
-/**
- * Search and stream-resolution facade used by the app and playback service.
- *
- * The default adapter is the existing NewPipe implementation. Keeping this facade stable lets
- * the resolver chain be introduced without changing current UI or playback call sites.
- */
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.withContext
+
+/** Search and stream-resolution facade shared by the app and playback service. */
 class YoutubeCatalogRepository(
-    downloader: OkHttpDownloader = OkHttpDownloader(),
+    downloader: OkHttpDownloader = ExtractorRuntime.normalDownloader,
     private val adapter: StreamProviderAdapter = NewPipeStreamProviderAdapter(downloader)
 ) {
     suspend fun search(
         query: String,
         scope: YoutubeSearchScope = YoutubeSearchScope.EVERYTHING
-    ): List<CatalogTrack> = adapter.search(query, scope)
+    ): List<CatalogTrack> = searchWithPriority(query, scope, ExtractorWorkPriority.FOREGROUND)
 
-    suspend fun resolveAudio(videoUrl: String): ResolvedAudio = adapter.resolveAudio(videoUrl)
+    /** Home discovery opts into BACKGROUND so user search/playback can preempt it. */
+    internal suspend fun searchWithPriority(
+        query: String,
+        scope: YoutubeSearchScope,
+        priority: ExtractorWorkPriority
+    ): List<CatalogTrack> {
+        val ownerJob: Job? = currentCoroutineContext()[Job]
+        return withContext(ExtractorPriorityContext(priority, ownerJob)) {
+            adapter.search(query, scope)
+        }
+    }
+
+    suspend fun resolveAudio(videoUrl: String): ResolvedAudio =
+        resolveAudioWithPriority(videoUrl, ExtractorWorkPriority.FOREGROUND)
+
+    internal suspend fun resolveAudioWithPriority(
+        videoUrl: String,
+        priority: ExtractorWorkPriority
+    ): ResolvedAudio {
+        val ownerJob: Job? = currentCoroutineContext()[Job]
+        return withContext(ExtractorPriorityContext(priority, ownerJob)) {
+            adapter.resolveAudio(videoUrl)
+        }
+    }
 
     suspend fun resolveAudioExcluding(
         videoUrl: String,
         providers: Set<StreamProvider>
+    ): ResolvedAudio = resolveAudioExcludingWithPriority(
+        videoUrl, providers, ExtractorWorkPriority.FOREGROUND
+    )
+
+    internal suspend fun resolveAudioExcludingWithPriority(
+        videoUrl: String,
+        providers: Set<StreamProvider>,
+        priority: ExtractorWorkPriority
     ): ResolvedAudio {
-        val chainAdapter = adapter as? ResolverChainStreamProviderAdapter
-            ?: throw IllegalStateException("Provider failover is unavailable for this catalogue adapter.")
-        return chainAdapter.resolveAudioExcluding(videoUrl, providers)
+        val ownerJob: Job? = currentCoroutineContext()[Job]
+        return withContext(ExtractorPriorityContext(priority, ownerJob)) {
+            val chainAdapter = adapter as? ResolverChainStreamProviderAdapter
+                ?: throw IllegalStateException(
+                    "Provider failover is unavailable for this catalogue adapter."
+                )
+            chainAdapter.resolveAudioExcluding(videoUrl, providers)
+        }
     }
 }
