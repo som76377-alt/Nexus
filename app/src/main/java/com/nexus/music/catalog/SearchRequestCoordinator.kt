@@ -40,6 +40,7 @@ internal class SearchRequestCoordinator<T>(
         val result: CompletableDeferred<List<T>>,
         var waiterCount: Int,
         var priority: ExtractorWorkPriority,
+        var operationTimeoutMs: Long?,
         var worker: Job? = null
     )
 
@@ -65,6 +66,7 @@ internal class SearchRequestCoordinator<T>(
         query: String,
         scope: YoutubeSearchScope,
         priority: ExtractorWorkPriority = ExtractorWorkPriority.FOREGROUND,
+        operationTimeoutMs: Long? = null,
         loader: suspend (String) -> List<T>
     ): List<T> {
         val requestQuery = query.trim().replace(WHITESPACE, " ")
@@ -79,6 +81,7 @@ internal class SearchRequestCoordinator<T>(
                 active.waiterCount++
                 val promote = if (priority.ordinal < active.priority.ordinal) {
                     active.priority = priority
+                    active.operationTimeoutMs = null
                     active.worker
                 } else null
                 Decision.Pending(active, shouldStart = false, workerToPromote = promote)
@@ -86,7 +89,8 @@ internal class SearchRequestCoordinator<T>(
                 val request = InFlight(
                     result = CompletableDeferred(),
                     waiterCount = 1,
-                    priority = priority
+                    priority = priority,
+                    operationTimeoutMs = operationTimeoutMs
                 )
                 inFlight[key] = request
                 Decision.Pending(request, shouldStart = true)
@@ -102,7 +106,7 @@ internal class SearchRequestCoordinator<T>(
                     val worker = requestScope.launch(start = CoroutineStart.LAZY) {
                         val workerJob = currentCoroutineContext()[Job]!!
                         try {
-                            val context = ExtractorPriorityContext(request.priority, workerJob)
+                            val context = ExtractorPriorityContext(request.priority, workerJob, request.operationTimeoutMs)
                             val result = withContext(
                                 if (traceContext == null) context else context + traceContext
                             ) { loader(requestQuery) }.toList()
