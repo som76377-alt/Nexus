@@ -113,12 +113,13 @@ class ProviderResolverChain(
             var activeCount = 0
 
             fun launchNextProvider() {
-                val (provider, adapter) = ordered[nextIndex++]
+                val attemptIndex = nextIndex++
+                val (provider, adapter) = ordered[attemptIndex]
                 activeCount++
                 jobs += launch {
                     if (trace != null) NexusPerformance.event(
                         trace, "provider_attempt_start",
-                        "provider=" + provider.key + " attempt=" + nextIndex
+                        "provider=" + provider.key + " attempt=" + (attemptIndex + 1)
                     )
                     try {
                         val result = if (trace != null) {
