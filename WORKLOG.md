@@ -78,3 +78,19 @@
 | Task | Status | Commit | CI run | Learning |
 |---|---|---|---|---|
 | Upload debug APK immediately after assembleDebug; move release-variant compilation, Provider Lab build-type class inspection, and unsigned-release refusal test to a manually dispatched workflow with a 12-minute compile diagnostic limit | IN PROGRESS | pending | pending | The previous required Android CI assembled the debug APK successfully but did not upload it until after a release-only Kotlin compilation. That step remained in progress for over 45 minutes. Debug validation and release guard validation are now separate so a slow release variant cannot block the installable debug artifact. Release checks are preserved in `.github/workflows/release-validation.yml`, but are not claimed as passed by the debug CI. |
+
+
+## Performance roadmap — Task 0: read-only branch reconciliation
+Base: `integration/room-v2` at `ea2c51e5fe5bc995063d752d9bf400ce0442ad3e`. Compared with `main` at `ca1f10f21316c2eef973caa4b0d77be594dae4b0` and `fix/home-discovery-performance` at the reviewed `90ad391b` snapshot. No wholesale rebase, cherry-pick, overwrite, or branch promotion was performed.
+
+| Area | Decision | Rationale / implementation |
+|---|---|---|
+| Home category discovery | PORT selectively | Keep the current Home shell and shortcuts; use the bundled category catalogue and declared search scopes in PR #123. No dynamic genre inference or network discovery is introduced. |
+| Home Reroll and recommendations | PORT selectively | Use Task 5's cache-first independent shelves and local-only Reroll in PR #129; do not copy the large performance branch wholesale. |
+| Reduced timeouts, `MAX_INSTANCE_ATTEMPTS=2`, preferred endpoint | DROP | No repeatable measurements justify changing existing timeout, retry, or endpoint-selection policy. |
+| `StreamProbe` vs `LocalStreamRecovery` | KEEP `StreamProbe` | Pre-playback ranged HTTPS/audio/redirect validation and address-family pinning are not replaced by post-failure local recovery. |
+| NewPipe lock interruption | PORT cancellation handling | Use the exclusive priority-aware coordinator and `runInterruptible`; preserve concurrency one because shared NewPipe runtime safety is unproven. |
+| 250-ms `DefaultLoadControl` start buffer | HOLD | Do not change playback buffering without device evidence and S2/S8 regression proof. |
+| `NexusPerformance` timing | PORT / extend | Use debug-only monotonic correlated tracing in PR #124; do not add release overhead or log search text, full URLs, or raw IPs. |
+
+Task 0 is a reconciliation decision record, not a blanket port of `fix/home-discovery-performance`. S1–S8, StreamProbe, playback/room semantics, and existing provider policy remain protected. Exact-head CI for the category-catalogue implementation is triggered by this work-log close-out commit; device rendering remains UNVERIFIED.
