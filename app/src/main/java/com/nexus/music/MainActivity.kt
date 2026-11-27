@@ -803,12 +803,13 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
         }
         actions.addView(text("DISCOVER", 10f, secondaryText, bold = true), LinearLayout.LayoutParams(0, -2, 1f))
-        homeRerollButton = Button(this).apply {
+        val rerollButton = Button(this).apply {
             text = "Reroll"
             isAllCaps = false
             setOnClickListener { rerollHomeShelves() }
         }
-        actions.addView(homeRerollButton, LinearLayout.LayoutParams(-2, dp(44)))
+        homeRerollButton = rerollButton
+        actions.addView(rerollButton, LinearLayout.LayoutParams(-2, dp(44)))
         homeShelvesContainer.addView(actions, verticalParams(8))
 
         homeLoadingText = text("Recommendations are loading…", 12f, secondaryText)
