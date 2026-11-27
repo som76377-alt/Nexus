@@ -172,7 +172,7 @@ internal class AudioPrefetchCoordinator(
                     if (!accepted) {
                         synchronized(lock) { scheduledUrls.remove(sourceUrl) }
                         task.cancel()
-                        return@coroutineScope
+                        return@supervisorScope
                     }
                     task.start()
                     try {
