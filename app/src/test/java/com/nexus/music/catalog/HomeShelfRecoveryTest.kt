@@ -13,7 +13,7 @@ import kotlin.random.Random
 
 class HomeShelfRecoveryTest {
     @Test fun rerollPrefersUnseenTracksBeforeRepeatingHistory() {
-        val pool = (1..16).map(::track)
+        val pool = (1..18).map(::track)
         val history = pool.take(10).map { it.url }
         val selected = HomeRerollSelector.select(pool, history, 8, Random(7))
         assertEquals(8, selected.size)
