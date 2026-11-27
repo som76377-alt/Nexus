@@ -1,28 +1,85 @@
 package com.nexus.music.catalog
 
-/**
- * Search and stream-resolution facade used by the app and playback service.
- *
- * The default adapter is the existing NewPipe implementation. Keeping this facade stable lets
- * the resolver chain be introduced without changing current UI or playback call sites.
- */
+import com.nexus.music.performance.NexusPerformance
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.withContext
+
+/** Search and stream-resolution facade shared by the app and playback service. */
 class YoutubeCatalogRepository(
-    downloader: OkHttpDownloader = OkHttpDownloader(),
+    downloader: OkHttpDownloader = ExtractorRuntime.normalDownloader,
     private val adapter: StreamProviderAdapter = NewPipeStreamProviderAdapter(downloader)
 ) {
+    private val searchCoordinator = SearchRequestCoordinator<CatalogTrack>(
+        promoteRequest = ExtractorRuntime::promote
+    )
+
     suspend fun search(
         query: String,
         scope: YoutubeSearchScope = YoutubeSearchScope.EVERYTHING
-    ): List<CatalogTrack> = adapter.search(query, scope)
+    ): List<CatalogTrack> = searchWithPriority(query, scope, ExtractorWorkPriority.FOREGROUND)
 
-    suspend fun resolveAudio(videoUrl: String): ResolvedAudio = adapter.resolveAudio(videoUrl)
+    /** Home discovery opts into BACKGROUND; shared requests retain and can raise this priority. */
+    internal suspend fun searchWithPriority(
+        query: String,
+        scope: YoutubeSearchScope,
+        priority: ExtractorWorkPriority,
+        operationTimeoutMs: Long? = null
+    ): List<CatalogTrack> {
+        val ownerJob: Job? = currentCoroutineContext()[Job]
+        val trace = currentCoroutineContext()[NexusPerformance.TraceContext]?.trace
+        if (NexusPerformance.isEnabled() && trace != null) {
+            NexusPerformance.event(trace, "repository_search_entry", "scope=" + scope)
+        }
+        return withContext(ExtractorPriorityContext(priority, ownerJob)) {
+            searchCoordinator.search(
+                query = query,
+                scope = scope,
+                priority = priority,
+                operationTimeoutMs = operationTimeoutMs,
+                loader = { normalizedQuery -> adapter.search(normalizedQuery, scope) }
+            )
+        }
+    }
+
+    /** Promote the exact speculative extraction when the user taps its matching track. */
+    internal fun promoteAudioResolution(ownerJob: Job): Boolean = ExtractorRuntime.promote(ownerJob)
+
+    suspend fun resolveAudio(videoUrl: String): ResolvedAudio =
+        resolveAudioWithPriority(videoUrl, ExtractorWorkPriority.FOREGROUND)
+
+    internal suspend fun resolveAudioWithPriority(
+        videoUrl: String,
+        priority: ExtractorWorkPriority
+    ): ResolvedAudio {
+        val ownerJob: Job? = currentCoroutineContext()[Job]
+        currentCoroutineContext()[NexusPerformance.TraceContext]?.trace?.let {
+            if (NexusPerformance.isEnabled()) NexusPerformance.event(it, "repository_resolve_entry")
+        }
+        return withContext(ExtractorPriorityContext(priority, ownerJob)) {
+            adapter.resolveAudio(videoUrl)
+        }
+    }
 
     suspend fun resolveAudioExcluding(
         videoUrl: String,
         providers: Set<StreamProvider>
+    ): ResolvedAudio = resolveAudioExcludingWithPriority(
+        videoUrl, providers, ExtractorWorkPriority.FOREGROUND
+    )
+
+    internal suspend fun resolveAudioExcludingWithPriority(
+        videoUrl: String,
+        providers: Set<StreamProvider>,
+        priority: ExtractorWorkPriority
     ): ResolvedAudio {
-        val chainAdapter = adapter as? ResolverChainStreamProviderAdapter
-            ?: throw IllegalStateException("Provider failover is unavailable for this catalogue adapter.")
-        return chainAdapter.resolveAudioExcluding(videoUrl, providers)
+        val ownerJob: Job? = currentCoroutineContext()[Job]
+        return withContext(ExtractorPriorityContext(priority, ownerJob)) {
+            val chainAdapter = adapter as? ResolverChainStreamProviderAdapter
+                ?: throw IllegalStateException(
+                    "Provider failover is unavailable for this catalogue adapter."
+                )
+            chainAdapter.resolveAudioExcluding(videoUrl, providers)
+        }
     }
 }

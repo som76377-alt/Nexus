@@ -1,7 +1,7 @@
 package com.nexus.music.catalog
 
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.search.SearchInfo
 import org.schabi.newpipe.extractor.stream.StreamInfo
@@ -28,14 +28,14 @@ interface StreamProviderAdapter {
  * is process-wide; this preserves the current working path while other adapters are added.
  */
 class NewPipeStreamProviderAdapter(
-    private val downloader: OkHttpDownloader = OkHttpDownloader()
+    private val downloader: OkHttpDownloader = ExtractorRuntime.normalDownloader
 ) : StreamProviderAdapter {
     override val provider: StreamProvider = StreamProvider.NEWPIPE
 
     override suspend fun search(
         query: String,
         scope: YoutubeSearchScope
-    ): List<CatalogTrack> = runInterruptible(Dispatchers.IO) {
+    ): List<CatalogTrack> = withContext(Dispatchers.IO) {
         require(query.trim().isNotEmpty()) { "Search query must not be blank." }
         ExtractorRuntime.withDownloader(downloader) {
             val normalizedQuery = query.trim()
@@ -63,7 +63,7 @@ class NewPipeStreamProviderAdapter(
         }
     }
 
-    override suspend fun resolveAudio(videoUrl: String): ResolvedAudio = runInterruptible(Dispatchers.IO) {
+    override suspend fun resolveAudio(videoUrl: String): ResolvedAudio = withContext(Dispatchers.IO) {
         require(CatalogUrlValidator.isValidHttpsUrl(videoUrl)) {
             "A valid HTTPS video URL is required."
         }
