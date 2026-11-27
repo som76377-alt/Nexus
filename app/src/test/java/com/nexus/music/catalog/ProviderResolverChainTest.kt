@@ -737,7 +737,7 @@ class ProviderResolverChainTest {
                     search = { emptyList() }
                 ) { resolvedAudio() }
             ),
-            healthStore = InMemoryHealthStore(),
+            healthStore = InMemoryProviderHealthStore(),
             providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
             hedgeDelayMs = 1_000L
         )
