@@ -4,6 +4,7 @@ import kotlin.random.Random
 
 /** Pure local selection over cached tracks; it has no repository/network dependency. */
 internal object HomeRerollSelector {
+    @Suppress("UNUSED_PARAMETER")
     fun select(
         pool: List<CatalogTrack>,
         history: List<String>,
@@ -13,7 +14,9 @@ internal object HomeRerollSelector {
         if (count <= 0 || pool.isEmpty()) return emptyList()
         val uniquePool = pool.distinctBy { it.url }
         val seen = history.toHashSet()
-        val unseen = uniquePool.filterNot { it.url in seen }.shuffled(random)
+        // The caller supplies a relevance-ranked pool. Preserve that ranking while still
+        // exhausting unseen tracks before falling back to older recommendations.
+        val unseen = uniquePool.filterNot { it.url in seen }
         val selected = unseen.take(count).toMutableList()
         if (selected.size < count) {
             val selectedUrls = selected.mapTo(hashSetOf()) { it.url }
