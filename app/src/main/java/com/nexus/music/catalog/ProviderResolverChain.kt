@@ -1,12 +1,16 @@
 package com.nexus.music.catalog
 
 import kotlinx.coroutines.CancellationException
+import com.nexus.music.performance.NexusPerformance
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.withContext
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Bounded, health-aware hedged failover shared by catalogue search and stream resolution.
@@ -50,6 +54,7 @@ class ProviderResolverChain(
         query: String,
         scope: YoutubeSearchScope = YoutubeSearchScope.EVERYTHING
     ): List<CatalogTrack> = execute(
+        operationName = "provider_search",
         operation = { it.search(query, scope) },
         isEmptySearchResult = { it.isEmpty() }
     )
@@ -58,6 +63,7 @@ class ProviderResolverChain(
         videoUrl: String,
         excludingProviders: Set<StreamProvider> = emptySet()
     ): ResolvedAudio = execute(
+        operationName = "provider_resolve",
         operation = { it.resolveAudio(videoUrl) },
         validateResult = validateResolvedAudio,
         excludingProviders = excludingProviders,
@@ -65,6 +71,7 @@ class ProviderResolverChain(
     )
 
     private suspend fun <T> execute(
+        operationName: String,
         operation: suspend (StreamProviderAdapter) -> T,
         isEmptySearchResult: (T) -> Boolean = { false },
         validateResult: suspend (T) -> T = { it },
@@ -80,19 +87,54 @@ class ProviderResolverChain(
         val ordered = configured.sortedBy { (provider, _) ->
             if (healthStore.get(provider).cooldownUntilEpochMs > now) 1 else 0
         }.take(maxAttempts)
+        val inheritedTrace = if (NexusPerformance.isEnabled()) {
+            currentCoroutineContext()[NexusPerformance.TraceContext]?.trace
+        } else null
+        val ownsTrace = inheritedTrace == null
+        val trace = inheritedTrace ?: NexusPerformance.begin(
+            operationName,
+            foreground = NexusPerformance.isForeground(),
+            detail = "attempts=" + ordered.size + " providers=" +
+                ordered.joinToString(",") { it.first.key }
+        )
+        NexusPerformance.event(trace, "provider_chain_begin",
+            "attempts=" + ordered.size + " providers=" +
+                ordered.joinToString(",") { it.first.key })
+        val firstNonEmptySearchObserved = AtomicBoolean(false)
 
         return coroutineScope {
             val outcomes = Channel<Result<T>>(capacity = ordered.size)
             val jobs = ordered.mapIndexed { index, (provider, adapter) ->
                 async {
                     if (index > 0) delay(hedgeDelayMs * index)
+                    NexusPerformance.event(trace, "provider_attempt_start",
+                        "provider=" + provider.key + " attempt=" + (index + 1))
                     try {
-                        val result = mapResult(provider, validateResult(operation(adapter)))
+                        val result = if (NexusPerformance.isEnabled()) {
+                            withContext(NexusPerformance.TraceContext(trace)) {
+                                mapResult(provider, validateResult(operation(adapter)))
+                            }
+                        } else {
+                            mapResult(provider, validateResult(operation(adapter)))
+                        }
+                        val resultCount = (result as? Collection<*>)?.size
+                        if (operationName == "provider_search" && resultCount != null && resultCount > 0 &&
+                            firstNonEmptySearchObserved.compareAndSet(false, true)
+                        ) {
+                            NexusPerformance.event(trace, "first_nonempty_provider_result",
+                                "provider=" + provider.key + " count=" + resultCount)
+                        }
                         healthStore.recordSuccess(provider, nowEpochMs())
+                        NexusPerformance.event(trace, "provider_attempt_success",
+                            "provider=" + provider.key + " result_count=" + (resultCount?.toString() ?: "n/a"))
                         outcomes.send(Result.success(result))
                     } catch (error: CancellationException) {
+                        NexusPerformance.event(trace, "provider_attempt_cancelled", "provider=" + provider.key)
                         throw error
                     } catch (error: Exception) {
+                        NexusPerformance.event(trace, "provider_attempt_failure",
+                            "provider=" + provider.key + " error=" + error.javaClass.simpleName +
+                                " class=" + StreamErrorClassifier.classify(error))
                         if (
                             error !is ProviderCapabilityException &&
                             StreamErrorClassifier.classify(error) !in setOf(
@@ -121,22 +163,34 @@ class ProviderResolverChain(
                             sawEmptyResult = true
                             return@repeat
                         }
+                        if (ownsTrace) NexusPerformance.finish(trace, "result=success")
+                        else NexusPerformance.event(trace, "provider_chain_complete", "result=success")
                         jobs.forEach { it.cancel() }
                         return@coroutineScope result
                     }
 
                     val error = outcome.exceptionOrNull() as Exception
                     if (StreamErrorClassifier.classify(error) == StreamErrorClass.INVALID_SOURCE) {
+                        if (ownsTrace) NexusPerformance.finish(trace, "invalid_source")
+                        else NexusPerformance.event(trace, "provider_chain_complete", "result=invalid_source")
                         jobs.forEach { it.cancel() }
                         throw error
                     }
                     lastError = error
                 }
                 if (sawEmptyResult) {
+                    if (ownsTrace) NexusPerformance.finish(trace, "result=empty")
+                    else NexusPerformance.event(trace, "provider_chain_complete", "result=empty")
                     @Suppress("UNCHECKED_CAST")
                     return@coroutineScope emptyResult as T
                 }
+                if (ownsTrace) NexusPerformance.finish(trace, "result=failed")
+                else NexusPerformance.event(trace, "provider_chain_complete", "result=failed")
                 throw lastError ?: IOException("No configured stream provider could be attempted.")
+            } catch (cancelled: CancellationException) {
+                if (ownsTrace) NexusPerformance.finish(trace, "cancelled")
+                else NexusPerformance.event(trace, "provider_chain_cancelled")
+                throw cancelled
             } finally {
                 outcomes.close()
             }

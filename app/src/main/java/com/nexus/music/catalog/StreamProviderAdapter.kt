@@ -1,7 +1,9 @@
 package com.nexus.music.catalog
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
+import com.nexus.music.performance.NexusPerformance
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.search.SearchInfo
 import org.schabi.newpipe.extractor.stream.StreamInfo
@@ -35,9 +37,11 @@ class NewPipeStreamProviderAdapter(
     override suspend fun search(
         query: String,
         scope: YoutubeSearchScope
-    ): List<CatalogTrack> = withContext(Dispatchers.IO) {
+    ): List<CatalogTrack> {
+        val trace = if (NexusPerformance.isEnabled()) currentCoroutineContext()[NexusPerformance.TraceContext]?.trace else null
+        return withContext(Dispatchers.IO) {
         require(query.trim().isNotEmpty()) { "Search query must not be blank." }
-        ExtractorRuntime.withDownloader(downloader) {
+        ExtractorRuntime.withDownloader(downloader, trace) {
             val normalizedQuery = query.trim()
             val service = NewPipe.getService(YOUTUBE_SERVICE_NAME)
             val filters = scope.extractorFilter?.let(::listOf).orEmpty()
@@ -61,13 +65,16 @@ class NewPipeStreamProviderAdapter(
                     )
                 }
         }
+        }
     }
 
-    override suspend fun resolveAudio(videoUrl: String): ResolvedAudio = withContext(Dispatchers.IO) {
+    override suspend fun resolveAudio(videoUrl: String): ResolvedAudio {
+        val trace = currentCoroutineContext()[NexusPerformance.TraceContext]?.trace
+        return withContext(Dispatchers.IO) {
         require(CatalogUrlValidator.isValidHttpsUrl(videoUrl)) {
             "A valid HTTPS video URL is required."
         }
-        ExtractorRuntime.withDownloader(downloader) {
+        ExtractorRuntime.withDownloader(downloader, trace) {
             val service = NewPipe.getServiceByUrl(videoUrl)
             val info = StreamInfo.getInfo(service, videoUrl)
             val canonicalSourceUrl = info.url.takeIf(CatalogUrlValidator::isValidHttpsUrl)
@@ -86,6 +93,7 @@ class NewPipeStreamProviderAdapter(
                 averageBitrate = selected.averageBitrate.takeIf { it > 0 },
                 mimeType = selected.format?.mimeType
             )
+        }
         }
     }
 
