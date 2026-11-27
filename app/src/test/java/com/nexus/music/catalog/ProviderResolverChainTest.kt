@@ -11,12 +11,14 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
 import org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException
+import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
+import org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException
 import java.io.IOException
 
 class ProviderResolverChainTest {
     @Test
-    fun resolveFallsBackWithoutOpeningCircuitForNetworkFailure() = runBlocking {
-        val health = InMemoryHealthStore()
+    fun resolveNetworkFailureIsPenalizedAfterAnotherProviderSucceeds() = runBlocking {
+        val health = InMemoryProviderHealthStore()
         val calls = mutableListOf<StreamProvider>()
         val chain = ProviderResolverChain(
             adapters = listOf(
@@ -33,9 +35,11 @@ class ProviderResolverChainTest {
 
         assertEquals("https://media.example/audio.m4a", result.audioUrl)
         assertEquals(listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED), calls)
-        assertEquals(0, health.get(StreamProvider.NEWPIPE).consecutiveFailures)
-        assertEquals(null, health.get(StreamProvider.NEWPIPE).lastErrorClass)
-        assertEquals(0, health.get(StreamProvider.PIPED).consecutiveFailures)
+        val failed = health.get(StreamProvider.NEWPIPE, ProviderOperation.RESOLVE)
+        assertEquals(1, failed.consecutiveFailures)
+        assertEquals(StreamErrorClass.NETWORK, failed.lastErrorClass)
+        assertEquals(true, failed.cooldownUntilEpochMs > 1_000L)
+        assertEquals(0, health.get(StreamProvider.PIPED, ProviderOperation.RESOLVE).consecutiveFailures)
     }
 
     @Test
@@ -46,7 +50,7 @@ class ProviderResolverChainTest {
                 FakeAdapter(StreamProvider.NEWPIPE, calls, search = { emptyList() }) { resolvedAudio() },
                 FakeAdapter(StreamProvider.PIPED, calls, search = { listOf(catalogTrack()) }) { resolvedAudio() }
             ),
-            healthStore = InMemoryHealthStore(),
+            healthStore = InMemoryProviderHealthStore(),
             providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
             hedgeDelayMs = 0L
         )
@@ -58,8 +62,8 @@ class ProviderResolverChainTest {
     }
 
     @Test
-    fun searchFallsBackWithoutOpeningCircuitForNetworkFailure() = runBlocking {
-        val health = InMemoryHealthStore()
+    fun searchNetworkFailureIsPenalizedAfterAnotherProviderSucceeds() = runBlocking {
+        val health = InMemoryProviderHealthStore()
         val calls = mutableListOf<StreamProvider>()
         val chain = ProviderResolverChain(
             adapters = listOf(
@@ -76,9 +80,11 @@ class ProviderResolverChainTest {
 
         assertEquals(listOf(catalogTrack()), results)
         assertEquals(listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED), calls)
-        assertEquals(0, health.get(StreamProvider.NEWPIPE).consecutiveFailures)
-        assertEquals(null, health.get(StreamProvider.NEWPIPE).lastErrorClass)
-        assertEquals(0, health.get(StreamProvider.PIPED).consecutiveFailures)
+        val failed = health.get(StreamProvider.NEWPIPE, ProviderOperation.SEARCH)
+        assertEquals(1, failed.consecutiveFailures)
+        assertEquals(StreamErrorClass.NETWORK, failed.lastErrorClass)
+        assertEquals(true, failed.cooldownUntilEpochMs > 1_000L)
+        assertEquals(0, health.get(StreamProvider.PIPED, ProviderOperation.SEARCH).consecutiveFailures)
     }
 
     @Test
@@ -89,7 +95,7 @@ class ProviderResolverChainTest {
                 FakeAdapter(StreamProvider.NEWPIPE, calls, search = { emptyList() }) { resolvedAudio() },
                 FakeAdapter(StreamProvider.PIPED, calls, search = { emptyList() }) { resolvedAudio() }
             ),
-            healthStore = InMemoryHealthStore(),
+            healthStore = InMemoryProviderHealthStore(),
             providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
             hedgeDelayMs = 0L
         )
@@ -100,7 +106,7 @@ class ProviderResolverChainTest {
 
     @Test
     fun unsupportedCapabilityFallsBackWithoutPoisoningProviderHealth() = runBlocking {
-        val health = InMemoryHealthStore()
+        val health = InMemoryProviderHealthStore()
         val calls = mutableListOf<StreamProvider>()
         val chain = ProviderResolverChain(
             adapters = listOf(
@@ -125,7 +131,7 @@ class ProviderResolverChainTest {
 
     @Test
     fun contentUnavailableFallsBackWithoutOpeningProviderCircuit() = runBlocking {
-        val health = InMemoryHealthStore()
+        val health = InMemoryProviderHealthStore()
         val calls = mutableListOf<StreamProvider>()
         val chain = ProviderResolverChain(
             adapters = listOf(
@@ -149,8 +155,8 @@ class ProviderResolverChainTest {
     }
 
     @Test
-    fun networkFailureAloneDoesNotOpenProviderCircuit() = runBlocking {
-        val health = InMemoryHealthStore()
+    fun networkFailureIsPenalizedOnlyWhenPeerSucceeds() = runBlocking {
+        val health = InMemoryProviderHealthStore()
         val calls = mutableListOf<StreamProvider>()
         val chain = ProviderResolverChain(
             adapters = listOf(
@@ -167,13 +173,16 @@ class ProviderResolverChainTest {
 
         assertEquals("https://media.example/audio.m4a", result.audioUrl)
         assertEquals(listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED), calls)
-        assertEquals(0, health.get(StreamProvider.NEWPIPE).consecutiveFailures)
-        assertEquals(0L, health.get(StreamProvider.NEWPIPE).cooldownUntilEpochMs)
+        val failed = health.get(StreamProvider.NEWPIPE, ProviderOperation.RESOLVE)
+        assertEquals(1, failed.consecutiveFailures)
+        assertEquals(StreamErrorClass.NETWORK, failed.lastErrorClass)
+        assertEquals(true, failed.cooldownUntilEpochMs > 1_000L)
+        assertEquals(0, health.get(StreamProvider.PIPED, ProviderOperation.RESOLVE).consecutiveFailures)
     }
 
     @Test
     fun healthyProviderIsTriedBeforeProviderInCooldown() = runBlocking {
-        val health = InMemoryHealthStore().apply {
+        val health = InMemoryProviderHealthStore().apply {
             recordFailure(StreamProvider.NEWPIPE, StreamErrorClass.TRANSIENT, 900L, 5_000L)
         }
         val calls = mutableListOf<StreamProvider>()
@@ -195,7 +204,7 @@ class ProviderResolverChainTest {
 
     @Test
     fun invalidSourceIsNotRetriedOnOtherProviders() = runBlocking {
-        val health = InMemoryHealthStore()
+        val health = InMemoryProviderHealthStore()
         val calls = mutableListOf<StreamProvider>()
         val chain = ProviderResolverChain(
             adapters = listOf(
@@ -216,7 +225,7 @@ class ProviderResolverChainTest {
 
     @Test
     fun attemptLimitBoundsProviderCalls() = runBlocking {
-        val health = InMemoryHealthStore()
+        val health = InMemoryProviderHealthStore()
         val calls = mutableListOf<StreamProvider>()
         val chain = ProviderResolverChain(
             adapters = listOf(
@@ -238,7 +247,7 @@ class ProviderResolverChainTest {
 
     @Test
     fun callerCancellationStopsProviderWorkWithoutRecordingFailure() = runBlocking {
-        val health = InMemoryHealthStore()
+        val health = InMemoryProviderHealthStore()
         val calls = mutableListOf<StreamProvider>()
         val started = CompletableDeferred<Unit>()
         val cancelled = CompletableDeferred<Unit>()
@@ -270,7 +279,7 @@ class ProviderResolverChainTest {
 
     @Test
     fun slowPreferredProviderIsHedgedAndLosingRequestIsCancelled() = runBlocking {
-        val health = InMemoryHealthStore()
+        val health = InMemoryProviderHealthStore()
         val calls = mutableListOf<StreamProvider>()
         val firstStarted = CompletableDeferred<Unit>()
         val firstCancelled = CompletableDeferred<Unit>()
@@ -312,7 +321,7 @@ class ProviderResolverChainTest {
                 FakeAdapter(StreamProvider.PIPED, calls) { resolvedAudio().copy(audioUrl = "https://media.example/piped.m4a") },
                 FakeAdapter(StreamProvider.INVIDIOUS, calls) { resolvedAudio() }
             ),
-            healthStore = InMemoryHealthStore(),
+            healthStore = InMemoryProviderHealthStore(),
             providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED, StreamProvider.INVIDIOUS),
             hedgeDelayMs = 0L
         )
@@ -325,6 +334,353 @@ class ProviderResolverChainTest {
         assertEquals(listOf(StreamProvider.PIPED, StreamProvider.INVIDIOUS), calls)
         assertEquals(StreamProvider.PIPED, replacement.provider)
         assertEquals("https://media.example/piped.m4a", replacement.audioUrl)
+    }
+
+
+    @Test
+    fun streamProbeValidationFailureFallsThroughToNextProvider() = runBlocking {
+        val calls = mutableListOf<StreamProvider>()
+        var validations = 0
+        val chain = ProviderResolverChain(
+            adapters = listOf(
+                FakeAdapter(StreamProvider.NEWPIPE, calls) { resolvedAudio() },
+                FakeAdapter(StreamProvider.PIPED, calls) {
+                    resolvedAudio().copy(audioUrl = "https://media.example/piped.m4a")
+                }
+            ),
+            healthStore = InMemoryProviderHealthStore(),
+            providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
+            hedgeDelayMs = 0L,
+            validateResolvedAudio = { audio ->
+                validations += 1
+                if (validations == 1) throw IOException("stream probe rejected the first URL")
+                audio
+            }
+        )
+
+        val result = chain.resolveAudio("https://youtube.com/watch?v=abcdefghijk")
+
+        assertEquals(listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED), calls)
+        assertEquals(2, validations)
+        assertEquals(StreamProvider.PIPED, result.provider)
+        assertEquals("https://media.example/piped.m4a", result.audioUrl)
+    }
+
+    @Test
+    fun repositoryCanSearchWithOneProviderAndResolveSameVideoWithAnother() = runBlocking {
+        val track = catalogTrack()
+        val calls = mutableListOf<StreamProvider>()
+        val chain = ProviderResolverChain(
+            adapters = listOf(
+                FakeAdapter(StreamProvider.NEWPIPE, calls, search = { listOf(track) }) {
+                    throw IOException("NewPipe resolve unavailable")
+                },
+                FakeAdapter(StreamProvider.PIPED, calls, search = { emptyList() }) {
+                    resolvedAudio().copy(
+                        sourceUrl = track.url,
+                        audioUrl = "https://media.example/piped.m4a"
+                    )
+                }
+            ),
+            healthStore = InMemoryProviderHealthStore(),
+            providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
+            hedgeDelayMs = 100L
+        )
+        val repository = YoutubeCatalogRepository(
+            adapter = ResolverChainStreamProviderAdapter(chain)
+        )
+
+        val found = repository.search("ambient")
+        val resolved = repository.resolveAudio(found.single().url)
+
+        assertEquals(track, found.single())
+        assertEquals(track.url, resolved.sourceUrl)
+        assertEquals(StreamProvider.PIPED, resolved.provider)
+        assertEquals(
+            listOf(StreamProvider.NEWPIPE, StreamProvider.NEWPIPE, StreamProvider.PIPED),
+            calls
+        )
+    }
+
+    @Test
+    fun excludingEveryProviderPreservesIllegalArgumentExceptionContract() {
+        val chain = ProviderResolverChain(
+            adapters = listOf(
+                FakeAdapter(StreamProvider.NEWPIPE, mutableListOf()) { resolvedAudio() }
+            ),
+            healthStore = InMemoryProviderHealthStore(),
+            providerOrder = listOf(StreamProvider.NEWPIPE)
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            runBlocking {
+                chain.resolveAudio(
+                    "https://youtube.com/watch?v=abcdefghijk",
+                    excludingProviders = setOf(StreamProvider.NEWPIPE)
+                )
+            }
+        }
+    }
+
+
+    @Test
+    fun searchAndResolveHealthRecordsAreIndependent() = runBlocking {
+        val health = InMemoryProviderHealthStore()
+        val chain = ProviderResolverChain(
+            adapters = listOf(
+                FakeAdapter(
+                    StreamProvider.NEWPIPE,
+                    mutableListOf(),
+                    search = { throw ProviderHttpException(503, "newpipe") }
+                ) { throw ProviderHttpException(503, "newpipe") }
+            ),
+            healthStore = health,
+            providerOrder = listOf(StreamProvider.NEWPIPE),
+            hedgeDelayMs = 0L,
+            nowEpochMs = { 1_000L }
+        )
+
+        assertThrows(IOException::class.java) { runBlocking { chain.search("ambient") } }
+        assertEquals(1, health.get(StreamProvider.NEWPIPE, ProviderOperation.SEARCH).consecutiveFailures)
+        assertEquals(0, health.get(StreamProvider.NEWPIPE, ProviderOperation.RESOLVE).consecutiveFailures)
+
+        assertThrows(IOException::class.java) {
+            runBlocking { chain.resolveAudio("https://youtube.com/watch?v=abcdefghijk") }
+        }
+        assertEquals(1, health.get(StreamProvider.NEWPIPE, ProviderOperation.SEARCH).consecutiveFailures)
+        assertEquals(1, health.get(StreamProvider.NEWPIPE, ProviderOperation.RESOLVE).consecutiveFailures)
+    }
+
+    @Test
+    fun allNetworkAttemptsFailWithoutPeerSuccessAndDoNotChangeHealth() = runBlocking {
+        val health = InMemoryProviderHealthStore()
+        val chain = ProviderResolverChain(
+            adapters = listOf(
+                FakeAdapter(StreamProvider.NEWPIPE, mutableListOf()) { throw IOException("offline") },
+                FakeAdapter(StreamProvider.PIPED, mutableListOf()) { throw IOException("offline") }
+            ),
+            healthStore = health,
+            providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
+            hedgeDelayMs = 0L,
+            nowEpochMs = { 1_000L }
+        )
+
+        assertThrows(IOException::class.java) {
+            runBlocking { chain.resolveAudio("https://youtube.com/watch?v=abcdefghijk") }
+        }
+
+        assertEquals(0, health.get(StreamProvider.NEWPIPE, ProviderOperation.RESOLVE).consecutiveFailures)
+        assertEquals(0, health.get(StreamProvider.PIPED, ProviderOperation.RESOLVE).consecutiveFailures)
+    }
+
+    @Test
+    fun searchFourHundredStatusesAreRecordedImmediately() = runBlocking {
+        listOf(400, 401, 403, 404, 405, 410).forEach { status ->
+            val health = InMemoryProviderHealthStore()
+            val chain = ProviderResolverChain(
+                adapters = listOf(
+                    FakeAdapter(
+                        StreamProvider.NEWPIPE,
+                        mutableListOf(),
+                        search = { throw ProviderHttpException(status, "newpipe") }
+                    ) { resolvedAudio() }
+                ),
+                healthStore = health,
+                providerOrder = listOf(StreamProvider.NEWPIPE),
+                hedgeDelayMs = 0L,
+                nowEpochMs = { 1_000L }
+            )
+
+            assertThrows(IOException::class.java) { runBlocking { chain.search("ambient") } }
+            assertEquals(
+                "status=$status",
+                1,
+                health.get(StreamProvider.NEWPIPE, ProviderOperation.SEARCH).consecutiveFailures
+            )
+        }
+    }
+
+    @Test
+    fun serverErrorsAndRateLimitsAreRecordedEvenWhenEveryAttemptFails() = runBlocking {
+        listOf(408, 429, 500, 503).forEach { status ->
+            val health = InMemoryProviderHealthStore()
+            val chain = ProviderResolverChain(
+                adapters = listOf(
+                    FakeAdapter(StreamProvider.PIPED, mutableListOf()) {
+                        throw ProviderHttpException(status, "piped")
+                    }
+                ),
+                healthStore = health,
+                providerOrder = listOf(StreamProvider.PIPED),
+                hedgeDelayMs = 0L,
+                nowEpochMs = { 1_000L }
+            )
+
+            assertThrows(IOException::class.java) {
+                runBlocking { chain.resolveAudio("https://youtube.com/watch?v=abcdefghijk") }
+            }
+            assertEquals(
+                "status=$status",
+                1,
+                health.get(StreamProvider.PIPED, ProviderOperation.RESOLVE).consecutiveFailures
+            )
+        }
+    }
+
+    @Test
+    fun resolveAccessDeniedIsOnlyPenalizedWhenAnotherProviderSucceeds() = runBlocking {
+        val health = InMemoryProviderHealthStore()
+        val chain = ProviderResolverChain(
+            adapters = listOf(
+                FakeAdapter(StreamProvider.NEWPIPE, mutableListOf()) {
+                    throw ProviderHttpException(403, "newpipe")
+                },
+                FakeAdapter(StreamProvider.PIPED, mutableListOf()) { resolvedAudio() }
+            ),
+            healthStore = health,
+            providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
+            hedgeDelayMs = 0L,
+            nowEpochMs = { 1_000L }
+        )
+
+        chain.resolveAudio("https://youtube.com/watch?v=abcdefghijk")
+
+        val failed = health.get(StreamProvider.NEWPIPE, ProviderOperation.RESOLVE)
+        assertEquals(1, failed.consecutiveFailures)
+        assertEquals(StreamErrorClass.ACCESS_BLOCKED, failed.lastErrorClass)
+        assertEquals(true, failed.cooldownUntilEpochMs > 1_000L)
+        assertEquals(0, health.get(StreamProvider.PIPED, ProviderOperation.RESOLVE).consecutiveFailures)
+    }
+
+    @Test
+    fun resolveAccessDeniedWithNoPeerSuccessDoesNotChangeHealth() = runBlocking {
+        val health = InMemoryProviderHealthStore()
+        val chain = ProviderResolverChain(
+            adapters = listOf(
+                FakeAdapter(StreamProvider.NEWPIPE, mutableListOf()) {
+                    throw ProviderHttpException(403, "newpipe")
+                }
+            ),
+            healthStore = health,
+            providerOrder = listOf(StreamProvider.NEWPIPE),
+            hedgeDelayMs = 0L
+        )
+
+        assertThrows(IOException::class.java) {
+            runBlocking { chain.resolveAudio("https://youtube.com/watch?v=abcdefghijk") }
+        }
+        assertEquals(0, health.get(StreamProvider.NEWPIPE, ProviderOperation.RESOLVE).consecutiveFailures)
+    }
+
+    @Test
+    fun streamProbe403And410ArePenalizedOnlyAfterPeerSuccess() = runBlocking {
+        listOf(403, 410).forEach { status ->
+            val health = InMemoryProviderHealthStore()
+            val chain = ProviderResolverChain(
+                adapters = listOf(
+                    FakeAdapter(StreamProvider.NEWPIPE, mutableListOf()) {
+                        throw ProviderStreamProbeException(status)
+                    },
+                    FakeAdapter(StreamProvider.PIPED, mutableListOf()) { resolvedAudio() }
+                ),
+                healthStore = health,
+                providerOrder = listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED),
+                hedgeDelayMs = 0L,
+                nowEpochMs = { 1_000L }
+            )
+
+            chain.resolveAudio("https://youtube.com/watch?v=abcdefghijk")
+
+            val failed = health.get(StreamProvider.NEWPIPE, ProviderOperation.RESOLVE)
+            assertEquals("status=$status", 1, failed.consecutiveFailures)
+            assertEquals(true, failed.cooldownUntilEpochMs > 1_000L)
+            assertEquals(0, health.get(StreamProvider.PIPED, ProviderOperation.RESOLVE).consecutiveFailures)
+        }
+    }
+
+    @Test
+    fun malformedProviderResponseIsRecordedAsProviderFailure() = runBlocking {
+        val health = InMemoryProviderHealthStore()
+        val chain = ProviderResolverChain(
+            adapters = listOf(
+                FakeAdapter(StreamProvider.INVIDIOUS, mutableListOf()) {
+                    throw ProviderResponseException("invalid JSON response")
+                }
+            ),
+            healthStore = health,
+            providerOrder = listOf(StreamProvider.INVIDIOUS),
+            hedgeDelayMs = 0L,
+            nowEpochMs = { 1_000L }
+        )
+
+        assertThrows(IOException::class.java) {
+            runBlocking { chain.resolveAudio("https://youtube.com/watch?v=abcdefghijk") }
+        }
+        assertEquals(1, health.get(StreamProvider.INVIDIOUS, ProviderOperation.RESOLVE).consecutiveFailures)
+        assertEquals(StreamErrorClass.UNKNOWN, health.get(StreamProvider.INVIDIOUS, ProviderOperation.RESOLVE).lastErrorClass)
+    }
+
+
+    @Test
+    fun typedNewPipeBotAndCaptchaFailuresAreRecordedImmediately() = runBlocking {
+        val failures: List<Exception> = listOf(
+            ReCaptchaException("limited", "https://youtube.com"),
+            SignInConfirmNotBotException("verify")
+        )
+        failures.forEach { failure ->
+            val health = InMemoryProviderHealthStore()
+            val chain = ProviderResolverChain(
+                adapters = listOf(
+                    FakeAdapter(StreamProvider.NEWPIPE, mutableListOf()) { throw failure }
+                ),
+                healthStore = health,
+                providerOrder = listOf(StreamProvider.NEWPIPE),
+                hedgeDelayMs = 0L,
+                nowEpochMs = { 1_000L }
+            )
+
+            assertThrows(Exception::class.java) {
+                runBlocking { chain.resolveAudio("https://youtube.com/watch?v=abcdefghijk") }
+            }
+            assertEquals(1, health.get(StreamProvider.NEWPIPE, ProviderOperation.RESOLVE).consecutiveFailures)
+        }
+    }
+
+    @Test
+    fun contentSpecificFailureNeverChangesProviderHealth() = runBlocking {
+        val health = InMemoryProviderHealthStore()
+        val chain = ProviderResolverChain(
+            adapters = listOf(
+                FakeAdapter(StreamProvider.NEWPIPE, mutableListOf()) {
+                    throw ContentNotAvailableException("video unavailable")
+                }
+            ),
+            healthStore = health,
+            providerOrder = listOf(StreamProvider.NEWPIPE),
+            hedgeDelayMs = 0L
+        )
+
+        assertThrows(Exception::class.java) {
+            runBlocking { chain.resolveAudio("https://youtube.com/watch?v=abcdefghijk") }
+        }
+        assertEquals(0, health.get(StreamProvider.NEWPIPE, ProviderOperation.RESOLVE).consecutiveFailures)
+    }
+
+    @Test
+    fun inMemoryHealthStoreKeepsOperationsAndInstancesIndependent() {
+        val lab = InMemoryProviderHealthStore()
+        val production = InMemoryProviderHealthStore()
+        lab.recordFailure(
+            provider = StreamProvider.PIPED,
+            errorClass = StreamErrorClass.TRANSIENT,
+            atEpochMs = 1_000L,
+            cooldownUntilEpochMs = 2_000L,
+            operation = ProviderOperation.SEARCH
+        )
+
+        assertEquals(1, lab.get(StreamProvider.PIPED, ProviderOperation.SEARCH).consecutiveFailures)
+        assertEquals(0, lab.get(StreamProvider.PIPED, ProviderOperation.RESOLVE).consecutiveFailures)
+        assertEquals(0, production.get(StreamProvider.PIPED, ProviderOperation.SEARCH).consecutiveFailures)
     }
 
     private fun catalogTrack() = CatalogTrack(
@@ -364,33 +720,6 @@ class ProviderResolverChainTest {
         }
     }
 
-    private class InMemoryHealthStore : ProviderHealthStore {
-        private val values = mutableMapOf<StreamProvider, ProviderHealth>()
-
-        override fun get(provider: StreamProvider): ProviderHealth = values[provider] ?: ProviderHealth()
-
-        override fun recordSuccess(provider: StreamProvider, atEpochMs: Long) {
-            values[provider] = ProviderHealth(lastSuccessEpochMs = atEpochMs)
-        }
-
-        override fun recordFailure(
-            provider: StreamProvider,
-            errorClass: StreamErrorClass,
-            atEpochMs: Long,
-            cooldownUntilEpochMs: Long
-        ) {
-            val current = get(provider)
-            values[provider] = current.copy(
-                consecutiveFailures = current.consecutiveFailures + 1,
-                cooldownUntilEpochMs = cooldownUntilEpochMs,
-                lastErrorClass = errorClass
-            )
-        }
-
-        override fun clear(provider: StreamProvider) {
-            values.remove(provider)
-        }
-    }
 
     @Test
     fun outcomeAtExactHedgeBoundaryIsConsumedWithoutHanging() = runTest {
@@ -418,4 +747,5 @@ class ProviderResolverChainTest {
         assertEquals(emptyList<CatalogTrack>(), result)
         assertEquals(listOf(StreamProvider.NEWPIPE, StreamProvider.PIPED), calls)
     }
+
 }

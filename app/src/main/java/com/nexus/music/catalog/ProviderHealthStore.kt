@@ -11,10 +11,66 @@ data class ProviderHealth(
 )
 
 interface ProviderHealthStore {
-    fun get(provider: StreamProvider): ProviderHealth
-    fun recordSuccess(provider: StreamProvider, atEpochMs: Long)
-    fun recordFailure(provider: StreamProvider, errorClass: StreamErrorClass, atEpochMs: Long, cooldownUntilEpochMs: Long)
-    fun clear(provider: StreamProvider)
+    fun get(
+        provider: StreamProvider,
+        operation: ProviderOperation = ProviderOperation.RESOLVE
+    ): ProviderHealth
+
+    fun recordSuccess(
+        provider: StreamProvider,
+        atEpochMs: Long,
+        operation: ProviderOperation = ProviderOperation.RESOLVE
+    )
+
+    fun recordFailure(
+        provider: StreamProvider,
+        errorClass: StreamErrorClass,
+        atEpochMs: Long,
+        cooldownUntilEpochMs: Long,
+        operation: ProviderOperation = ProviderOperation.RESOLVE
+    )
+
+    fun clear(
+        provider: StreamProvider,
+        operation: ProviderOperation = ProviderOperation.RESOLVE
+    )
+}
+
+/** In-memory health state for diagnostics and isolated tests; never persists into production prefs. */
+class InMemoryProviderHealthStore : ProviderHealthStore {
+    private val values = mutableMapOf<Pair<StreamProvider, ProviderOperation>, ProviderHealth>()
+
+    @Synchronized
+    override fun get(provider: StreamProvider, operation: ProviderOperation): ProviderHealth =
+        values[provider to operation] ?: ProviderHealth()
+
+    @Synchronized
+    override fun recordSuccess(provider: StreamProvider, atEpochMs: Long, operation: ProviderOperation) {
+        values[provider to operation] = ProviderHealth(lastSuccessEpochMs = atEpochMs.coerceAtLeast(0L))
+    }
+
+    @Synchronized
+    override fun recordFailure(
+        provider: StreamProvider,
+        errorClass: StreamErrorClass,
+        atEpochMs: Long,
+        cooldownUntilEpochMs: Long,
+        operation: ProviderOperation
+    ) {
+        val key = provider to operation
+        val failures = (get(provider, operation).consecutiveFailures + 1).coerceAtLeast(1)
+        values[key] = ProviderHealth(
+            consecutiveFailures = failures,
+            lastSuccessEpochMs = get(provider, operation).lastSuccessEpochMs,
+            cooldownUntilEpochMs = cooldownUntilEpochMs.coerceAtLeast(atEpochMs),
+            lastErrorClass = errorClass
+        )
+    }
+
+    @Synchronized
+    override fun clear(provider: StreamProvider, operation: ProviderOperation) {
+        values.remove(provider to operation)
+    }
 }
 
 /** SharedPreferences-backed health history survives process death and app restarts. */
@@ -22,9 +78,12 @@ class SharedPreferencesProviderHealthStore(context: Context) : ProviderHealthSto
     private val preferences: SharedPreferences =
         context.applicationContext.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
 
+    private fun prefix(provider: StreamProvider, operation: ProviderOperation): String =
+        "${provider.key}.${operation.key}"
+
     @Synchronized
-    override fun get(provider: StreamProvider): ProviderHealth {
-        val key = provider.key
+    override fun get(provider: StreamProvider, operation: ProviderOperation): ProviderHealth {
+        val key = prefix(provider, operation)
         val errorName = preferences.getString("$key.error", null)
         return ProviderHealth(
             consecutiveFailures = preferences.getInt("$key.failures", 0).coerceAtLeast(0),
@@ -35,12 +94,13 @@ class SharedPreferencesProviderHealthStore(context: Context) : ProviderHealthSto
     }
 
     @Synchronized
-    override fun recordSuccess(provider: StreamProvider, atEpochMs: Long) {
+    override fun recordSuccess(provider: StreamProvider, atEpochMs: Long, operation: ProviderOperation) {
+        val key = prefix(provider, operation)
         preferences.edit()
-            .putInt("${provider.key}.failures", 0)
-            .putLong("${provider.key}.success", atEpochMs.coerceAtLeast(0L))
-            .putLong("${provider.key}.cooldown", 0L)
-            .remove("${provider.key}.error")
+            .putInt("$key.failures", 0)
+            .putLong("$key.success", atEpochMs.coerceAtLeast(0L))
+            .putLong("$key.cooldown", 0L)
+            .remove("$key.error")
             .apply()
     }
 
@@ -49,9 +109,10 @@ class SharedPreferencesProviderHealthStore(context: Context) : ProviderHealthSto
         provider: StreamProvider,
         errorClass: StreamErrorClass,
         atEpochMs: Long,
-        cooldownUntilEpochMs: Long
+        cooldownUntilEpochMs: Long,
+        operation: ProviderOperation
     ) {
-        val key = provider.key
+        val key = prefix(provider, operation)
         val failures = (preferences.getInt("$key.failures", 0) + 1).coerceAtLeast(1)
         preferences.edit()
             .putInt("$key.failures", failures)
@@ -61,8 +122,8 @@ class SharedPreferencesProviderHealthStore(context: Context) : ProviderHealthSto
     }
 
     @Synchronized
-    override fun clear(provider: StreamProvider) {
-        val key = provider.key
+    override fun clear(provider: StreamProvider, operation: ProviderOperation) {
+        val key = prefix(provider, operation)
         preferences.edit().remove("$key.failures").remove("$key.success")
             .remove("$key.cooldown").remove("$key.error").apply()
     }

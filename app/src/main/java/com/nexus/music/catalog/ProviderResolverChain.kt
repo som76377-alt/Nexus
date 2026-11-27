@@ -1,6 +1,8 @@
 package com.nexus.music.catalog
 
 import com.nexus.music.performance.NexusPerformance
+import org.schabi.newpipe.extractor.exceptions.ReCaptchaException
+import org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
@@ -11,6 +13,7 @@ import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
 import java.io.IOException
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -27,6 +30,8 @@ class ProviderResolverChain(
     private val nowEpochMs: () -> Long = System::currentTimeMillis,
     private val validateResolvedAudio: suspend (ResolvedAudio) -> ResolvedAudio = { it }
 ) {
+    private data class DeferredFailure(val provider: StreamProvider, val error: Exception)
+
     private val adaptersByProvider = adapters.associateBy { it.provider }
     @Volatile
     private var providerOrder = providerOrder.toList()
@@ -55,6 +60,7 @@ class ProviderResolverChain(
         query: String,
         scope: YoutubeSearchScope = YoutubeSearchScope.EVERYTHING
     ): List<CatalogTrack> = execute(
+        healthOperation = ProviderOperation.SEARCH,
         operationName = "provider_search",
         operation = { it.search(query, scope) },
         isEmptySearchResult = { it.isEmpty() }
@@ -64,6 +70,7 @@ class ProviderResolverChain(
         videoUrl: String,
         excludingProviders: Set<StreamProvider> = emptySet()
     ): ResolvedAudio = execute(
+        healthOperation = ProviderOperation.RESOLVE,
         operationName = "provider_resolve",
         operation = { it.resolveAudio(videoUrl) },
         validateResult = validateResolvedAudio,
@@ -72,6 +79,7 @@ class ProviderResolverChain(
     )
 
     private suspend fun <T> execute(
+        healthOperation: ProviderOperation,
         operationName: String,
         operation: suspend (StreamProviderAdapter) -> T,
         isEmptySearchResult: (T) -> Boolean = { false },
@@ -86,7 +94,7 @@ class ProviderResolverChain(
 
         val now = nowEpochMs()
         val ordered = configured.sortedBy { (provider, _) ->
-            if (healthStore.get(provider).cooldownUntilEpochMs > now) 1 else 0
+            if (healthStore.get(provider, healthOperation).cooldownUntilEpochMs > now) 1 else 0
         }.take(maxAttempts)
         val tracing = NexusPerformance.isEnabled()
         val inheritedTrace = if (tracing) {
@@ -108,6 +116,7 @@ class ProviderResolverChain(
 
         return coroutineScope {
             val outcomes = Channel<Result<T>>(capacity = ordered.size)
+            val relativeFailures = ConcurrentLinkedQueue<DeferredFailure>()
             val jobs = mutableListOf<kotlinx.coroutines.Job>()
             var nextIndex = 0
             var activeCount = 0
@@ -138,7 +147,7 @@ class ProviderResolverChain(
                                 "provider=" + provider.key + " count=" + resultCount
                             )
                         }
-                        healthStore.recordSuccess(provider, nowEpochMs())
+                        healthStore.recordSuccess(provider, nowEpochMs(), healthOperation)
                         if (trace != null) NexusPerformance.event(
                             trace, "provider_attempt_success",
                             "provider=" + provider.key + " result_count=" + (resultCount?.toString() ?: "n/a")
@@ -155,21 +164,18 @@ class ProviderResolverChain(
                             "provider=" + provider.key + " error=" + error.javaClass.simpleName +
                                 " class=" + StreamErrorClassifier.classify(error)
                         )
-                        if (
-                            error !is ProviderCapabilityException &&
-                            StreamErrorClassifier.classify(error) !in setOf(
-                                StreamErrorClass.INVALID_SOURCE,
-                                StreamErrorClass.CONTENT_UNAVAILABLE,
-                                StreamErrorClass.NETWORK
-                            )
-                        ) {
-                            recordFailure(provider, error)
+                        when {
+                            isSelfEvidentProviderFailure(error, healthOperation) -> recordFailure(provider, healthOperation, error)
+                            isAmbiguousProviderFailure(error, healthOperation) -> relativeFailures.add(DeferredFailure(provider, error))
                         }
                         outcomes.send(Result.failure(error))
                     }
                 }
             }
 
+            fun recordCorroboratedFailures() {
+                relativeFailures.forEach { failure -> recordFailure(failure.provider, healthOperation, failure.error, true) }
+            }
             var lastError: Exception? = null
             var emptyResult: T? = null
             var sawEmptyResult = false
@@ -210,6 +216,7 @@ class ProviderResolverChain(
                             if (ownsTrace) NexusPerformance.finish(trace, "result=success")
                             else NexusPerformance.event(trace, "provider_chain_complete", "result=success")
                         }
+                        recordCorroboratedFailures()
                         jobs.forEach { it.cancel() }
                         return@coroutineScope result
                     }
@@ -228,6 +235,7 @@ class ProviderResolverChain(
                 }
 
                 if (sawEmptyResult) {
+                    recordCorroboratedFailures()
                     if (trace != null) {
                         if (ownsTrace) NexusPerformance.finish(trace, "result=empty")
                         else NexusPerformance.event(trace, "provider_chain_complete", "result=empty")
@@ -252,35 +260,41 @@ class ProviderResolverChain(
         }
     }
 
-    private fun recordFailure(provider: StreamProvider, error: Exception) {
+    private fun isSelfEvidentProviderFailure(error: Exception, operation: ProviderOperation): Boolean = when (error) {
+        is ProviderHttpException -> error.statusCode == 408 || error.statusCode == 429 || error.statusCode in 500..599 || (operation == ProviderOperation.SEARCH && error.statusCode in 400..499)
+        is ProviderStreamProbeException -> error.statusCode == 408 || error.statusCode == 429 || error.statusCode in 500..599
+        is ProviderResponseException, is ReCaptchaException, is SignInConfirmNotBotException -> true
+        else -> false
+    }
+    private fun isAmbiguousProviderFailure(error: Exception, operation: ProviderOperation): Boolean = when (error) {
+        is ProviderHttpException -> operation == ProviderOperation.RESOLVE && error.statusCode in 401..403
+        is ProviderStreamProbeException -> error.statusCode == 403 || error.statusCode == 410
+        is ProviderResponseException, is ProviderContentException, is ProviderCapabilityException -> false
+        else -> StreamErrorClassifier.classify(error) == StreamErrorClass.NETWORK
+    }
+    private fun recordFailure(provider: StreamProvider, operation: ProviderOperation, error: Exception, relativeEvidence: Boolean = false) {
         val errorClass = StreamErrorClassifier.classify(error)
         val failedAt = nowEpochMs()
-        val failures = healthStore.get(provider).consecutiveFailures + 1
-        healthStore.recordFailure(
-            provider = provider,
-            errorClass = errorClass,
-            atEpochMs = failedAt,
-            cooldownUntilEpochMs = failedAt + cooldownFor(errorClass, failures, error)
-        )
+        val failures = healthStore.get(provider, operation).consecutiveFailures + 1
+        val cooldown = cooldownFor(errorClass, failures, error, relativeEvidence)
+        val until = if (cooldown > 0L && failedAt > Long.MAX_VALUE - cooldown) Long.MAX_VALUE else failedAt + cooldown
+        healthStore.recordFailure(provider, errorClass, failedAt, until, operation)
     }
-
-    private fun cooldownFor(errorClass: StreamErrorClass, failures: Int, error: Exception): Long {
+    private fun cooldownFor(errorClass: StreamErrorClass, failures: Int, error: Exception, relativeEvidence: Boolean): Long {
         val multiplier = 1L shl (failures - 1).coerceIn(0, 5)
+        if (relativeEvidence) return (RELATIVE_COOLDOWN_MS * multiplier).coerceAtMost(MAX_COOLDOWN_MS)
         return when (errorClass) {
             StreamErrorClass.TRANSIENT -> TRANSIENT_COOLDOWN_MS * multiplier
-            StreamErrorClass.RATE_LIMITED ->
-                (error as? ProviderHttpException)?.retryAfterMs ?: RATE_LIMIT_COOLDOWN_MS
+            StreamErrorClass.RATE_LIMITED -> (error as? ProviderHttpException)?.retryAfterMs ?: RATE_LIMIT_COOLDOWN_MS
             StreamErrorClass.ACCESS_BLOCKED -> ACCESS_BLOCK_COOLDOWN_MS
             StreamErrorClass.UNSUPPORTED -> UNSUPPORTED_COOLDOWN_MS
             StreamErrorClass.UNKNOWN -> UNKNOWN_COOLDOWN_MS * multiplier
-            StreamErrorClass.INVALID_SOURCE,
-            StreamErrorClass.CONTENT_UNAVAILABLE,
-            StreamErrorClass.NETWORK -> 0L
+            StreamErrorClass.INVALID_SOURCE, StreamErrorClass.CONTENT_UNAVAILABLE, StreamErrorClass.NETWORK -> 0L
         }.coerceAtMost(MAX_COOLDOWN_MS)
     }
-
     private companion object {
         const val DEFAULT_HEDGE_DELAY_MS = 350L
+        const val RELATIVE_COOLDOWN_MS = 15_000L
         const val TRANSIENT_COOLDOWN_MS = 30_000L
         const val RATE_LIMIT_COOLDOWN_MS = 5 * 60_000L
         const val ACCESS_BLOCK_COOLDOWN_MS = 15 * 60_000L

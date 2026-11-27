@@ -41,6 +41,8 @@ import com.nexus.music.ui.SearchPanel
 import com.nexus.music.ui.YouView
 import com.nexus.music.catalog.ResolvedAudio
 import com.nexus.music.catalog.NexusCatalog
+import com.nexus.music.catalog.SearchSessionManager
+import com.nexus.music.catalog.RepositorySearchSource
 import com.nexus.music.catalog.YoutubeSearchScope
 import com.nexus.music.catalog.ExtractorWorkPriority
 import com.nexus.music.catalog.HomeDiscoveryCacheStore
@@ -69,12 +71,19 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.withContext
 
 class MainActivity : Activity() {
     private enum class SearchSort { RELEVANCE, POPULAR, TITLE, DURATION }
     private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val repository by lazy { NexusCatalog.repository(this) }
+    private var searchSessionManager: SearchSessionManager? = null
+
+    private fun searchSessions(): SearchSessionManager = searchSessionManager
+        ?: SearchSessionManager(activityScope, listOf(RepositorySearchSource(repository))).also {
+            searchSessionManager = it
+        }
     private val libraryStore by lazy { LocalLibraryStore(this) }
     private val updateChecker by lazy { GitHubReleaseUpdater() }
     private val progressHandler = Handler(Looper.getMainLooper())
@@ -823,6 +832,7 @@ class MainActivity : Activity() {
             searchGeneration++
             searchJob?.cancel()
             searchJob = null
+            searchSessionManager?.cancelActive()
             searchPanel.queryInput.error = null
             searchPanel.statusText.text = ""
             searchPanel.statusText.visibility = View.GONE
@@ -831,51 +841,63 @@ class MainActivity : Activity() {
             lastSearchResults = emptyList()
             return
         }
-
-        // A newer query or scope always supersedes the previous request.
         audioPrefetch.cancelSpeculation()
         searchJob?.cancel()
+        searchSessionManager?.cancelActive()
         lastSearchResults = emptyList()
         searchPanel.queryInput.error = null
         val requestGeneration = ++searchGeneration
         val requestScope = selectedScope
         val trace = NexusPerformance.begin(
             "catalog_search", foreground = isActivityStarted,
-            detail = "generation=" + requestGeneration + " scope=" + requestScope +
-                " query_length=" + query.length
+            detail = "generation=" + requestGeneration + " scope=" + requestScope + " query_length=" + query.length
         )
-        searchPanel.statusText.text = ""
-        searchPanel.statusText.visibility = View.GONE
+        searchPanel.statusText.text = "Searching…"
+        searchPanel.statusText.visibility = View.VISIBLE
         searchPanel.statusText.setOnClickListener(null)
         searchPanel.resultsContainer.removeAllViews()
-
+        val session = searchSessions().start(query, requestScope)
         searchJob = activityScope.launch {
+            var traceFinished = false
             try {
-                val results = if (NexusPerformance.isEnabled()) {
-                    withContext(NexusPerformance.TraceContext(trace)) {
-                        repository.search(query, requestScope)
+                session.state.collect { snapshot ->
+                    if (requestGeneration != searchGeneration) return@collect
+                    lastSearchResults = snapshot.items
+                    NexusPerformance.event(trace, "search_snapshot",
+                        "count=" + snapshot.items.size + " failed_sources=" + snapshot.failedSources.size)
+                    renderSearchResults(trace)
+                    when {
+                        snapshot.isLoadingFirstPage -> {
+                            searchPanel.statusText.text = "Searching…"
+                            searchPanel.statusText.visibility = View.VISIBLE
+                            searchPanel.statusText.setOnClickListener(null)
+                        }
+                        snapshot.allSourcesFailed -> {
+                            searchPanel.statusText.text = "Search unavailable · Retry"
+                            searchPanel.statusText.visibility = View.VISIBLE
+                            searchPanel.statusText.setOnClickListener { performSearch() }
+                        }
+                        snapshot.items.isEmpty() -> {
+                            searchPanel.statusText.text = "No results"
+                            searchPanel.statusText.visibility = View.VISIBLE
+                            searchPanel.statusText.setOnClickListener(null)
+                        }
+                        else -> {
+                            searchPanel.statusText.text = ""
+                            searchPanel.statusText.visibility = View.GONE
+                            searchPanel.statusText.setOnClickListener(null)
+                        }
                     }
-                } else {
-                    repository.search(query, requestScope)
-                }
-                NexusPerformance.event(trace, "results_received", "count=" + results.size)
-                if (requestGeneration != searchGeneration) {
-                    NexusPerformance.finish(trace, "superseded")
-                    return@launch
-                }
-
-                lastSearchResults = results
-                renderSearchResults(trace)
-                if (results.isEmpty()) {
-                    searchPanel.statusText.text = "No results"
-                    searchPanel.statusText.visibility = View.VISIBLE
-                    NexusPerformance.finish(trace, "empty")
+                    if (!snapshot.isLoadingFirstPage && !traceFinished) {
+                        NexusPerformance.finish(trace, "result_count=" + snapshot.items.size)
+                        traceFinished = true
+                    }
                 }
             } catch (error: CancellationException) {
-                NexusPerformance.finish(trace, "cancelled")
+                if (!traceFinished) NexusPerformance.finish(trace, "cancelled")
                 throw error
             } catch (error: Exception) {
-                NexusPerformance.finish(trace, "error=" + error.javaClass.simpleName)
+                if (!traceFinished) NexusPerformance.finish(trace, "error=" + error.javaClass.simpleName)
                 if (requestGeneration == searchGeneration) {
                     searchPanel.statusText.text = "Search unavailable · Retry"
                     searchPanel.statusText.visibility = View.VISIBLE
@@ -883,13 +905,13 @@ class MainActivity : Activity() {
                 }
             } finally {
                 if (requestGeneration == searchGeneration && !isDestroyed) {
+                    if (!traceFinished) NexusPerformance.finish(trace, "ended")
                     searchJob = null
                     if (isHomeVisible()) loadHomeShelves()
                 }
             }
         }
     }
-
     private fun loadHomeShelves() {
         if (!::homeShelvesContainer.isInitialized || isFinishing || isDestroyed) return
 
@@ -1413,6 +1435,7 @@ class MainActivity : Activity() {
         searchGeneration++
         searchJob?.cancel()
         searchJob = null
+        searchSessionManager?.cancelActive()
         homeGeneration++
         homeLoadJob?.cancel()
         homeLoadJob = null

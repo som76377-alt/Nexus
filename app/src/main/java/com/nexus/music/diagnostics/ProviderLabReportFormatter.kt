@@ -14,6 +14,7 @@ internal object ProviderLabReportFormatter {
 
     data class ProviderHealthRow(
         val provider: String,
+        val operation: String,
         val consecutiveFailures: Int,
         val lastSuccessEpochMs: Long,
         val lastError: String?,
@@ -35,9 +36,9 @@ internal object ProviderLabReportFormatter {
         appendLine("Network: ${network.take(100)}")
         appendLine("Cache: ${cacheBytes.coerceAtLeast(0)} bytes")
         appendLine("Config: ${configVersion.take(100)}")
-        providerHealth.take(3).forEach { health ->
+        providerHealth.take(6).forEach { health ->
             appendLine(
-                "HEALTH ${health.provider} failures=${health.consecutiveFailures.coerceAtLeast(0)} " +
+                "HEALTH ${health.provider} ${health.operation} failures=${health.consecutiveFailures.coerceAtLeast(0)} " +
                     "lastSuccess=${health.lastSuccessEpochMs.coerceAtLeast(0)} " +
                     "lastError=${health.lastError?.take(24) ?: "none"} " +
                     "cooldownMs=${health.cooldownRemainingMs.coerceAtLeast(0)}"
