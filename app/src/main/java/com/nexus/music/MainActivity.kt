@@ -42,6 +42,7 @@ import com.nexus.music.ui.YouView
 import com.nexus.music.catalog.ResolvedAudio
 import com.nexus.music.catalog.NexusCatalog
 import com.nexus.music.catalog.YoutubeSearchScope
+import com.nexus.music.catalog.ExtractorWorkPriority
 import com.nexus.music.playback.PlaybackConnection
 import com.nexus.music.playback.PlaybackSnapshot
 import com.nexus.music.playback.AudioCacheStore
@@ -779,7 +780,11 @@ class MainActivity : Activity() {
         activityScope.launch {
             shelves.forEach { (title, query) ->
                 try {
-                    val tracks = repository.search(query, YoutubeSearchScope.MUSIC_SONGS)
+                    val tracks = repository.searchWithPriority(
+                        query,
+                        YoutubeSearchScope.MUSIC_SONGS,
+                        ExtractorWorkPriority.BACKGROUND
+                    )
                         .distinctBy { it.url }
                         .sortedByDescending { it.viewCount ?: -1L }
                         .take(8)
